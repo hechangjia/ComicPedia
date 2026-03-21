@@ -224,6 +224,8 @@ cp .env.docker.example .env
 
 # 构建并启动
 docker compose up -d
+# 如果失败，建议运行以下命令
+# docker compose up -d --build
 
 # 验证运行状态
 curl http://localhost:61323/api/health
@@ -243,6 +245,12 @@ curl http://localhost:61323/api/health
 |--------|------|------|
 | **LLM 供应商** | 任意 OpenAI 兼容 API 或 Anthropic | DeepSeek、GPT-4o、Claude |
 | **文生图供应商** | 任意 OpenAI Images API 兼容服务 | DALL-E 3、Stable Diffusion |
+
+**可以先体验[魔力方舟](https://ai.gitee.com/serverless-api?model=z-image-turbo)每日提供的100次免费模型调用**
+
+<img src="https://images.662613.xyz/file/comicpedia/character/6ZcBRFrx.webp" alt="z-image-turbo.png" width=75% />
+
+
 
 支持多套配置方案，可随时切换。
 
