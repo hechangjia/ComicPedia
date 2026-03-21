@@ -1,0 +1,66 @@
+services:
+  comicpedia:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${PORT:-61323}:61323"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+    volumes:
+      - comicpedia-data:/app/data
+      - comicpedia-logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "const http=require('http');const r=http.get('http://localhost:61323/api/health',(res)=>{process.exit(res.statusCode===200?0:1)});r.on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Nginx 反向代理（HTTPS + 静态资源缓存）
+  # 取消下方注释以启用 HTTPS
+  # nginx:
+  #   image: nginx:alpine
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+  #     - certbot-certs:/etc/letsencrypt:ro
+  #     - certbot-www:/var/www/certbot:ro
+  #   depends_on:
+  #     comicpedia:
+  #       condition: service_healthy
+  #   restart: unless-stopped
+
+  # Let's Encrypt 自动证书续签
+  # certbot:
+  #   image: certbot/certbot
+  #   volumes:
+  #     - certbot-certs:/etc/letsencrypt
+  #     - certbot-www:/var/www/certbot
+  #   entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+
+volumes:
+  comicpedia-data:
+    driver: local
+  comicpedia-logs:
+    driver: local
+  # certbot-certs:
+  #   driver: local
+  # certbot-www:
+  #   driver: local

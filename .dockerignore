@@ -1,0 +1,40 @@
+node_modules/
+.next/
+out/
+.git/
+.gitignore
+
+# Environment
+.env
+.env.*
+
+# Documentation & examples (not needed in image)
+*.md
+example/
+
+# IDE & tools
+.vscode/
+.idea/
+.ace-tool/
+.claude/
+
+# Runtime data (mounted as volume)
+data/
+public/output/
+public/reference/
+
+# Testing
+coverage/
+vitest.config.ts
+
+# OS & misc
+Thumbs.db
+.DS_Store
+*.db
+*.db-shm
+*.db-wal
+*.tar.gz
+
+# Deployment scripts (not needed inside container)
+deploy-showcase.sh
+docker-compose*.yml

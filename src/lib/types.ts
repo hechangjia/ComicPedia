@@ -1,0 +1,342 @@
+// 漫画生成相关类型定义
+
+/** 图片版本记录 */
+export interface ImageVersion {
+  imageUrl: string;      // base64 data URI
+  createdAt: number;     // Date.now() 时间戳
+}
+
+/** 媒体输出类型（图片/视频/动画） */
+export type MediaType = "image" | "video" | "animation";
+
+/** 媒体输出（为 AnimePedia 扩展准备） */
+export interface MediaOutput {
+  type: MediaType;
+  url: string;
+  duration?: number;
+  thumbnail?: string;
+  format?: string;
+  size?: number;
+}
+
+/** 面板过渡效果 */
+export type PanelTransition = "cut" | "fade" | "slide" | "zoom" | "dissolve";
+
+/** 单个漫画面板 */
+export interface ComicPanel {
+  id: number;
+  scene: string;
+  dialogue: string;
+  imagePrompt: string;
+  imageUrl?: string;
+  status: "pending" | "generating" | "completed" | "failed";
+  /** 所有历史版本（含当前），最新在末尾 */
+  imageVersions?: ImageVersion[];
+  /** 当前激活版本的索引，undefined 表示最新 */
+  activeVersionIndex?: number;
+  /** 面板级参考图覆盖（优先于 script 级） */
+  referenceImage?: string;
+  /** 面板级多参考图覆盖 */
+  referenceImages?: string[];
+  /** 媒体输出（AnimePedia 扩展，优先于 imageUrl） */
+  media?: MediaOutput;
+  /** 旁白/配音文本（AnimePedia 使用） */
+  voiceOver?: string;
+  /** 面板过渡效果 */
+  transition?: PanelTransition;
+  /** 面板展示时长(秒) */
+  duration?: number;
+}
+
+/** 单张参考图的完整记录 */
+export interface ReferenceImageEntry {
+  /** 当前显示的图片 (base64 data URI) */
+  imageUrl: string;
+  /** 生成该图时使用的 prompt（用户可编辑） */
+  prompt?: string;
+  /** 角色/标签名 */
+  label: string;
+  /** 来源：AI 生成 or 用户上传 */
+  source: "ai" | "upload";
+  /** 图片版本历史 */
+  versions: ImageVersion[];
+  /** 当前激活版本索引 */
+  activeVersionIndex: number;
+  /** 创建时间 */
+  createdAt: number;
+  /** Style used when generating this image */
+  style?: ComicStyle;
+}
+
+/** 参考图生成模式 */
+export type ReferenceGenMode = "controlnet" | "img2img";
+
+/** 分镜脚本 */
+export interface ComicScript {
+  title: string;
+  topic: string;
+  style: ComicStyle;
+  panels: ComicPanel[];
+  /** 角色统一描述（用于保持角色一致性） */
+  characterDescription?: string;
+  /** 随机种子（用于图片生成一致性） */
+  seed?: number;
+  /** 全局参考图（base64 data URI），用于所有面板的 control_image */
+  referenceImage?: string;
+  /** 多参考图（base64 data URI 数组），多角色场景使用 */
+  referenceImages?: string[];
+  /** 参考图控制模式 */
+  controlMode?: "HED" | "Canny" | "Depth";
+  /** 结构化参考图列表（新版） */
+  referenceEntries?: ReferenceImageEntry[];
+}
+
+/** 漫画风格 */
+export type ComicStyle =
+  | "anime"        // 日系动漫
+  | "cartoon"      // 欧美卡通
+  | "chibi"        // Q版可爱
+  | "realistic"    // 写实风格
+  | "watercolor"   // 水彩风格
+  | "sketch"       // 黑白素描
+  | "manga"        // 日漫黑白线稿
+  | "inkwash"      // 水墨风格
+  | "pixel"        // 像素风格
+  | "flat"         // 扁平矢量插画
+  | "infographic"  // 手绘信息图
+  | "banana";      // 香蕉漫画
+
+/** 内置内容类型 */
+export type BuiltinContentType = "science" | "poetry" | "xiaohongshu" | "novel" | "wikipedia";
+
+/** 内容类型（可扩展：内置类型有 IDE 补全，同时允许运行时注册新类型） */
+export type ContentType = BuiltinContentType | (string & {});
+
+/** 小说体裁 */
+export type NovelGenre =
+  | "wuxia"       // 武侠
+  | "xianxia"     // 仙侠
+  | "historical"  // 历史
+  | "romance"     // 言情
+  | "scifi"       // 科幻
+  | "mystery"     // 悬疑
+  | "classic"     // 经典名著
+  | "fantasy";    // 奇幻
+
+/** 小说元信息 */
+export interface NovelMeta {
+  title?: string;
+  author?: string;
+  era?: string;
+  genre?: NovelGenre;
+}
+
+/** Wikipedia 文章内容（用于百科漫画生成） */
+export interface WikipediaContent {
+  title: string;
+  extract: string;
+  sections?: string[];
+  thumbnail?: string;
+  lang: string;
+}
+
+/** 生成质量档位 */
+export type GenerationQuality = "fast" | "standard" | "fine";
+
+/** 诗词体裁 */
+export type PoetryGenre =
+  | "shi"      // 诗（唐诗、古诗）
+  | "ci"       // 词（宋词）
+  | "qu"       // 曲（元曲）
+  | "modern"   // 现代诗
+  | "novel";   // 经典小说片段
+
+/** 诗词元信息 */
+export interface PoetryMeta {
+  author?: string;      // 作者名
+  era?: string;         // 时代（如：唐代、宋代、近现代、当代）
+  title?: string;       // 作品名
+}
+
+/** 生成请求 */
+export interface GenerateRequest {
+  topic: string;
+  style: ComicStyle;
+  panelCount?: number | null; // 可选，null/未填表示由模型自动决定
+  characterId?: string; // Optional character ID for consistency
+  llmConfig?: PartialLLMConfig;
+  imageConfig?: PartialImageGenConfig;
+  contentType?: ContentType; // 内容类型：科普或诗词
+  poetryGenre?: PoetryGenre; // 诗词体裁（仅诗词模式）
+  poetryMeta?: PoetryMeta;   // 诗词元信息（作者、时代等）
+  /** 参考图（base64 data URI），创建时传入，写入 script.referenceImage */
+  referenceImage?: string;
+  /** 多参考图（base64 data URI 数组） */
+  referenceImages?: string[];
+  /** 参考图控制模式 */
+  controlMode?: "HED" | "Canny" | "Depth";
+  /** 小说元信息（仅小说模式） */
+  novelMeta?: NovelMeta;
+  /** Wikipedia 文章内容（仅百科模式） */
+  wikipediaContent?: WikipediaContent;
+  /** 结构化参考图列表 */
+  referenceEntries?: ReferenceImageEntry[];
+  /** 角色 ID 列表 */
+  characterIds?: string[];
+  /** 生成质量档位 */
+  quality?: GenerationQuality;
+}
+
+/** 生成任务状态 */
+export interface GenerateTask {
+  id: string;
+  status: "pending" | "scripting" | "script_ready" | "generating" | "completed" | "failed";
+  progress: number; // 0-100
+  script?: ComicScript;
+  character?: Character; // Store character info if used
+  error?: string;
+  /** LLM 流式输出的实时文本（仅 scripting 阶段，不持久化） */
+  streamText?: string;
+  /** Topic research result from pre-scripting phase */
+  topicResearch?: {
+    expandedDescription: string;
+    keyFacts: string[];
+    narrativeAngle: string;
+  };
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** 角色外观属性 */
+export interface CharacterAppearance {
+  gender: string;
+  age: string;
+  hair: string;
+  eyes: string;
+  clothing: string;
+  /** Species/type for non-human characters (e.g., "penguin", "whale", "lobster") */
+  species?: string;
+}
+
+/** 角色形象变体（同一角色的不同年龄/状态） */
+export interface CharacterVariant {
+  /** 变体名称（如"少年时期"、"中年时期"、"战斗形态"） */
+  label: string;
+  /** 该变体的外观属性 */
+  appearance: CharacterAppearance;
+  /** 该变体的参考图 */
+  referenceEntries: ReferenceImageEntry[];
+  /** 该变体的头像 */
+  avatarUrl: string | null;
+}
+
+/** 角色定义 */
+export interface Character {
+  id: string;
+  name: string;
+  description: string;
+  /** 默认/主要外观（向后兼容） */
+  appearance: CharacterAppearance;
+  style: ComicStyle;
+  avatarUrl: string | null;
+  /** 结构化参考图列表（默认形象） */
+  referenceEntries: ReferenceImageEntry[];
+  /** 标签 */
+  tags: string[];
+  /** 形象变体列表（同一角色的不同年龄/状态/服装） */
+  variants?: CharacterVariant[];
+  /** Custom display order (lower = earlier). Characters without this sort by updatedAt. */
+  sortOrder?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 文生图适配器接口 */
+export interface ImageGeneratorAdapter {
+  name: string;
+  generate(prompt: string, style: ComicStyle, seed?: number, signal?: AbortSignal): Promise<string>; // 返回图片URL
+}
+
+/** LLM 可覆盖配置（来自前端） */
+export interface PartialLLMConfig {
+  apiUrl?: string;
+  apiKey?: string;
+  model?: string;
+  provider?: "openai-compatible" | "anthropic";
+}
+
+/** Z-Image extra_body 参数 */
+export interface ZImageExtraBody {
+  negative_prompt?: string;
+  num_inference_steps?: number;
+  guidance_scale?: number;
+  control_image?: string;      // base64 编码图片
+  control_mode?: "HED" | "Canny" | "Depth";
+  control_context_scale?: number;
+  image_scale?: number;
+  /** img2img 输入图片 (base64) */
+  image?: string;
+  /** img2img 变化强度 (0-1, 越大变化越大) */
+  strength?: number;
+}
+
+/** 文生图端点类型 */
+export type ImageEndpointType = "chat" | "images" | "auto";
+
+/** 文生图可覆盖配置（来自前端） */
+export interface PartialImageGenConfig {
+  apiUrl?: string;
+  apiKey?: string;
+  model?: string;
+  size?: string;
+  endpointType?: ImageEndpointType;
+  extraBody?: ZImageExtraBody;
+}
+
+// ============================================================
+// 用户 API 配置系统类型
+// ============================================================
+
+/** API 提供商 */
+export type APIProvider = "deepseek" | "openai" | "claude" | "gemini" | "nano-banana" | "z-image" | "custom";
+
+/** 用户 LLM 配置 */
+export interface UserLLMConfig {
+  id: string;
+  name: string;
+  provider: APIProvider;
+  apiUrl: string;
+  apiKey: string;
+  model: string;
+  protocolType: "openai-compatible" | "anthropic";
+}
+
+/** 用户文生图配置 */
+export interface UserImageConfig {
+  id: string;
+  name: string;
+  provider: APIProvider;
+  apiUrl: string;
+  apiKey: string;
+  model: string;
+  size: string;
+  endpointType: ImageEndpointType;
+}
+
+/** 用户 API 配置 (v1 - 旧版，用于迁移) */
+export interface UserAPIConfig {
+  version: number;
+  llm: Omit<UserLLMConfig, "id" | "name"> | null;
+  image: Omit<UserImageConfig, "id" | "name"> | null;
+  updatedAt: string;
+}
+
+/** 用户 API 配置 (v2 - 多配置) */
+export interface UserAPIConfigV2 {
+  version: 2;
+  llmConfigs: UserLLMConfig[];
+  imageConfigs: UserImageConfig[];
+  activeLLMId: string | null;
+  activeImageId: string | null;
+  updatedAt: string;
+}

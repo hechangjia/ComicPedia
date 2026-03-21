@@ -1,0 +1,162 @@
+@media print {
+  /* 隐藏非打印元素 */
+  .no-print {
+    display: none !important;
+  }
+
+  /* 隐藏阅读模式的 ComicReader（打印专用 DOM 会替代它） */
+  [role="article"][aria-label] {
+    display: none !important;
+  }
+
+  /* 重置页面样式 */
+  body {
+    background: white !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* 主容器 — 重置 space-y-* 产生的 margin; padding compensates @page margin:0 */
+  .print-container {
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 10mm !important;
+  }
+
+  .print-container > * {
+    margin-top: 0 !important;
+  }
+
+  /* 标题区域 */
+  .print-title {
+    text-align: center;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 3px solid #000;
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  .print-title h1 {
+    font-size: 22pt !important;
+    margin: 0 0 4px 0;
+    color: black !important;
+    background: none !important;
+    -webkit-background-clip: unset !important;
+    -webkit-text-fill-color: black !important;
+    letter-spacing: 2px;
+  }
+
+  .print-title p {
+    font-size: 10pt;
+    color: #666 !important;
+    margin: 0;
+  }
+
+  /* 漫画网格 — 紧凑布局，漫画装订线风格 */
+  .print-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 0px !important;
+    border: 4px solid #000 !important;
+    border-radius: 4px !important;
+    overflow: hidden;
+    page-break-before: avoid;
+    break-before: avoid;
+    /* 注意：不设 page-break-inside: avoid，允许网格跨页；
+       单个 .print-panel 已有 break-inside: avoid 保护 */
+  }
+
+  /* 单个面板 — 粗黑边框，漫画格 */
+  .print-panel {
+    border: 2px solid #000 !important;
+    border-radius: 0 !important;
+    overflow: hidden;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    background: white !important;
+    position: relative;
+  }
+
+  /* 图片区域 */
+  .print-panel-image {
+    aspect-ratio: 1 / 1;
+    background: #f5f5f5 !important;
+    position: relative;
+  }
+
+  .print-panel-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  /* 面板编号 — 漫画风格黑底圆章 */
+  .print-panel-number {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    width: 22px;
+    height: 22px;
+    background: black !important;
+    color: white !important;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: bold;
+    z-index: 5;
+    border: 2px solid white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+  }
+
+  /* 文字区域 — 漫画气泡风格 */
+  .print-panel-text {
+    padding: 8px 10px;
+    border-top: 2px solid #000;
+    background: white !important;
+    min-height: 2.5em;
+  }
+
+  .print-panel-text p {
+    margin: 0;
+    font-size: 9pt;
+  }
+
+  .print-panel-text .dialogue {
+    font-weight: 700;
+    font-size: 9.5pt;
+    line-height: 1.4;
+    color: #000 !important;
+    /* 模拟气泡效果：带左侧竖线 */
+    padding-left: 8px;
+    border-left: 3px solid #333;
+  }
+
+  .print-panel-text .scene {
+    display: none !important;
+  }
+
+  .print-panel-text .scene-desc {
+    font-size: 8.5pt;
+    line-height: 1.4;
+    color: #555 !important;
+    margin-top: 3px;
+    padding-left: 8px;
+    border-left: 2px solid #999;
+  }
+
+  /* 分页控制 — margin: 0 suppresses browser default header/footer (URL, date, page number) */
+  @page {
+    margin: 0;
+    size: A4;
+  }
+
+  /* 每 4 格一页的分页建议 */
+  .print-panel:nth-child(4n) {
+    page-break-after: auto;
+  }
+}
