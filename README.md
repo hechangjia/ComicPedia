@@ -2,9 +2,9 @@
   <b>中文</b> | <a href="README.en.md">English</a>
 </p>
 
-<h1 align="center">
-  ComicPedia
-</h1>
+<p align="center">
+  <img src="comicpedia-logo.jpg" alt="ComicPedia Logo" width="480" />
+</p>
 
 <p align="center">
   <strong>AI 驱动的漫画生成器</strong><br>
@@ -25,6 +25,7 @@
 
 - **端到端生成** — 从主题输入到完整漫画，全程自动化：LLM 编写分镜脚本 + AI 批量生成画面
 - **5 种内容 x 12 种画风** — 科普 / 百科 / 诗词 / 小说 / 小红书，搭配水墨、像素、Q 版等 12 种风格自由组合
+- **Agent 质量闭环** — 脚本自修复 Agent + 质量评分门控 + 智能重试策略，在管线关键节点自动纠错
 - **角色一致性** — 角色库管理外观描述与参考图，跨面板保持视觉统一
 - **零依赖部署** — SQLite + IndexedDB，无需外部数据库，Docker 一键启动
 
@@ -60,6 +61,12 @@
 - **LLM 分镜编剧** — AI 自动生成结构化分镜脚本，包含场景描述、对白和画面提示词
 - **流式输出** — 基于 SSE 的实时流式展示，脚本生成过程即时可见
 - **维基百科集成** — 一键抓取维基百科文章，AI 润色后转化为图文漫画
+
+### AI Agent 管线
+
+- **脚本自修复 Agent** — 脚本生成后自动进行质量校验（角色一致性、构图多样性、风格对齐、语言纯净度），检测到问题自动反馈给 LLM 修正，最多 2 轮自动修复
+- **质量评分门控** — 图片全部生成后自动调用 LLM 评估 4 维质量评分（知识准确性、视觉一致性、叙事连贯性、构图多样性），结果即时展示
+- **智能重试策略** — 图片生成失败时根据错误类型选择针对性策略：安全过滤 → 移除敏感词；Prompt 过长 → 智能截断；速率限制 → 保持原 Prompt 等待；默认 → 渐进简化
 
 ### 图片生成
 
@@ -160,33 +167,46 @@ graph LR
   style ImgAPI fill:#ffe0b2,stroke:#F57C00
 ```
 
-### 两阶段生成管线
+### Agent 增强的生成管线
 
 ```mermaid
 graph TD
   Input["用户输入<br/>主题 / 诗词 / 小说片段"]
   Research["阶段 0: 主题研究<br/>(可选, 仅科普/百科模式)"]
   Script["阶段 1: LLM 分镜脚本生成<br/>SSE 流式输出"]
+  Validate["脚本质量校验<br/>5 维纯规则检测"]
+  Repair{"有 critical/warning？"}
+  RepairLoop["脚本自修复 Agent<br/>将 warning 反馈 LLM 修正<br/>最多 2 轮"]
   Review["脚本就绪<br/>用户审查 & 编辑"]
-  ImageGen["阶段 2: 并发图片生成<br/>自适应 Worker 池"]
+  ImageGen["阶段 2: 并发图片生成<br/>智能重试策略"]
+  QualityGate["质量评分门控<br/>4 维 AI 评估"]
   Done["漫画完成"]
 
   Input --> Research
   Research --> Script
-  Script --> Review
+  Script --> Validate
+  Validate --> Repair
+  Repair -- "是" --> RepairLoop
+  RepairLoop --> Validate
+  Repair -- "否" --> Review
   Review --> ImageGen
-  ImageGen --> Done
+  ImageGen --> QualityGate
+  QualityGate --> Done
 
   style Input fill:#e3f2fd,stroke:#1565C0,stroke-width:2px
   style Research fill:#f3e5f5,stroke:#7B1FA2
   style Script fill:#e8f5e9,stroke:#2E7D32
+  style Validate fill:#fff3e0,stroke:#FF9800
+  style Repair fill:#fff3e0,stroke:#FF9800
+  style RepairLoop fill:#fce4ec,stroke:#C62828
   style Review fill:#fff8e1,stroke:#F9A825,stroke-width:2px
   style ImageGen fill:#fce4ec,stroke:#C62828
+  style QualityGate fill:#e8eaf6,stroke:#3F51B5
   style Done fill:#e8f5e9,stroke:#1B5E20,stroke-width:3px
 ```
 
-- **阶段 1** — LLM 生成结构化分镜脚本，包含场景描述、对白和画面提示词
-- **阶段 2** — 图片并发生成，自适应 Worker 池、指数退避重试、支持中止操作
+- **阶段 1** — LLM 生成结构化分镜脚本 → 纯规则校验 → 检测到问题自动修复（闭环）
+- **阶段 2** — 图片并发生成 → 智能重试（根据错误类型选择策略） → 质量评分门控
 
 ---
 
@@ -281,11 +301,12 @@ src/
 │   ├── gallery/                # 漫画画廊
 │   ├── history/                # 生成历史
 │   ├── characters/             # 角色库
+│   ├── series/                 # 连载系列
 │   ├── settings/               # API 配置
 │   ├── trash/                  # 回收站
 │   ├── poetry/                 # 诗词模式
 │   ├── migrate/                # 数据迁移工具
-│   └── api/                    # 23 个 API 端点
+│   └── api/                    # API 端点
 │       ├── llm/                # LLM 代理（非流式）
 │       ├── llm-stream/         # LLM 代理（SSE 流式）
 │       ├── image/              # 文生图代理
@@ -299,14 +320,18 @@ src/
 ├── lib/
 │   ├── client/                 # 客户端运行时
 │   │   ├── generator.ts        # 生成管线门面
-│   │   ├── taskLifecycle.ts    # 任务状态机
+│   │   ├── taskLifecycle.ts    # 任务状态机 + Agent 闭环
 │   │   ├── panelManager.ts     # 面板图片管理
+│   │   ├── promptEnhancer.ts   # 5 层 Prompt 增强
 │   │   ├── db.ts               # IndexedDB 操作
 │   │   └── eventBus.ts         # Zustand 通知总线
 │   ├── server/                 # 服务端运行时
 │   │   ├── db.ts               # SQLite 表结构 & 查询
 │   │   ├── imageStorage.ts     # 图片文件管理
 │   │   └── imageExtractor.ts   # Base64 转文件提取
+│   ├── scriptRepair.ts         # 脚本自修复 Agent
+│   ├── scriptValidator.ts      # 脚本质量校验（纯规则）
+│   ├── qualityScore.ts         # AI 质量评分
 │   └── config/                 # 静态配置
 │       ├── styles.ts           # 12 种画风定义
 │       ├── quality.ts          # 质量预设

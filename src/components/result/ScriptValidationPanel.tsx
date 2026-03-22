@@ -19,6 +19,7 @@ interface ScriptValidationPanelProps {
     languagePurity: boolean;
     warnings: ValidationWarning[];
   };
+  repairRounds?: number;
 }
 
 const SEVERITY_STYLES = {
@@ -35,7 +36,7 @@ const DIMENSION_LABELS: Record<string, string> = {
   narrative: "叙事连贯性",
 };
 
-export function ScriptValidationPanel({ validation }: ScriptValidationPanelProps) {
+export function ScriptValidationPanel({ validation, repairRounds }: ScriptValidationPanelProps) {
   const [expanded, setExpanded] = useState(true);
 
   if (validation.warnings.length === 0) return null;
@@ -56,6 +57,7 @@ export function ScriptValidationPanel({ validation }: ScriptValidationPanelProps
           </svg>
           <span className="text-sm font-medium">
             脚本质量检查
+            {repairRounds ? <span className="text-xs text-green-600 dark:text-green-400 ml-1.5">（已自动修复 {repairRounds} 轮）</span> : null}
           </span>
           <span className="flex items-center gap-1.5 text-xs">
             {criticalCount > 0 && <span className="px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">{criticalCount} 严重</span>}

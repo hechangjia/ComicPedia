@@ -2,6 +2,8 @@ import { GenerateRequest, GenerateTask, ComicScript, ComicStyle, ComicPanel, Par
 import { generateScript, generateScriptStream, generateTopicResearch, buildEnhancedTopicFromResearch, StreamChunkCallback } from "@/lib/llm";
 import { getImageAdapter } from "@/lib/imageGen";
 import { validateScript, applyCanonicalCharacterDesc } from "@/lib/scriptValidator";
+import { repairScript } from "@/lib/scriptRepair";
+import { evaluateQuality } from "@/lib/qualityScore";
 import { getStyleModifier, getStyleNegativePrompt, STYLE_META } from "@/lib/config/styles";
 import { urlToBase64 } from "@/lib/utils";
 import { withConcurrency } from "@/lib/concurrency";
@@ -30,54 +32,73 @@ const SENSITIVE_TERMS = [
   "drug", "alcohol", "cigarette", "smoking",
 ];
 
-/**
- * 智能重试：渐进简化 prompt（保留核心语义）。
- * retry 1: 移除可能触发安全过滤的词
- * retry 2: 移除次要修饰词（氛围、光照、背景细节），保留核心主体 + 风格 + 角色
- */
-function simplifyPromptForRetry(original: string, retryLevel: number): string {
-  if (retryLevel === 1) {
-    let prompt = original;
-    for (const term of SENSITIVE_TERMS) {
-      const regex = new RegExp(`\\b${term}\\b`, "gi");
-      prompt = prompt.replace(regex, "");
-    }
-    return prompt.replace(/,\s*,/g, ",").replace(/\s+/g, " ").trim();
-  }
+/** 次要氛围/光照修饰词（可安全移除） */
+const ATMOSPHERE_TERMS = [
+  "atmospheric", "ethereal", "mystical", "dreamy", "moody",
+  "serene", "tranquil", "melancholic", "whimsical", "nostalgic",
+  "dramatic lighting", "volumetric", "rim light", "backlight",
+  "golden hour", "sunset glow", "chiaroscuro", "bokeh",
+  "depth of field", "lens flare", "motion blur",
+  "in the background", "background details", "scattered",
+];
 
-  // retry 2: 移除次要修饰而非截断
-  // 保留：主体描述（前60%的词） + 角色标签 + 核心风格词
-  // 移除：氛围词、背景细节、光照描述、相机参数
-  const atmosphereTerms = [
-    "atmospheric", "ethereal", "mystical", "dreamy", "moody",
-    "serene", "tranquil", "melancholic", "whimsical", "nostalgic",
-    "dramatic lighting", "volumetric", "rim light", "backlight",
-    "golden hour", "sunset glow", "chiaroscuro", "bokeh",
-    "depth of field", "lens flare", "motion blur",
-    "in the background", "background details", "scattered",
-  ];
-
-  let prompt = original;
-  for (const term of atmosphereTerms) {
-    const regex = new RegExp(`\\b${term}\\b`, "gi");
-    prompt = prompt.replace(regex, "");
-  }
-
-  // 也移除敏感词
+/** 移除敏感词 */
+function removeSensitiveTerms(prompt: string): string {
+  let result = prompt;
   for (const term of SENSITIVE_TERMS) {
-    const regex = new RegExp(`\\b${term}\\b`, "gi");
-    prompt = prompt.replace(regex, "");
+    result = result.replace(new RegExp(`\\b${term}\\b`, "gi"), "");
   }
+  return result.replace(/,\s*,/g, ",").replace(/\s+/g, " ").trim();
+}
 
-  prompt = prompt.replace(/,\s*,/g, ",").replace(/\s+/g, " ").trim();
-
-  // 如果清理后仍然过长（>200词），才截断，但保留前150词
-  const words = prompt.split(/\s+/);
+/** 移除次要修饰词（保留核心语义） */
+function removeAtmosphereTerms(prompt: string): string {
+  let result = removeSensitiveTerms(prompt);
+  for (const term of ATMOSPHERE_TERMS) {
+    result = result.replace(new RegExp(`\\b${term}\\b`, "gi"), "");
+  }
+  result = result.replace(/,\s*,/g, ",").replace(/\s+/g, " ").trim();
+  const words = result.split(/\s+/);
   if (words.length > 200) {
-    prompt = words.slice(0, 150).join(" ") + ", high quality illustration";
+    result = words.slice(0, 150).join(" ") + ", high quality illustration";
+  }
+  return result;
+}
+
+/**
+ * P2: 智能重试 — 根据错误类型选择不同的 prompt 适配策略。
+ * 替代原先的"盲降级"，让每种失败模式得到针对性处理。
+ */
+function adaptPromptForRetry(original: string, retryLevel: number, lastError: Error | null): string {
+  const msg = lastError?.message?.toLowerCase() || "";
+
+  // Strategy 1: 安全过滤 → 仅移除敏感词，保留其余
+  if (msg.includes("safety") || msg.includes("content_filter") ||
+      msg.includes("blocked") || msg.includes("nsfw") ||
+      msg.includes("inappropriate") || msg.includes("violat")) {
+    console.log("[RetryStrategy] Content safety → removing sensitive terms");
+    return removeSensitiveTerms(original);
   }
 
-  return prompt;
+  // Strategy 2: 速率限制 → 保持原 prompt（延迟由 withRetry 处理）
+  // Must check before "too long" because "429 Too Many Requests" contains "too many"
+  if (msg.includes("rate") || msg.includes("429") || msg.includes("quota")) {
+    console.log("[RetryStrategy] Rate limit → keeping original prompt");
+    return original;
+  }
+
+  // Strategy 3: Prompt 过长 → 截断到 120 词
+  if (msg.includes("too long") || msg.includes("token") ||
+      msg.includes("maximum") || msg.includes("length")) {
+    console.log("[RetryStrategy] Prompt too long → truncating");
+    const words = original.split(/\s+/).slice(0, 120);
+    return words.join(" ") + ", high quality illustration";
+  }
+
+  // Strategy 4: 默认 → 渐进移除修饰词
+  console.log(`[RetryStrategy] Default strategy level ${retryLevel}`);
+  if (retryLevel === 1) return removeSensitiveTerms(original);
+  return removeAtmosphereTerms(original);
 }
 
 /** 将 Base64 图片保存到文件系统（非阻塞） */
@@ -294,7 +315,39 @@ async function processScripting(taskId: string, request: GenerateRequest) {
     task.progress = 30;
 
     // ── 脚本后校验：纯规则，零 LLM 调用 ──
-    const validation = validateScript(script);
+    let validation = validateScript(script);
+
+    // ── P0: 脚本自修复 Agent — 将 warning 反馈给 LLM 自动修正，最多 2 轮 ──
+    const actionableWarnings = validation.warnings.filter(w => w.severity === "critical" || w.severity === "warning");
+    if (actionableWarnings.length > 0) {
+      let repairRounds = 0;
+      const MAX_REPAIR_ROUNDS = 2;
+      let currentWarnings = actionableWarnings;
+
+      while (currentWarnings.length > 0 && repairRounds < MAX_REPAIR_ROUNDS) {
+        repairRounds++;
+        try {
+          task.streamText = `正在自动修复脚本（第${repairRounds}轮，${currentWarnings.length}个问题）...`;
+          notifyListeners(task);
+
+          const repaired = await repairScript(script, currentWarnings, request.llmConfig);
+          if (!repaired) break;
+
+          script = repaired;
+          validation = validateScript(script);
+          currentWarnings = validation.warnings.filter(w => w.severity === "critical" || w.severity === "warning");
+        } catch (repairErr) {
+          console.warn("[ScriptRepair] Repair round failed, keeping current script:", repairErr);
+          break;
+        }
+      }
+
+      if (repairRounds > 0) {
+        task.scriptRepairRounds = repairRounds;
+        console.log(`[ScriptRepair] ${repairRounds} round(s) completed, remaining actionable: ${currentWarnings.length}`);
+      }
+    }
+
     task.scriptValidation = validation;
     if (validation.warnings.length > 0) {
       console.log(`[ScriptValidator] ${validation.warnings.length} warnings:`,
@@ -436,6 +489,7 @@ export async function generateAllImages(
   taskId: string,
   imageConfig?: PartialImageGenConfig,
   forceAll: boolean = false,
+  llmConfig?: PartialLLMConfig,
 ): Promise<void> {
   const task = await getTask(taskId);
   if (!task?.script) throw new Error("任务或脚本不存在");
@@ -566,14 +620,20 @@ export async function generateAllImages(
       const adapter = getImageAdapter(mergedConfig);
       const panelSeed = baseSeed !== undefined ? baseSeed + panelIndex : undefined;
 
-      // 智能重试：每次失败后渐进简化 prompt
+      // P2: 智能重试 — 捕获错误类型，选择针对性策略
       let retryCount = 0;
+      let lastRetryError: Error | null = null;
       const imageUrl = await withRetry(
-        () => {
+        async () => {
           const currentPrompt = retryCount === 0 ? prompt
-            : simplifyPromptForRetry(prompt, retryCount);
+            : adaptPromptForRetry(prompt, retryCount, lastRetryError);
           retryCount++;
-          return adapter.generate(currentPrompt, panel.styleOverride ?? script.style, panelSeed, panelController.signal);
+          try {
+            return await adapter.generate(currentPrompt, panel.styleOverride ?? script.style, panelSeed, panelController.signal);
+          } catch (err) {
+            lastRetryError = err instanceof Error ? err : new Error(String(err));
+            throw err;
+          }
         },
         { maxRetries: 2, baseDelay: 1000 },
         panelController.signal,
@@ -625,6 +685,24 @@ export async function generateAllImages(
   task.updatedAt = new Date();
   await flushThrottledSave(task);
   notifyListeners(task);
+
+  // ── P1: Quality Gate — 自动评估漫画质量（非阻塞，不影响完成状态） ──
+  if (allCompleted && llmConfig) {
+    evaluateQuality(script, llmConfig)
+      .then(async (quality) => {
+        const freshTask = await getTask(taskId);
+        if (freshTask) {
+          freshTask.qualityScore = quality;
+          freshTask.updatedAt = new Date();
+          await saveTask(freshTask);
+          notifyListeners(freshTask);
+          console.log(`[QualityGate] Score: ${quality.overall}/10, suggestions: ${quality.suggestions.length}`);
+        }
+      })
+      .catch((err) => {
+        console.warn("[QualityGate] Auto-evaluation failed (non-fatal):", err);
+      });
+  }
 
   // 生成完成后清理 eventBus 中该任务的临时状态，防止内存泄漏
   if (allCompleted) {

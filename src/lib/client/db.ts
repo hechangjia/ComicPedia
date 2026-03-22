@@ -120,7 +120,7 @@ async function cacheGetAll<T>(store: 'comics' | 'characters' | 'series'): Promis
   try {
     const db = await getDB();
     const indexName = store === 'comics' ? 'by-date' : 'by-updated';
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const items = await (db as any).getAllFromIndex(store, indexName);
     return (items as T[]).reverse();
   } catch (err) {

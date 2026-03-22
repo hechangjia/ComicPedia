@@ -2,9 +2,9 @@
   <a href="README.md">中文</a> | <b>English</b>
 </p>
 
-<h1 align="center">
-  ComicPedia
-</h1>
+<p align="center">
+  <img src="comicpedia-logo.jpg" alt="ComicPedia Logo" width="480" />
+</p>
 
 <p align="center">
   <strong>AI-Powered Comic Generator</strong><br>
@@ -25,6 +25,7 @@
 
 - **End-to-End Generation** — From topic input to finished comic, fully automated: LLM writes the storyboard + AI generates all panels
 - **5 Content Types x 12 Art Styles** — Science / Wikipedia / Poetry / Novel / Xiaohongshu, combined with ink wash, pixel, chibi, and 9 more styles
+- **Agent Quality Loop** — Script self-repair Agent + quality scoring gate + intelligent retry strategy — automatic error correction at key pipeline stages
 - **Character Consistency** — Character library manages appearance descriptions and reference images, maintaining visual identity across panels
 - **Zero-Dependency Deployment** — SQLite + IndexedDB, no external database needed, one-command Docker start
 
@@ -60,6 +61,12 @@
 - **LLM Script Writing** — AI generates structured storyboard scripts with scene descriptions, dialogue, and image prompts
 - **Streaming Output** — Real-time SSE streaming shows script generation as it happens
 - **Wikipedia Integration** — Fetch and summarize Wikipedia articles, then transform them into illustrated comics
+
+### AI Agent Pipeline
+
+- **Script Self-Repair Agent** — After script generation, automatic quality validation (character consistency, composition variety, style alignment, language purity); detected issues are fed back to the LLM for correction, up to 2 repair rounds
+- **Quality Scoring Gate** — After all images are generated, LLM auto-evaluates 4-dimension quality (knowledge accuracy, visual consistency, narrative coherence, composition diversity) with instant UI display
+- **Intelligent Retry Strategy** — When image generation fails, selects targeted strategy based on error type: safety filter -> remove sensitive terms; prompt too long -> smart truncation; rate limit -> keep original and wait; default -> progressive simplification
 
 ### Image Generation
 
@@ -160,33 +167,46 @@ graph LR
   style ImgAPI fill:#ffe0b2,stroke:#F57C00
 ```
 
-### Two-Phase Generation Pipeline
+### Agent-Enhanced Generation Pipeline
 
 ```mermaid
 graph TD
   Input["User Input<br/>Topic / Poetry / Novel excerpt"]
   Research["Phase 0: Topic Research<br/>(Optional, Science/Wikipedia only)"]
   Script["Phase 1: LLM Script Generation<br/>SSE Streaming"]
+  Validate["Script Quality Check<br/>5-Dimension Rule Validation"]
+  Repair{"Critical/Warning?"}
+  RepairLoop["Script Repair Agent<br/>Feed warnings back to LLM<br/>Max 2 rounds"]
   Review["Script Ready<br/>Review & Edit"]
-  ImageGen["Phase 2: Parallel Image Generation<br/>Adaptive Worker Pool"]
+  ImageGen["Phase 2: Parallel Image Generation<br/>Intelligent Retry Strategy"]
+  QualityGate["Quality Scoring Gate<br/>4-Dimension AI Evaluation"]
   Done["Completed Comic"]
 
   Input --> Research
   Research --> Script
-  Script --> Review
+  Script --> Validate
+  Validate --> Repair
+  Repair -- "Yes" --> RepairLoop
+  RepairLoop --> Validate
+  Repair -- "No" --> Review
   Review --> ImageGen
-  ImageGen --> Done
+  ImageGen --> QualityGate
+  QualityGate --> Done
 
   style Input fill:#e3f2fd,stroke:#1565C0,stroke-width:2px
   style Research fill:#f3e5f5,stroke:#7B1FA2
   style Script fill:#e8f5e9,stroke:#2E7D32
+  style Validate fill:#fff3e0,stroke:#FF9800
+  style Repair fill:#fff3e0,stroke:#FF9800
+  style RepairLoop fill:#fce4ec,stroke:#C62828
   style Review fill:#fff8e1,stroke:#F9A825,stroke-width:2px
   style ImageGen fill:#fce4ec,stroke:#C62828
+  style QualityGate fill:#e8eaf6,stroke:#3F51B5
   style Done fill:#e8f5e9,stroke:#1B5E20,stroke-width:3px
 ```
 
-- **Phase 1** — LLM generates a structured storyboard script with scene descriptions, dialogue, and image prompts
-- **Phase 2** — Images are generated concurrently with adaptive worker pool, retry with exponential backoff, and abort support
+- **Phase 1** — LLM generates structured script -> rule-based validation -> auto-repair on issues (closed loop)
+- **Phase 2** — Concurrent image generation -> intelligent retry (error-type-aware) -> quality scoring gate
 
 ---
 
@@ -273,11 +293,12 @@ src/
 │   ├── gallery/                # Comic gallery
 │   ├── history/                # Generation history
 │   ├── characters/             # Character library
+│   ├── series/                 # Series management
 │   ├── settings/               # API configuration
 │   ├── trash/                  # Recycle bin
 │   ├── poetry/                 # Poetry mode
 │   ├── migrate/                # Data migration tool
-│   └── api/                    # 23 API endpoints
+│   └── api/                    # API endpoints
 │       ├── llm/                # LLM proxy (non-streaming)
 │       ├── llm-stream/         # LLM proxy (SSE streaming)
 │       ├── image/              # Image generation proxy
@@ -291,14 +312,18 @@ src/
 ├── lib/
 │   ├── client/                 # Client-side runtime
 │   │   ├── generator.ts        # Generation pipeline facade
-│   │   ├── taskLifecycle.ts    # Task state machine
+│   │   ├── taskLifecycle.ts    # Task state machine + Agent loops
 │   │   ├── panelManager.ts     # Panel image management
+│   │   ├── promptEnhancer.ts   # 5-layer prompt enhancement
 │   │   ├── db.ts               # IndexedDB operations
 │   │   └── eventBus.ts         # Zustand notification bus
 │   ├── server/                 # Server-side runtime
 │   │   ├── db.ts               # SQLite schema & queries
 │   │   ├── imageStorage.ts     # Image file management
 │   │   └── imageExtractor.ts   # Base64 to file extraction
+│   ├── scriptRepair.ts         # Script self-repair Agent
+│   ├── scriptValidator.ts      # Script quality validation (pure rules)
+│   ├── qualityScore.ts         # AI quality scoring
 │   └── config/                 # Static configuration
 │       ├── styles.ts           # 12 art style definitions
 │       ├── quality.ts          # Quality presets
@@ -467,8 +492,8 @@ ComicPedia supports **12 distinct art styles**, each with tailored prompt modifi
 
 <table>
   <tr>
-    <th align="center">Lin Daiyu (林黛玉)</th>
-    <th align="center">Jia Baoyu (贾宝玉)</th>
+    <th align="center">Lin Daiyu</th>
+    <th align="center">Jia Baoyu</th>
   </tr>
   <tr>
     <td align="center">
@@ -488,8 +513,8 @@ ComicPedia supports **12 distinct art styles**, each with tailored prompt modifi
 
 <table>
   <tr>
-    <th align="center">Xue Baochai (薛宝钗)</th>
-    <th align="center">Wang Xifeng (王熙凤)</th>
+    <th align="center">Xue Baochai</th>
+    <th align="center">Wang Xifeng</th>
   </tr>
   <tr>
     <td align="center">
@@ -509,8 +534,8 @@ ComicPedia supports **12 distinct art styles**, each with tailored prompt modifi
 
 <table>
   <tr>
-    <th align="center">Steve Jobs (乔布斯)</th>
-    <th align="center">Elon Musk (马斯克)</th>
+    <th align="center">Steve Jobs</th>
+    <th align="center">Elon Musk</th>
   </tr>
   <tr>
     <td align="center">
@@ -530,7 +555,7 @@ ComicPedia supports **12 distinct art styles**, each with tailored prompt modifi
 
 <table>
   <tr>
-    <th align="center">Sam Altman (奥特曼)</th>
+    <th align="center">Sam Altman</th>
     <th align="center">Tux</th>
   </tr>
   <tr>
@@ -553,9 +578,9 @@ ComicPedia supports **12 distinct art styles**, each with tailored prompt modifi
 
 <table>
   <tr>
-    <th align="center">Sun Wukong (孙悟空)</th>
-    <th align="center">Li Bai (李白)</th>
-    <th align="center">Linus Torvalds (林纳斯)</th>
+    <th align="center">Sun Wukong</th>
+    <th align="center">Li Bai</th>
+    <th align="center">Linus Torvalds</th>
   </tr>
   <tr>
     <td align="center">
@@ -580,8 +605,8 @@ ComicPedia supports **12 distinct art styles**, each with tailored prompt modifi
 
 <table>
   <tr>
-    <th align="center">Bill Gates (比尔盖茨)</th>
-    <th align="center">Alan Turing (图灵)</th>
+    <th align="center">Bill Gates</th>
+    <th align="center">Alan Turing</th>
     <th align="center">OpenClaw</th>
   </tr>
   <tr>
@@ -604,7 +629,7 @@ ComicPedia supports **12 distinct art styles**, each with tailored prompt modifi
 
 <table>
   <tr>
-    <th align="center" colspan="5">Mao Zedong (毛泽东)</th>
+    <th align="center" colspan="5">Mao Zedong</th>
   </tr>
   <tr>
     <td align="center">

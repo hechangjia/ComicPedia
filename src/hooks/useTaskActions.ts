@@ -125,29 +125,31 @@ export function useTaskActions(
     setGeneratingAll(true);
     try {
       const imageConfig = getSelectedImageConfig();
-      await generateAllImages(taskId, imageConfig);
+      const llmConfig = getSelectedLLMConfig();
+      await generateAllImages(taskId, imageConfig, undefined, llmConfig);
     } catch (err) {
       console.error("Batch generation failed:", err);
       showError(`批量生成失败: ${err instanceof Error ? err.message : "未知错误"}`);
     } finally {
       setGeneratingAll(false);
     }
-  }, [taskId, showError, getSelectedImageConfig]);
+  }, [taskId, showError, getSelectedImageConfig, getSelectedLLMConfig]);
 
   // 仅重试失败/待处理的面板
   const handleRetryFailed = useCallback(async () => {
     setGeneratingAll(true);
     try {
       const imageConfig = getSelectedImageConfig();
+      const llmConfig = getSelectedLLMConfig();
       // forceAll=false 只会生成 status !== "completed" 的面板
-      await generateAllImages(taskId, imageConfig, false);
+      await generateAllImages(taskId, imageConfig, false, llmConfig);
     } catch (err) {
       console.error("Retry failed panels failed:", err);
       showError(`重试失败: ${err instanceof Error ? err.message : "未知错误"}`);
     } finally {
       setGeneratingAll(false);
     }
-  }, [taskId, showError, getSelectedImageConfig]);
+  }, [taskId, showError, getSelectedImageConfig, getSelectedLLMConfig]);
 
   // 参考图变更
   const handleReferenceImageChange = useCallback(

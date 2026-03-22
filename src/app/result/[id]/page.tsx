@@ -340,7 +340,7 @@ export default function ResultPage() {
 
       {/* 脚本质量检查警告 */}
       {isScriptReady && task.scriptValidation && task.scriptValidation.warnings.length > 0 && (
-        <ScriptValidationPanel validation={task.scriptValidation} />
+        <ScriptValidationPanel validation={task.scriptValidation} repairRounds={task.scriptRepairRounds} />
       )}
 
       {/* 失败面板重试提示 */}
@@ -432,7 +432,7 @@ export default function ResultPage() {
 
       {/* AI 质量评分 */}
       {isCompleted && task.script && (
-        <QualityScorePanel script={task.script} />
+        <QualityScorePanel script={task.script} cachedScore={task.qualityScore} />
       )}
 
       {/* 知识测验 */}

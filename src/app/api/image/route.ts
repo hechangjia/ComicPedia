@@ -70,7 +70,7 @@ async function resolveUrl(url: string): Promise<string> {
  * This prevents CSP from blocking external URLs when the client tries to display them.
  * Handles all major API response formats (OpenAI images, chat completions, Responses API).
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 async function resolveExternalImageUrls(data: Record<string, any>): Promise<void> {
   // 1. OpenAI images API: data[].url
   if (Array.isArray(data.data)) {

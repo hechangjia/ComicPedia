@@ -7,6 +7,7 @@ import { getStoredConfigs } from "@/hooks/useAPIConfig";
 
 interface QualityScorePanelProps {
   script: ComicScript;
+  cachedScore?: QualityScore | null;
 }
 
 const DIMENSION_LABELS: Record<string, string> = {
@@ -33,8 +34,8 @@ function ScoreBar({ label, score }: { label: string; score: number }) {
   );
 }
 
-export function QualityScorePanel({ script }: QualityScorePanelProps) {
-  const [score, setScore] = useState<QualityScore | null>(null);
+export function QualityScorePanel({ script, cachedScore }: QualityScorePanelProps) {
+  const [score, setScore] = useState<QualityScore | null>(cachedScore ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 

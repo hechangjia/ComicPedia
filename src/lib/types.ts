@@ -253,6 +253,17 @@ export interface GenerateTask {
       suggestion: string;
     }>;
   };
+  /** Number of automatic script repair rounds applied (0 = no repair needed) */
+  scriptRepairRounds?: number;
+  /** Auto-evaluated quality score (set after image generation completes) */
+  qualityScore?: {
+    overall: number;
+    knowledge: number;
+    visualConsistency: number;
+    narrativeCoherence: number;
+    compositionDiversity: number;
+    suggestions: string[];
+  };
   /** Generation config snapshot — records which models were used */
   generationConfig?: {
     llmModel?: string;

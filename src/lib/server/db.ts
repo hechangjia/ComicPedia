@@ -105,13 +105,20 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_jobs_task ON job_queue(task_id);
 `);
 
+// ── Schema migration: add extensible metadata column ──
+try {
+  db.exec("ALTER TABLE tasks ADD COLUMN metadata TEXT");
+} catch {
+  // Column already exists — expected on subsequent startups
+}
+
 // ============================================================
 // Tasks CRUD
 // ============================================================
 
 const stmtInsertTask = db.prepare(`
-  INSERT OR REPLACE INTO tasks (id, status, progress, script, character, error, created_at, updated_at)
-  VALUES (@id, @status, @progress, @script, @character, @error, @created_at, @updated_at)
+  INSERT OR REPLACE INTO tasks (id, status, progress, script, character, error, metadata, created_at, updated_at)
+  VALUES (@id, @status, @progress, @script, @character, @error, @metadata, @created_at, @updated_at)
 `);
 
 const stmtGetTask = db.prepare("SELECT * FROM tasks WHERE id = ?");
@@ -123,6 +130,14 @@ const stmtDeleteTask = db.prepare("DELETE FROM tasks WHERE id = ?");
 const stmtClearTasks = db.prepare("DELETE FROM tasks");
 
 function taskToRow(task: GenerateTask) {
+  // Pack non-core fields into a single metadata JSON column
+  const metadata: Record<string, unknown> = {};
+  if (task.qualityScore) metadata.qualityScore = task.qualityScore;
+  if (task.scriptValidation) metadata.scriptValidation = task.scriptValidation;
+  if (task.scriptRepairRounds) metadata.scriptRepairRounds = task.scriptRepairRounds;
+  if (task.topicResearch) metadata.topicResearch = task.topicResearch;
+  if (task.generationConfig) metadata.generationConfig = task.generationConfig;
+
   return {
     id: task.id,
     status: task.status,
@@ -130,6 +145,7 @@ function taskToRow(task: GenerateTask) {
     script: task.script ? JSON.stringify(task.script) : null,
     character: task.character ? JSON.stringify(task.character) : null,
     error: task.error ?? null,
+    metadata: Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
     created_at: task.createdAt instanceof Date ? task.createdAt.toISOString() : String(task.createdAt),
     updated_at: task.updatedAt instanceof Date ? task.updatedAt.toISOString() : String(task.updatedAt),
   };
@@ -147,6 +163,8 @@ function safeJsonParse<T>(json: string | null | undefined, fallback?: T): T | un
 }
 
 function rowToTask(row: Record<string, unknown>): GenerateTask {
+  const meta = safeJsonParse<Record<string, unknown>>(row.metadata as string | null) ?? {};
+
   return {
     id: row.id as string,
     status: row.status as GenerateTask["status"],
@@ -154,6 +172,11 @@ function rowToTask(row: Record<string, unknown>): GenerateTask {
     script: safeJsonParse(row.script as string | null),
     character: safeJsonParse(row.character as string | null),
     error: (row.error as string) ?? undefined,
+    qualityScore: meta.qualityScore as GenerateTask["qualityScore"],
+    scriptValidation: meta.scriptValidation as GenerateTask["scriptValidation"],
+    scriptRepairRounds: meta.scriptRepairRounds as number | undefined,
+    topicResearch: meta.topicResearch as GenerateTask["topicResearch"],
+    generationConfig: meta.generationConfig as GenerateTask["generationConfig"],
     createdAt: new Date(row.created_at as string),
     updatedAt: new Date(row.updated_at as string),
   };
