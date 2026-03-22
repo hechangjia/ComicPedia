@@ -18,7 +18,7 @@ export { cancelGeneration, recoverZombieTask } from "./abortManager";
 export { startGeneration, generateAllImages, regenerateScript, changeStyleAndRegenerate } from "./taskLifecycle";
 
 // panelManager
-export { updatePanel, setActiveVersion, regeneratePanel } from "./panelManager";
+export { updatePanel, setActiveVersion, regeneratePanel, reorderPanels } from "./panelManager";
 
 // referenceManager
 export {

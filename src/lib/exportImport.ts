@@ -16,6 +16,10 @@ interface ExportManifest {
   type: "characters" | "tasks";
   count: number;
   imageCount: number;
+  /** Total images attempted (including failures) */
+  totalImages?: number;
+  /** Number of images that failed to export */
+  failedImages?: number;
   exportedAt: string;
   app: "comicpedia";
 }
@@ -188,6 +192,7 @@ async function exportDataAsZip(
   const mapping = new Map<string, string>(); // key → ZIP 内路径
   const imageFolder = zip.folder("images");
   let fetched = 0;
+  let failedImages = 0;
   const total = refs.size;
 
   for (const [key, ref] of refs) {
@@ -200,8 +205,12 @@ async function exportDataAsZip(
         const zipPath = `images/${key}.${ext}`;
         imageFolder?.file(`${key}.${ext}`, blob);
         mapping.set(key, zipPath);
+      } else {
+        failedImages++;
+        console.warn(`[Export] Image fetch failed (${res.status}): ${key}`);
       }
     } catch (err) {
+      failedImages++;
       console.warn(`[Export] Failed to fetch image ${key}:`, err);
     }
     fetched++;
@@ -219,6 +228,8 @@ async function exportDataAsZip(
     type,
     count: data.length,
     imageCount: mapping.size,
+    totalImages: total,
+    failedImages,
     exportedAt: new Date().toISOString(),
     app: "comicpedia",
   };

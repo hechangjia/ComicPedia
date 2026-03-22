@@ -10,6 +10,9 @@ import { TemplatePanel } from "@/components/TemplatePanel";
 import { Spinner } from "@/components/ui/Spinner";
 import type { ContentType } from "@/lib/types";
 import type { ComicTemplate } from "@/lib/config/templates";
+import { getSeries } from "@/lib/client/db";
+import { getSeriesContinuationContext, type Series } from "@/lib/series";
+import { STYLE_META } from "@/lib/config/styles";
 
 // 非默认 Tab 懒加载，减少首屏 JS 体积
 const PoetryForm = dynamic(() => import("@/components/PoetryForm").then((m) => ({ default: m.PoetryForm })), {
@@ -50,18 +53,35 @@ export function FormLayout({ defaultTab = "wikipedia" }: FormLayoutProps) {
   const configStatus = useConfigCheck();
 
   const modeParam = searchParams.get("mode") as TabMode | null;
+  const seriesParam = searchParams.get("series");
   const [activeTab, setActiveTab] = useState<TabMode>(
     modeParam && TABS.some((t) => t.value === modeParam) ? modeParam : defaultTab
   );
 
   const [templateTopic, setTemplateTopic] = useState("");
   const [formKey, setFormKey] = useState(0);
+  const [seriesContext, setSeriesContext] = useState<string | null>(null);
+  const [seriesInfo, setSeriesInfo] = useState<Series | null>(null);
 
   useEffect(() => {
     if (modeParam && TABS.some((t) => t.value === modeParam)) {
       setActiveTab(modeParam);
     }
   }, [modeParam]);
+
+  // 连载上下文注入
+  useEffect(() => {
+    if (!seriesParam) return;
+    getSeries(seriesParam).then((series) => {
+      if (!series) return;
+      setSeriesInfo(series);
+      const context = getSeriesContinuationContext(series);
+      setSeriesContext(context);
+      // 将连载上下文作为 topic 前缀注入
+      setTemplateTopic(`[连载续写：${series.title} 第 ${series.episodes.length + 1} 集]\n${context}`);
+      setFormKey((k) => k + 1);
+    }).catch(console.error);
+  }, [seriesParam]);
 
   const handleTemplateSelect = useCallback((tpl: ComicTemplate) => {
     setActiveTab(contentTypeToTab(tpl.contentType));
@@ -118,6 +138,26 @@ export function FormLayout({ defaultTab = "wikipedia" }: FormLayoutProps) {
         contentType={activeTab as ContentType}
         onSelect={handleTemplateSelect}
       />
+
+      {/* 连载上下文提示 */}
+      {seriesInfo && (
+        <div className="p-3 rounded-lg border bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
+          <div className="flex items-center gap-2">
+            <svg className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+            </svg>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                续写连载：{seriesInfo.title} · 第 {seriesInfo.episodes.length + 1} 集
+              </p>
+              <p className="text-xs text-blue-600 dark:text-blue-300 mt-0.5">
+                已有 {seriesInfo.episodes.length} 集 · {STYLE_META[seriesInfo.style]?.label} 风格
+                {seriesInfo.characterDescription && " · 角色已继承"}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 表单区域 */}
       {activeTab === "wikipedia" && <WikipediaForm key={`wiki-${formKey}`} />}

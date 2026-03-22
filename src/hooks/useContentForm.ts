@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   ComicStyle,
   ContentType,
+  DifficultyLevel,
   GenerateRequest,
   GenerationQuality,
   ReferenceImageEntry,
@@ -56,6 +57,8 @@ export interface ContentFormState {
   setSelectedImageId: (s: string | null) => void;
   quality: GenerationQuality;
   setQuality: (q: GenerationQuality) => void;
+  difficulty: DifficultyLevel;
+  setDifficulty: (d: DifficultyLevel) => void;
 
   // 参考图状态
   referenceImage: string | undefined;
@@ -90,6 +93,11 @@ export interface ContentFormState {
     inputText: string,
     extraPayload?: Partial<GenerateRequest>,
   ) => Promise<void>;
+
+  /** 获取草稿中保存的主输入文本 */
+  getDraftInputText: () => string;
+  /** 清除草稿 */
+  clearDraft: () => void;
 }
 
 // ============================================================
@@ -121,6 +129,7 @@ export function useContentForm(
   const [selectedLLMId, setSelectedLLMId] = useState<string | null>(null);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [quality, setQuality] = useState<GenerationQuality>("standard");
+  const [difficulty, setDifficulty] = useState<DifficultyLevel>("medium");
 
   // 参考图状态
   const [referenceImage, setReferenceImage] = useState<string | undefined>();
@@ -132,6 +141,67 @@ export function useContentForm(
 
   // 角色状态
   const [selectedCharacterIds, setSelectedCharacterIds] = useState<string[]>([]);
+
+  // ---- 草稿自动保存/恢复 ----
+  const DRAFT_KEY = `comicpedia_draft_${config.contentType}`;
+  const draftInitialized = useRef(false);
+
+  // 恢复草稿（仅首次挂载）
+  useEffect(() => {
+    if (draftInitialized.current) return;
+    draftInitialized.current = true;
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const draft = JSON.parse(raw);
+      if (draft.style) setStyle(draft.style);
+      if (draft.panelCount !== undefined) setPanelCount(draft.panelCount);
+      if (draft.quality) setQuality(draft.quality);
+      if (draft.difficulty) setDifficulty(draft.difficulty);
+    } catch {
+      // 草稿损坏，忽略
+    }
+  }, [DRAFT_KEY]);
+
+  // 保存草稿（节流 1 秒）
+  // 用 ref 持有 getInputText 避免它作为 effect 依赖导致频繁触发
+  const getInputTextRef = useRef(getInputText);
+  getInputTextRef.current = getInputText;
+  const draftTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => {
+    if (draftTimer.current) clearTimeout(draftTimer.current);
+    draftTimer.current = setTimeout(() => {
+      try {
+        const inputText = getInputTextRef.current();
+        const draft = {
+          style, panelCount, quality, difficulty,
+          inputText: inputText.slice(0, 5000),
+          savedAt: Date.now(),
+        };
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+      } catch {
+        // localStorage 满或不可用，忽略
+      }
+    }, 1000);
+    return () => { if (draftTimer.current) clearTimeout(draftTimer.current); };
+  }, [style, panelCount, quality, difficulty, DRAFT_KEY]);
+
+  /** 获取已保存的草稿输入文本（供 Form 组件恢复主输入） */
+  const getDraftInputText = useCallback((): string => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return "";
+      const draft = JSON.parse(raw);
+      return draft.inputText || "";
+    } catch {
+      return "";
+    }
+  }, [DRAFT_KEY]);
+
+  /** 清除草稿（提交成功后调用） */
+  const clearDraft = useCallback(() => {
+    try { localStorage.removeItem(DRAFT_KEY); } catch { /* noop */ }
+  }, [DRAFT_KEY]);
 
   // ---- 共享回调 ----
 
@@ -300,6 +370,7 @@ export function useContentForm(
         style,
         contentType: config.contentType,
         quality,
+        difficulty,
         ...extraPayload,
       };
 
@@ -323,6 +394,7 @@ export function useContentForm(
       }
 
       const taskId = await startGeneration(payload);
+      clearDraft();
       router.push(`/result/${taskId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "生成失败，请重试");
@@ -344,6 +416,7 @@ export function useContentForm(
     selectedLLMId, setSelectedLLMId,
     selectedImageId, setSelectedImageId,
     quality, setQuality,
+    difficulty, setDifficulty,
     referenceImage, setReferenceImage,
     referenceImages, setReferenceImages,
     referenceLabels, setReferenceLabels,
@@ -357,5 +430,7 @@ export function useContentForm(
     handleRegenerateFormRef,
     handleFormRefVersionChange,
     handleSubmit,
+    getDraftInputText,
+    clearDraft,
   };
 }

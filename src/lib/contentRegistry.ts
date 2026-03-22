@@ -10,7 +10,7 @@ import {
 } from "./types";
 import { buildScriptPrompt, parseScriptResponse } from "@/prompts/scriptGenerator";
 import { buildPoetryPrompt, parsePoetryResponse } from "@/prompts/poetryGenerator";
-import { buildXhsPrompt } from "@/prompts/xhsGenerator";
+import { buildXhsPrompt, parseXhsResponse } from "@/prompts/xhsGenerator";
 import { buildNovelPrompt, parseNovelResponse } from "@/prompts/novelGenerator";
 import { buildWikipediaPrompt, parseWikipediaResponse } from "@/prompts/wikipediaGenerator";
 
@@ -69,8 +69,7 @@ contentRegistry.set("poetry", {
 /** 小红书图文 */
 contentRegistry.set("xiaohongshu", {
   buildPrompt: (p) => buildXhsPrompt(p.topic, p.style, p.panelCount),
-  // 小红书复用通用解析器
-  parseResponse: parseScriptResponse,
+  parseResponse: parseXhsResponse,
 });
 
 /** 小说场景 */

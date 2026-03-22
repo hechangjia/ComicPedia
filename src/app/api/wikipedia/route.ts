@@ -76,6 +76,7 @@ interface WikiSearchResult {
 interface WikiSummary {
   title: string;
   extract: string;
+  hasLatex?: boolean;
   sections?: string[];
   thumbnail?: { source: string };
   lang: string;
@@ -231,13 +232,17 @@ async function getArticleSummary(title: string, lang: string): Promise<WikiSumma
     getSectionTitles(title, lang),
   ]);
 
-  const extract = fullExtract.length > MAX_EXTRACT_LENGTH
-    ? fullExtract.slice(0, MAX_EXTRACT_LENGTH) + "..."
-    : fullExtract;
+  // 先清洗 MathML 残留和 LaTeX 标记，再截断
+  // （先截断可能切在 MathML 文本树中间，导致残留无法匹配清除）
+  const { cleaned, hasLatex } = cleanMathFormulas(fullExtract);
+  let extract = cleaned.length > MAX_EXTRACT_LENGTH
+    ? cleaned.slice(0, MAX_EXTRACT_LENGTH) + "..."
+    : cleaned;
 
   return {
     title: data.title || title,
     extract,
+    hasLatex,
     sections: sections.length > 0 ? sections : undefined,
     thumbnail: data.thumbnail ? { source: data.thumbnail.source } : undefined,
     lang,
@@ -252,7 +257,9 @@ async function getDetailedExtract(title: string, lang: string, fallback: string)
   url.searchParams.set("prop", "extracts");
   url.searchParams.set("explaintext", "true");
   url.searchParams.set("exlimit", "1");
-  // 不设置 exchars 限制，获取完整文章文本，由服务端自行截断
+  // 不设 exchars: Wikipedia 对含 <math> 的文章的 exchars 计数有 bug，
+  // 会在数学公式处过早截断（如「量子力学」50000 exchars 只返回 1223 字符）。
+  // 不限制则可获取完整文本（~1 秒响应），由 MAX_EXTRACT_LENGTH 在服务端截断。
   url.searchParams.set("format", "json");
   url.searchParams.set("origin", "*");
   addVariant(url, lang);
@@ -303,4 +310,97 @@ async function getSectionTitles(title: string, lang: string): Promise<string[]> 
 
 function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, "").replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+}
+
+// ============================================================
+// LaTeX / 数学公式清洗
+// Wikipedia explaintext 模式会残留 {\displaystyle ...} 标记
+// 以及 MathML 文本节点（缩进的单字符树）
+// ============================================================
+
+/**
+ * 找到从 startIndex 开始的 `{...}` 平衡闭合位置。
+ * 支持任意层级嵌套花括号。返回闭合 `}` 的索引，找不到返回 -1。
+ */
+function findMatchingBrace(text: string, startIndex: number): number {
+  if (text[startIndex] !== "{") return -1;
+  let depth = 0;
+  for (let i = startIndex; i < text.length; i++) {
+    if (text[i] === "{") depth++;
+    else if (text[i] === "}") {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * 清洗 Wikipedia 纯文本中的 LaTeX 残留。
+ *
+ * Wikipedia explaintext 模式会把 <math> 标签序列化为：
+ *   1. MathML 文本节点（缩进的单字符树，如 "  \n    E\n      n\n"）
+ *   2. {\displaystyle ...} 注解文本
+ *
+ * 本函数：
+ *   - 移除 MathML 文本节点残留
+ *   - 将 {\displaystyle ...} 转为 $...$ 标准 KaTeX 分隔符
+ */
+function cleanMathFormulas(text: string): { cleaned: string; hasLatex: boolean } {
+  let hasLatex = false;
+
+  // Phase 1: 移除 {\displaystyle 之前的 MathML 文本节点残留。
+  // MathML 文本节点表现为连续多行，每行仅有空白和 ≤2 个非空白字符。
+  text = text.replace(/(?:\n[ \t]*\S{0,2}[ \t]*){3,}(?=\s*\{\\displaystyle)/g, " ");
+
+  // Phase 2: 将 {\displaystyle ...} 转为 $...$
+  let result = "";
+  let i = 0;
+
+  while (i < text.length) {
+    const marker = "{\\displaystyle";
+    const idx = text.indexOf(marker, i);
+
+    if (idx === -1) {
+      result += text.slice(i);
+      break;
+    }
+
+    result += text.slice(i, idx);
+
+    const closeIdx = findMatchingBrace(text, idx);
+    if (closeIdx === -1) {
+      result += text.slice(idx, idx + marker.length);
+      i = idx + marker.length;
+      continue;
+    }
+
+    hasLatex = true;
+    const inner = text.slice(idx + marker.length, closeIdx).trim();
+    // 行内公式用 $...$，独占行用 $$...$$
+    const beforeChar = idx > 0 ? text[idx - 1] : "";
+    const afterChar = closeIdx + 1 < text.length ? text[closeIdx + 1] : "";
+    const isBlock = beforeChar === "\n" || afterChar === "\n";
+    if (isBlock) {
+      result += `$$${inner}$$`;
+    } else {
+      result += `$${inner}$`;
+    }
+    i = closeIdx + 1;
+  }
+
+  // Phase 3: 清理独立 \( ... \) 包裹的行内公式 → $...$
+  result = result.replace(/\\\(([^)]+)\\\)/g, (_, inner) => {
+    hasLatex = true;
+    return `$${inner.trim()}$`;
+  });
+
+  // Phase 4: 清理 MathML 移除后的空白残留
+  // 合并 3+ 空行为 2 行
+  result = result.replace(/\n{3,}/g, "\n\n");
+  // 合并公式前后的空白行（空行 = 仅含空格/tab 的行）
+  result = result.replace(/\n[ \t]*\n[ \t]*(\$)/g, "\n$1");
+  result = result.replace(/(\$\$?[^$]+?\$\$?)[ \t]*\n[ \t]*\n/g, "$1\n");
+
+  return { cleaned: result, hasLatex };
 }

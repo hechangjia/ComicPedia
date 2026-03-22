@@ -13,6 +13,7 @@ const DIMENSION_LABELS: Record<string, string> = {
   knowledge: "知识准确性",
   visualConsistency: "视觉一致性",
   narrativeCoherence: "叙事连贯性",
+  compositionDiversity: "构图多样性",
 };
 
 function ScoreBar({ label, score }: { label: string; score: number }) {
@@ -99,7 +100,7 @@ export function QualityScorePanel({ script }: QualityScorePanelProps) {
       </div>
 
       <div className="space-y-2">
-        {(["knowledge", "visualConsistency", "narrativeCoherence"] as const).map((key) => (
+        {(["knowledge", "visualConsistency", "narrativeCoherence", "compositionDiversity"] as const).map((key) => (
           <ScoreBar key={key} label={DIMENSION_LABELS[key]} score={score[key]} />
         ))}
       </div>

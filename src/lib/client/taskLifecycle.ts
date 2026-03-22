@@ -1,15 +1,17 @@
 import { GenerateRequest, GenerateTask, ComicScript, ComicStyle, ComicPanel, PartialImageGenConfig, PartialLLMConfig } from "@/lib/types";
 import { generateScript, generateScriptStream, generateTopicResearch, buildEnhancedTopicFromResearch, StreamChunkCallback } from "@/lib/llm";
 import { getImageAdapter } from "@/lib/imageGen";
+import { validateScript, applyCanonicalCharacterDesc } from "@/lib/scriptValidator";
 import { getStyleModifier, getStyleNegativePrompt, STYLE_META } from "@/lib/config/styles";
 import { urlToBase64 } from "@/lib/utils";
 import { withConcurrency } from "@/lib/concurrency";
 import { withRetry } from "@/lib/retryQueue";
 import { QUALITY_PRESETS } from "@/lib/config/quality";
 import { saveTask, getTask, getCharacter } from "./db";
-import { notifyListeners, saveTaskThrottled, flushThrottledSave } from "./eventBus";
+import { notifyListeners, saveTaskThrottled, flushThrottledSave, cleanupTaskState } from "./eventBus";
 import { abortControllers, abortKey } from "./abortManager";
 import { pushImageVersion } from "./panelManager";
+import { buildEnhancedPrompt, buildEnhancedPromptWithLog, mergeReferenceImage } from "./promptEnhancer";
 
 // ============================================================
 // 辅助函数
@@ -18,60 +20,6 @@ import { pushImageVersion } from "./panelManager";
 /** 生成唯一 ID */
 function generateId(): string {
   return `comic_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-/**
- * 将参考图合并到 imageConfig.extraBody 中。
- */
-function mergeReferenceImage(
-  imageConfig: PartialImageGenConfig | undefined,
-  script: ComicScript,
-  panel: { referenceImages?: string[]; referenceImage?: string },
-  panelIndex?: number,
-): PartialImageGenConfig | undefined {
-  const refImages = panel.referenceImages ?? script.referenceImages;
-  const refImage = panel.referenceImage ?? script.referenceImage;
-
-  let selectedImage: string | undefined;
-  if (refImages && refImages.length > 0) {
-    const idx = (panelIndex ?? 0) % refImages.length;
-    selectedImage = refImages[idx];
-  } else {
-    selectedImage = refImage;
-  }
-
-  if (!selectedImage) return imageConfig;
-
-  return {
-    ...imageConfig,
-    extraBody: {
-      ...imageConfig?.extraBody,
-      control_image: selectedImage,
-      control_mode: script.controlMode ?? "HED",
-    },
-  };
-}
-
-/** 构图关键词列表（用于检测 prompt 是否缺少构图指令） */
-const COMPOSITION_KEYWORDS = [
-  "wide shot", "medium shot", "close-up", "close up", "closeup",
-  "bird's eye", "birds eye", "aerial", "overhead",
-  "low angle", "high angle", "eye level",
-  "over the shoulder", "portrait", "full body",
-  "establishing shot", "panoramic", "macro",
-];
-
-/** 光影关键词列表 */
-const LIGHTING_KEYWORDS = [
-  "lighting", "light", "backlight", "rim light", "ambient",
-  "dramatic", "soft light", "golden hour", "sunset",
-  "neon", "volumetric", "chiaroscuro", "silhouette",
-];
-
-/** 从风格 negativePrompt 中提取需要移除的矛盾词 */
-function getConflictingTerms(style: ComicStyle): string[] {
-  const neg = STYLE_META[style]?.negativePrompt ?? "";
-  return neg.split(",").map(s => s.trim().toLowerCase()).filter(s => s.length > 3);
 }
 
 /** 可能触发安全过滤的词（渐进移除） */
@@ -83,13 +31,12 @@ const SENSITIVE_TERMS = [
 ];
 
 /**
- * 智能重试：渐进简化 prompt。
+ * 智能重试：渐进简化 prompt（保留核心语义）。
  * retry 1: 移除可能触发安全过滤的词
- * retry 2: 截断到核心描述（前 100 词）+ 基本风格标签
+ * retry 2: 移除次要修饰词（氛围、光照、背景细节），保留核心主体 + 风格 + 角色
  */
 function simplifyPromptForRetry(original: string, retryLevel: number): string {
   if (retryLevel === 1) {
-    // 第 1 次重试：移除敏感词
     let prompt = original;
     for (const term of SENSITIVE_TERMS) {
       const regex = new RegExp(`\\b${term}\\b`, "gi");
@@ -97,88 +44,40 @@ function simplifyPromptForRetry(original: string, retryLevel: number): string {
     }
     return prompt.replace(/,\s*,/g, ",").replace(/\s+/g, " ").trim();
   }
-  // 第 2 次重试：极简版（前 100 词 + 基本质量标签）
-  const words = original.split(/\s+/).slice(0, 100);
-  return words.join(" ").replace(/,?\s*$/, ", high quality illustration, detailed");
-}
 
-/**
- * 根据面板在叙事弧中的位置，返回最佳默认构图。
- * 叙事弧：开场(establishment) → 展开(development) → 高潮(climax) → 收尾(resolution)
- */
-function getStoryArcComposition(panelIndex: number, totalPanels: number): string {
-  if (totalPanels <= 1) return "medium shot";
-  const position = panelIndex / (totalPanels - 1); // 0.0 ~ 1.0
-  if (position < 0.15) return "establishing wide shot";          // 开场：远景建立场景
-  if (position < 0.35) return "medium shot";                     // 展开：中景交代关系
-  if (position < 0.55) return "close-up detail shot";            // 深入：特写表现细节
-  if (position < 0.75) return "dynamic low angle shot";          // 高潮：仰角增强张力
-  if (position < 0.90) return "over the shoulder medium shot";   // 转折：过肩镜头
-  return "wide shot, pulling back";                              // 收尾：远景收束
-}
+  // retry 2: 移除次要修饰而非截断
+  // 保留：主体描述（前60%的词） + 角色标签 + 核心风格词
+  // 移除：氛围词、背景细节、光照描述、相机参数
+  const atmosphereTerms = [
+    "atmospheric", "ethereal", "mystical", "dreamy", "moody",
+    "serene", "tranquil", "melancholic", "whimsical", "nostalgic",
+    "dramatic lighting", "volumetric", "rim light", "backlight",
+    "golden hour", "sunset glow", "chiaroscuro", "bokeh",
+    "depth of field", "lens flare", "motion blur",
+    "in the background", "background details", "scattered",
+  ];
 
-/**
- * 构建增强 prompt（第一性原理优化）。
- *
- * 四层增强：
- * 1. 角色描述锚定（确保一致性）
- * 2. 风格矛盾检测（移除与风格冲突的词）
- * 3. 叙事弧构图（根据面板位置自动编排镜头语言）
- * 4. 缺失要素补充（光影等）
- */
-function buildEnhancedPrompt(
-  basePrompt: string,
-  panelIndex: number,
-  characterDesc?: string,
-  style?: ComicStyle,
-  totalPanels?: number,
-): string {
-  let prompt = basePrompt;
-
-  // === 层 1：角色描述锚定 ===
-  if (characterDesc) {
-    if (!prompt.includes(characterDesc.slice(0, 30))) {
-      prompt = prompt.replace(/^\[.*?\]\s*/g, "");
-      prompt = `${characterDesc} ${prompt}`;
-    }
+  let prompt = original;
+  for (const term of atmosphereTerms) {
+    const regex = new RegExp(`\\b${term}\\b`, "gi");
+    prompt = prompt.replace(regex, "");
   }
 
-  // === 层 2：风格矛盾检测 ===
-  if (style) {
-    const conflicts = getConflictingTerms(style);
-    const promptLower = prompt.toLowerCase();
-    for (const term of conflicts) {
-      // 只移除作为独立词出现的矛盾项（避免误删子串）
-      if (promptLower.includes(term)) {
-        const regex = new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi");
-        prompt = prompt.replace(regex, "").replace(/,\s*,/g, ",").replace(/\s+/g, " ");
-      }
-    }
+  // 也移除敏感词
+  for (const term of SENSITIVE_TERMS) {
+    const regex = new RegExp(`\\b${term}\\b`, "gi");
+    prompt = prompt.replace(regex, "");
   }
 
-  // === 层 3：缺失要素补充 ===
-  const promptLower = prompt.toLowerCase();
+  prompt = prompt.replace(/,\s*,/g, ",").replace(/\s+/g, " ").trim();
 
-  // === 层 3：叙事弧构图 ===
-  const hasComposition = COMPOSITION_KEYWORDS.some(k => promptLower.includes(k));
-  if (!hasComposition) {
-    const composition = getStoryArcComposition(panelIndex, totalPanels || 6);
-    prompt = prompt.replace(/,?\s*$/, `, ${composition}`);
+  // 如果清理后仍然过长（>200词），才截断，但保留前150词
+  const words = prompt.split(/\s+/);
+  if (words.length > 200) {
+    prompt = words.slice(0, 150).join(" ") + ", high quality illustration";
   }
 
-  // 补充光影（如果 LLM 没写）
-  const hasLighting = LIGHTING_KEYWORDS.some(k => promptLower.includes(k));
-  if (!hasLighting) {
-    prompt = prompt.replace(/,?\s*$/, ", professional lighting");
-  }
-
-  // 场景一致性标签
-  if (!prompt.includes("consistent style")) {
-    prompt = prompt.replace(/,?\s*$/, ", consistent style, same character throughout");
-  }
-
-  // 清理多余空格和逗号
-  return prompt.replace(/,\s*,/g, ",").replace(/\s+/g, " ").trim();
+  return prompt;
 }
 
 /** 将 Base64 图片保存到文件系统（非阻塞） */
@@ -246,6 +145,17 @@ async function processScripting(taskId: string, request: GenerateRequest) {
   try {
     task.status = "scripting";
     task.progress = 5;
+
+    // ── 配置快照：记录生成时使用的模型 ──
+    task.generationConfig = {
+      llmModel: request.llmConfig?.model,
+      llmProvider: request.llmConfig?.provider,
+      imageModel: request.imageConfig?.model,
+      imageProvider: request.imageConfig?.endpointType,
+      quality: request.quality,
+      generatedAt: new Date().toISOString(),
+    };
+
     await saveTask(task);
     notifyListeners(task);
 
@@ -261,7 +171,7 @@ async function processScripting(taskId: string, request: GenerateRequest) {
 
     if (shouldResearch) {
       try {
-        task.streamText = "Researching topic...";
+        task.streamText = "正在研究主题...（本地模型首次加载可能需要等待）";
         notifyListeners(task);
 
         const research = await generateTopicResearch(
@@ -327,6 +237,12 @@ async function processScripting(taskId: string, request: GenerateRequest) {
     }
 
     try {
+      // 显示等待提示（本地模型加载可能需要较长时间）
+      if (!task.streamText) {
+        task.streamText = "正在生成脚本...（本地模型首次加载可能需要等待）";
+        notifyListeners(task);
+      }
+
       script = await generateScriptStream(
         finalTopic,
         request.style,
@@ -376,6 +292,18 @@ async function processScripting(taskId: string, request: GenerateRequest) {
 
     task.script = script;
     task.progress = 30;
+
+    // ── 脚本后校验：纯规则，零 LLM 调用 ──
+    const validation = validateScript(script);
+    task.scriptValidation = validation;
+    if (validation.warnings.length > 0) {
+      console.log(`[ScriptValidator] ${validation.warnings.length} warnings:`,
+        validation.warnings.map(w => `[${w.severity}] ${w.message}`));
+    }
+
+    // ── 角色描述标准化：统一各面板中的角色标签为最详细版本 ──
+    applyCanonicalCharacterDesc(script);
+
     task.status = "script_ready";
     task.updatedAt = new Date();
     await saveTask(task);
@@ -616,11 +544,15 @@ export async function generateAllImages(
     abortControllers.set(abortKey(taskId, panelIndex), panelController);
 
     try {
-      const prompt = buildEnhancedPrompt(panel.imagePrompt, panelIndex, characterDesc, script.style, totalPanels);
+      const enhanceResult = buildEnhancedPromptWithLog(panel.imagePrompt, panelIndex, characterDesc, panel.styleOverride ?? script.style, totalPanels);
+      const prompt = enhanceResult.enhanced;
+      panel.enhancementLog = enhanceResult;
       let mergedConfig = mergeReferenceImage(imageConfig, script, panel, panelIndex);
 
       // 如果首格生成了参考图且当前面板无自定义参考图，使用首格作为参考
-      if (firstPanelImage && !panel.referenceImage && !panel.referenceImages?.length) {
+      // 仅对支持 img2img 的 API 类型传递（chat/comfyui 不支持 image+strength）
+      const supportsImg2Img = mergedConfig?.endpointType === "images" || mergedConfig?.endpointType === "auto";
+      if (firstPanelImage && supportsImg2Img && !panel.referenceImage && !panel.referenceImages?.length) {
         mergedConfig = {
           ...mergedConfig,
           extraBody: {
@@ -641,7 +573,7 @@ export async function generateAllImages(
           const currentPrompt = retryCount === 0 ? prompt
             : simplifyPromptForRetry(prompt, retryCount);
           retryCount++;
-          return adapter.generate(currentPrompt, script.style, panelSeed, panelController.signal);
+          return adapter.generate(currentPrompt, panel.styleOverride ?? script.style, panelSeed, panelController.signal);
         },
         { maxRetries: 2, baseDelay: 1000 },
         panelController.signal,
@@ -693,4 +625,9 @@ export async function generateAllImages(
   task.updatedAt = new Date();
   await flushThrottledSave(task);
   notifyListeners(task);
+
+  // 生成完成后清理 eventBus 中该任务的临时状态，防止内存泄漏
+  if (allCompleted) {
+    cleanupTaskState(taskId);
+  }
 }

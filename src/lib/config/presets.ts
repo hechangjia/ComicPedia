@@ -51,6 +51,13 @@ export const LLM_PRESETS: LLMPreset[] = [
     protocolType: "openai-compatible",
   },
   {
+    id: "ollama",
+    name: "Ollama (本地)",
+    apiUrl: "http://localhost:11434/v1",
+    defaultModel: "qwen3.5:4b",
+    protocolType: "openai-compatible",
+  },
+  {
     id: "nano-banana",
     name: "Nano Banana",
     apiUrl: "https://api.nanobanana.com/v1",
@@ -104,6 +111,14 @@ export const IMAGE_PRESETS: ImagePreset[] = [
     defaultModel: "banana-image-xl",
     defaultSize: "1024x1024",
     defaultEndpointType: "images",
+  },
+  {
+    id: "comfyui" as APIProvider,
+    name: "ComfyUI (本地)",
+    apiUrl: "http://localhost:8188",
+    defaultModel: "comfyui-workflow",
+    defaultSize: "1024x1024",
+    defaultEndpointType: "comfyui",
   },
   {
     id: "custom",

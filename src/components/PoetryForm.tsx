@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { PoetryGenre } from "@/lib/types";
 import { useContentForm } from "@/hooks/useContentForm";
 import { StyleSelector } from "./StyleSelector";
@@ -59,6 +59,14 @@ export function PoetryForm({ initialContent = "" }: { initialContent?: string })
     },
     useCallback(() => content, [content]),
   );
+
+  // 恢复草稿文本
+  useEffect(() => {
+    if (!initialContent) {
+      const draft = form.getDraftInputText();
+      if (draft) setContent(draft);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleGenerate = () => form.handleSubmit(content, {
     poetryGenre: genre,

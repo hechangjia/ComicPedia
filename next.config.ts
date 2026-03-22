@@ -3,6 +3,9 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "standalone",
   serverExternalPackages: ["better-sqlite3"],
+  turbopack: {
+    root: __dirname,
+  },
   env: {
     // 展示模式：服务端 SHOWCASE_MODE → 客户端 NEXT_PUBLIC_SHOWCASE_MODE
     NEXT_PUBLIC_SHOWCASE_MODE: process.env.SHOWCASE_MODE || "false",

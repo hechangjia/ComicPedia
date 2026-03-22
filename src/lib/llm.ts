@@ -1,12 +1,18 @@
 import { Character, ComicScript, ComicStyle, ContentType, NovelMeta, PartialLLMConfig, PoetryGenre, PoetryMeta, WikipediaContent } from "./types";
-import { buildScriptPrompt, parseScriptResponse } from "@/prompts/scriptGenerator";
-import { buildPoetryPrompt, parsePoetryResponse } from "@/prompts/poetryGenerator";
-import { buildXhsPrompt } from "@/prompts/xhsGenerator";
 import { getContentHandler } from "./contentRegistry";
 import { withRetry } from "./retryQueue";
 
 /** SSE 流式 chunk 回调：每次收到新文本时触发 */
 export type StreamChunkCallback = (chunk: string, accumulated: string) => void;
+
+/** 通用 LLM 调用（自动路由 OpenAI/Anthropic，通过 /api/llm 代理） */
+export async function callLLM(prompt: string, overrides?: PartialLLMConfig): Promise<string> {
+  const config = getLLMConfig(overrides);
+  if (config.provider === "anthropic") {
+    return callAnthropic(prompt, config);
+  }
+  return callOpenAICompatible(prompt, config);
+}
 
 /** LLM 配置 */
 interface LLMConfig {
@@ -19,12 +25,12 @@ interface LLMConfig {
 /** 获取 LLM 配置 */
 function getLLMConfig(overrides?: PartialLLMConfig): LLMConfig {
   const apiUrl = overrides?.apiUrl;
-  const apiKey = overrides?.apiKey;
+  const apiKey = overrides?.apiKey || "";
   const model = overrides?.model || "gpt-4o-mini";
   const provider = (overrides?.provider || "openai-compatible") as LLMConfig["provider"];
 
-  if (!apiUrl || !apiKey) {
-    throw new Error("未配置 LLM API，请在设置页面配置 API URL 和 API Key");
+  if (!apiUrl) {
+    throw new Error("未配置 LLM API，请在设置页面配置 API URL");
   }
 
   return { apiUrl, apiKey, model, provider };
@@ -53,7 +59,7 @@ async function callOpenAICompatible(prompt: string, config: LLMConfig): Promise<
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         targetUrl: normalizedUrl,
-        headers: { Authorization: `Bearer ${config.apiKey}` },
+        headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {},
         payload: requestBody,
       }),
     });
@@ -580,6 +586,50 @@ Requirements:
   return response.trim();
 }
 
+/**
+ * 根据 Character 的外观数据生成高质量参考图 prompt。
+ * 比直接拼接外观字段更精准，LLM 会补充姿态、光影、构图等细节。
+ */
+export async function generateCharacterReferencePrompt(
+  character: Character,
+  style?: ComicStyle,
+  llmOverrides?: PartialLLMConfig,
+): Promise<string> {
+  const config = getLLMConfig(llmOverrides);
+  const isNonHuman = !!character.appearance.species;
+
+  const appearanceParts: string[] = [];
+  if (isNonHuman && character.appearance.species) appearanceParts.push(`Species: ${character.appearance.species}`);
+  if (character.appearance.gender) appearanceParts.push(`Gender: ${character.appearance.gender}`);
+  if (character.appearance.age) appearanceParts.push(`Age: ${character.appearance.age}`);
+  if (character.appearance.hair) appearanceParts.push(`Hair: ${character.appearance.hair}`);
+  if (character.appearance.eyes) appearanceParts.push(`Eyes: ${character.appearance.eyes}`);
+  if (character.appearance.clothing) appearanceParts.push(`Clothing: ${character.appearance.clothing}`);
+  if (character.description) appearanceParts.push(`Description: ${character.description}`);
+
+  const prompt = `You are an expert character portrait prompt writer for AI image generation. Generate a detailed portrait prompt for this character.
+
+Character: ${character.name}
+${appearanceParts.join("\n")}
+${style ? `Art Style: ${style}` : ""}
+
+Requirements:
+- Output ONLY the English image prompt, no other text
+- Solo portrait, single character only, facing the viewer
+- Include: face details, hair, clothing, expression, pose, background, lighting
+- Under 150 words, highly detailed
+- Suitable for consistent character reference across multiple illustrations`;
+
+  let response: string;
+  if (config.provider === "anthropic") {
+    response = await callAnthropic(prompt, config);
+  } else {
+    response = await callOpenAICompatible(prompt, config);
+  }
+
+  return response.trim();
+}
+
 /** 角色 prompt 结果 */
 export interface CharacterPromptResult {
   name: string;
@@ -813,7 +863,7 @@ async function callOpenAIWithMessages(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         targetUrl: normalizedUrl,
-        headers: { Authorization: `Bearer ${config.apiKey}` },
+        headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {},
         payload: requestBody,
       }),
     });

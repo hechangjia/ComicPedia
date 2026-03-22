@@ -135,13 +135,24 @@ function taskToRow(task: GenerateTask) {
   };
 }
 
+/** Safe JSON.parse — returns undefined on corrupted data instead of crashing */
+function safeJsonParse<T>(json: string | null | undefined, fallback?: T): T | undefined {
+  if (!json) return fallback;
+  try {
+    return JSON.parse(json);
+  } catch (err) {
+    console.error('[DB] JSON parse failed for data:', json.slice(0, 100), err);
+    return fallback;
+  }
+}
+
 function rowToTask(row: Record<string, unknown>): GenerateTask {
   return {
     id: row.id as string,
     status: row.status as GenerateTask["status"],
     progress: row.progress as number,
-    script: row.script ? JSON.parse(row.script as string) : undefined,
-    character: row.character ? JSON.parse(row.character as string) : undefined,
+    script: safeJsonParse(row.script as string | null),
+    character: safeJsonParse(row.character as string | null),
     error: (row.error as string) ?? undefined,
     createdAt: new Date(row.created_at as string),
     updatedAt: new Date(row.updated_at as string),
@@ -223,12 +234,12 @@ function rowToChar(row: Record<string, unknown>): Character {
     id: row.id as string,
     name: row.name as string,
     description: row.description as string,
-    appearance: JSON.parse(row.appearance as string),
+    appearance: safeJsonParse(row.appearance as string) ?? { gender: '', age: '', hair: '', eyes: '', clothing: '' },
     style: row.style as Character["style"],
     avatarUrl: (row.avatar_url as string) ?? null,
-    referenceEntries: JSON.parse(row.reference_entries as string),
-    tags: JSON.parse(row.tags as string),
-    variants: row.variants ? JSON.parse(row.variants as string) : undefined,
+    referenceEntries: safeJsonParse(row.reference_entries as string) ?? [],
+    tags: safeJsonParse(row.tags as string) ?? [],
+    variants: safeJsonParse(row.variants as string | null),
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   };
@@ -304,8 +315,8 @@ function rowToSeries(row: Record<string, unknown>): Series {
     contentType: row.content_type as Series["contentType"],
     style: row.style as Series["style"],
     characterDescription: (row.character_description as string) ?? undefined,
-    characterIds: row.character_ids ? JSON.parse(row.character_ids as string) : undefined,
-    episodes: JSON.parse(row.episodes as string),
+    characterIds: safeJsonParse(row.character_ids as string | null),
+    episodes: safeJsonParse(row.episodes as string) ?? [],
     coverUrl: (row.cover_url as string) ?? undefined,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
@@ -343,7 +354,8 @@ const stmtUpsertConfig = db.prepare(`
 
 export function getConfig(): UserAPIConfigV2 | null {
   const row = stmtGetConfig.get() as { data: string } | undefined;
-  return row ? JSON.parse(row.data) : null;
+  if (!row) return null;
+  return safeJsonParse<UserAPIConfigV2>(row.data) ?? null;
 }
 
 export function saveConfig(config: UserAPIConfigV2): void {

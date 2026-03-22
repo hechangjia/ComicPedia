@@ -1,5 +1,6 @@
 import { ComicScript, ComicStyle, NovelGenre, NovelMeta } from "../lib/types";
 import { getStyleGuidanceForLLM } from "../lib/config/styles";
+import { extractJSON } from "./scriptGenerator";
 
 /** 小说体裁描述 */
 const GENRE_DESCRIPTIONS: Record<NovelGenre, string> = {
@@ -105,19 +106,26 @@ ${panelGuidance}
 ## 角色一致性规则
 
 1. **characterDescription 包含所有角色的完整外观描述**
-2. **每格 imagePrompt 开头复制当前画面中出现的角色描述**（一字不差）
-3. **服饰和年龄全程一致**，同一场景中角色外观不变
-4. 格式：[角色名: 完整描述] + 该格的动作和场景
+2. **每格 imagePrompt 只复制当前画面中实际出现的角色描述**（极其重要！）
+   - 如果这格只有角色A独处，只写 [角色A: 描述]，绝不添加角色B
+   - 如果这格有角色A和B互动，写 [角色A: 描述] [角色B: 描述]
+   - 如果这格没有角色（纯风景/物品），不写任何角色描述
+3. **同一角色的外观描述全程一字不差**，禁止同义词替换
+4. **单人场景必须加 "solo, single character" 标记**，防止其他角色入侵画面
 
 ### 正确示例
 characterDescription:
 "[Lin Daiyu: young Chinese woman in her late teens, very slender and frail build, pale delicate oval face, thin arched eyebrows, sorrowful expressive eyes often with tears, long straight black hair loosely tied with silk ribbon, wearing Qing Dynasty-style light pink and white flowing robes with floral embroidery, melancholic poetic aura] [Jia Baoyu: young Chinese man in his teens, handsome fair-skinned face, bright lively eyes, wearing Qing Dynasty nobleman red silk robe with jade pendant necklace, playful yet sensitive temperament]"
 
-Panel imagePrompt:
-"[Lin Daiyu: young Chinese woman in her late teens, very slender and frail build, pale delicate oval face, thin arched eyebrows, sorrowful expressive eyes often with tears, long straight black hair loosely tied with silk ribbon, wearing Qing Dynasty-style light pink and white flowing robes with floral embroidery, melancholic poetic aura] sitting alone under a blossoming peach tree, burying fallen petals with a small garden hoe, tears streaming down her face, autumn leaves falling around her, traditional Chinese garden with pavilion in background, soft warm sunset light, ${style} style, cinematic composition, NO Japanese text, absolutely no visible text, text-free image"
+Panel 1（双人场景）imagePrompt:
+"[Lin Daiyu: young Chinese woman in her late teens, very slender and frail build, ...完整描述...] [Jia Baoyu: young Chinese man in his teens, ...完整描述...] standing together in a garden, Baoyu offering a silk handkerchief, ..."
+
+Panel 2（单人场景，只有黛玉）imagePrompt:
+"[Lin Daiyu: young Chinese woman in her late teens, very slender and frail build, ...完整描述...] solo, single character, sitting alone under a blossoming peach tree, burying fallen petals with a small garden hoe, tears streaming down her face, ..."
 
 ## 图像规格
 所有 imagePrompt 必须在末尾添加：", ${style} style, cinematic composition, NO Japanese text, NO Korean text, absolutely no visible text, no captions, no labels, no watermarks, text-free image"
+单人场景额外添加：", solo, single character, only one person"
 
 ## 输出格式
 请严格按以下 JSON 格式输出，不要添加任何其他内容：
@@ -152,10 +160,10 @@ Panel imagePrompt:
 /** 解析小说脚本响应 */
 export function parseNovelResponse(response: string): ComicScript | null {
   try {
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
+    const parsed = extractJSON(response);
+    if (!parsed || typeof parsed !== "object") return null;
 
-    const script = JSON.parse(jsonMatch[0]) as ComicScript & {
+    const script = parsed as ComicScript & {
       characterDescription?: string;
     };
 
@@ -173,10 +181,15 @@ export function parseNovelResponse(response: string): ComicScript | null {
       dialogue = dialogue.replace(/^(旁白|教授|导师|解说员|讲解员|老师|narrator)[/／]?[^：:]*[：:]\s*/i, "");
       dialogue = dialogue.replace(/^\(?(独白|旁白|内心独白)\)?\s*[：:]?\s*/i, "");
 
-      // 强制注入角色描述到开头（不依赖 LLM 遵守规则）
+      // 角色描述处理：保留 LLM 写的 per-panel 角色标签（只包含该画面中出现的角色）
+      // 如果 LLM 没写任何 [角色:...] 标签，且有全局角色描述，才注入全局描述作为兜底
       if (characterDesc) {
-        const cleanPrompt = imagePrompt.replace(/^\[.*?\]\s*/g, "");
-        imagePrompt = `${characterDesc} ${cleanPrompt}`;
+        const hasPerPanelCharTags = /\[[\w\s\-'\.]+:/.test(imagePrompt);
+        if (!hasPerPanelCharTags) {
+          // LLM 未按要求写角色标签，注入全局描述作为兜底
+          imagePrompt = `${characterDesc} ${imagePrompt}`;
+        }
+        // 如果 LLM 已经写了 per-panel 角色标签，保持不变（只包含该画面的角色）
       }
 
       // 确保末尾有语言限制和无文字标记
@@ -184,8 +197,7 @@ export function parseNovelResponse(response: string): ComicScript | null {
         imagePrompt = imagePrompt.replace(/,?\s*$/, ", NO Japanese text, NO Korean text, absolutely no visible text, no captions, no labels, no watermarks, text-free image");
       }
 
-      // 清理非英文字符
-      imagePrompt = cleanNonEnglishFromPrompt(imagePrompt);
+      // 注：CJK 字符清理已移至 promptEnhancer（生图前处理）
 
       return {
         ...panel,

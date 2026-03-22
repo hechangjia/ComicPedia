@@ -1,5 +1,6 @@
 import { ComicScript, ComicStyle } from "../lib/types";
 import { getStyleGuidanceForLLM } from "../lib/config/styles";
+import { extractJSON } from "./scriptGenerator";
 
 /** 诗词体裁 */
 export type PoetryGenre =
@@ -162,7 +163,7 @@ ${eraCostumeGuide}
 
 ### 角色一致性规则（所有格必须遵守）
 
-1. **characterDescription 字段必须包含完整的主角外观描述**（50-80词）：
+1. **characterDescription 字段必须包含完整的主角外观描述**（40-60词）：
    - 准确的年龄段（如 in his 40s-50s）
    - 体型特征（如 slightly plump build, tall slender）
    - 面部特征（如 full rounded face, long black beard）
@@ -205,7 +206,7 @@ Panel 2 imagePrompt:
   "originalText": "完整原文",
   "author": "${meta?.author || "作者"}",
   "era": "${meta?.era || "时代"}",
-  "characterDescription": "[主角名: 50-80词的完整外观描述，必须包含年龄、体型、面部、服饰、气质]",
+  "characterDescription": "[主角名: 40-60词的完整外观描述，必须包含年龄、体型、面部、服饰、气质]",
   "panels": [
     {
       "id": 1,
@@ -222,10 +223,10 @@ Panel 2 imagePrompt:
 /** 解析诗词脚本响应 */
 export function parsePoetryResponse(response: string): ComicScript | null {
   try {
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
+    const parsed = extractJSON(response);
+    if (!parsed || typeof parsed !== "object") return null;
 
-    const script = JSON.parse(jsonMatch[0]) as ComicScript & {
+    const script = parsed as ComicScript & {
       originalText?: string;
       author?: string;
       characterDescription?: string;
@@ -240,11 +241,13 @@ export function parsePoetryResponse(response: string): ComicScript | null {
     script.panels = script.panels.map((panel, index) => {
       let imagePrompt = panel.imagePrompt || "";
 
-      // 强制注入角色描述到开头（不依赖 LLM 遵守规则）
+      // 角色描述处理：保留 LLM 写的 per-panel 角色标签
       if (characterDesc) {
-        // 移除可能存在的旧描述，重新添加以确保一致性
-        const cleanPrompt = imagePrompt.replace(/^\[.*?\]\s*/g, "");
-        imagePrompt = `${characterDesc} ${cleanPrompt}`;
+        const hasPerPanelCharTags = /\[[\w\s\-'\.]+:/.test(imagePrompt);
+        if (!hasPerPanelCharTags) {
+          const cleanPrompt = imagePrompt.replace(/^\[.*?\]\s*/g, "");
+          imagePrompt = `${characterDesc} ${cleanPrompt}`;
+        }
       }
 
       // 确保末尾有无文字标记（精简版，详细反文字交给 negative_prompt）
@@ -252,8 +255,7 @@ export function parsePoetryResponse(response: string): ComicScript | null {
         imagePrompt = imagePrompt.replace(/,?\s*$/, ", text-free image, no watermark");
       }
 
-      // 清理非英文字符
-      imagePrompt = cleanNonEnglishFromPrompt(imagePrompt);
+      // 注：CJK 字符清理已移至 promptEnhancer（生图前处理）
 
       return {
         ...panel,

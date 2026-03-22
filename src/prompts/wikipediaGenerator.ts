@@ -125,7 +125,7 @@ ${isInfoStyle
 - 也可以使用简笔画小人(stick figure)作为引导元素`
     : `- 可以使用"百科讲解员"或"知识探索者"作为引导角色
 - 也可以用相关的历史人物、科学家作为叙事主角
-- characterDescription 使用英文描述外观特征（30-50词）
+- characterDescription 使用英文描述外观特征（40-60词）
 - 每格 imagePrompt 以完整 characterDescription 开头`}
 
 ${imageGuidance}
@@ -138,7 +138,7 @@ ${imageGuidance}
   "title": "漫画标题（中文，简洁有趣）",
   "topic": "${content.title}",
   "style": "${style}",
-  "characterDescription": "${isInfoStyle ? '可为空字符串，或简笔画角色描述' : '[角色名: 30-50词英文外观描述]'}",
+  "characterDescription": "${isInfoStyle ? '可为空字符串，或简笔画角色描述' : '[角色名: 40-60词英文外观描述]'}",
   "seed": ${Math.floor(Math.random() * 1000000)},
   "panels": [
     {

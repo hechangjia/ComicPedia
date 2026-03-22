@@ -1,22 +1,35 @@
 "use client";
 
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { ComicStyle } from "@/lib/types";import { cancelGeneration } from "@/lib/client/generator";
+import { ComicStyle, QuizQuestion, RelatedTopic } from "@/lib/types";
+import { cancelGeneration } from "@/lib/client/generator";
+import { saveTask } from "@/lib/client/db";
 import { downloadTextFile } from "@/lib/downloadUtils";
 import { GeneratingAnimation } from "@/components/GeneratingAnimation";
 import { TitleSkeleton, ComicGridSkeleton } from "@/components/Skeleton";
 import { useTaskSubscription } from "@/hooks/useTaskSubscription";
 import { useTaskActions } from "@/hooks/useTaskActions";
-import { getStoredConfigs } from "@/hooks/useAPIConfig";
+import { getStoredConfigs, getStoredRequestConfigs } from "@/hooks/useAPIConfig";
 import { StyleSwitcher } from "@/components/result/StyleSwitcher";
 import { ScriptReadyBar } from "@/components/result/ScriptReadyBar";
+import { ScriptValidationPanel } from "@/components/result/ScriptValidationPanel";
 import { CompletedActions } from "@/components/result/CompletedActions";
 import { PanelGrid } from "@/components/result/PanelGrid";
 import { QualityScorePanel } from "@/components/result/QualityScorePanel";
 import "@/app/result/print.css";
+
+const QuizPanel = dynamic(() =>
+  import("@/components/result/QuizPanel").then((m) => ({ default: m.QuizPanel }))
+);
+const RelatedTopicsPanel = dynamic(() =>
+  import("@/components/result/RelatedTopicsPanel").then((m) => ({ default: m.RelatedTopicsPanel }))
+);
+const ShareCardButton = dynamic(() =>
+  import("@/components/result/ShareCardButton").then((m) => ({ default: m.ShareCardButton }))
+);
 
 const ReferenceImagePanel = dynamic(() =>
   import("@/components/ReferenceImagePanel").then((m) => ({ default: m.ReferenceImagePanel }))
@@ -46,6 +59,7 @@ export default function ResultPage() {
     handleCancel,
     handleVersionChange,
     handleGenerateAll,
+    handleRetryFailed,
     handleReferenceImageChange,
     handleReferenceImagesChange,
     handleControlModeChange,
@@ -55,12 +69,32 @@ export default function ResultPage() {
     handleRefEntriesChange,
     handleRegenerateScript,
     handleChangeStyle,
+    handleReorder,
     generatingAll,
     actionError,
     clearActionError,
   } = useTaskActions(taskId, setTask, imageIdRef, llmIdRef);
 
   const [viewMode, setViewMode] = useState<"edit" | "read" | "play">("edit");
+
+  // 持久化测验/延伸阅读结果
+  const handleQuizGenerated = useCallback((questions: QuizQuestion[]) => {
+    setTask((prev) => {
+      if (!prev?.script) return prev;
+      const updated = { ...prev, script: { ...prev.script, quiz: questions }, updatedAt: new Date() };
+      saveTask(updated).catch(console.error);
+      return updated;
+    });
+  }, [setTask]);
+
+  const handleRelatedTopicsGenerated = useCallback((topics: RelatedTopic[]) => {
+    setTask((prev) => {
+      if (!prev?.script) return prev;
+      const updated = { ...prev, script: { ...prev.script, relatedTopics: topics }, updatedAt: new Date() };
+      saveTask(updated).catch(console.error);
+      return updated;
+    });
+  }, [setTask]);
 
   // 导出 Markdown
   const handleExportMarkdown = () => {
@@ -141,6 +175,7 @@ export default function ResultPage() {
 
   const totalPanels = task.script?.panels.length ?? 0;
   const completedPanels = task.script?.panels.filter(p => p.status === "completed").length ?? 0;
+  const failedPanels = task.script?.panels.filter(p => p.status === "failed" || p.status === "pending").length ?? 0;
   const pendingPanels = totalPanels - completedPanels;
 
   // ── 渲染：主页面 ──
@@ -164,6 +199,27 @@ export default function ResultPage() {
         </h1>
         {task.script?.topic && (
           <p className="text-muted-foreground text-sm sm:text-base no-print">{task.script.topic}</p>
+        )}
+
+        {/* 生成配置快照 */}
+        {task.generationConfig && (isCompleted || isScriptReady) && (
+          <div className="flex flex-wrap justify-center gap-2 text-[11px] text-muted-foreground no-print">
+            {task.generationConfig.llmModel && (
+              <span className="px-2 py-0.5 rounded-full bg-muted/60">
+                LLM: {task.generationConfig.llmModel}
+              </span>
+            )}
+            {task.generationConfig.imageModel && (
+              <span className="px-2 py-0.5 rounded-full bg-muted/60">
+                图片: {task.generationConfig.imageModel}
+              </span>
+            )}
+            {task.generationConfig.quality && (
+              <span className="px-2 py-0.5 rounded-full bg-muted/60">
+                质量: {task.generationConfig.quality}
+              </span>
+            )}
+          </div>
         )}
 
         {/* Topic research result */}
@@ -282,6 +338,37 @@ export default function ResultPage() {
         />
       )}
 
+      {/* 脚本质量检查警告 */}
+      {isScriptReady && task.scriptValidation && task.scriptValidation.warnings.length > 0 && (
+        <ScriptValidationPanel validation={task.scriptValidation} />
+      )}
+
+      {/* 失败面板重试提示 */}
+      {isScriptReady && failedPanels > 0 && completedPanels > 0 && (
+        <div className="p-4 rounded-xl border bg-amber-50 dark:bg-amber-900/20 no-print">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+              <p className="text-sm text-amber-800 dark:text-amber-200">
+                {failedPanels} 个面板未完成（已完成 {completedPanels}/{totalPanels}）
+              </p>
+            </div>
+            <button
+              onClick={handleRetryFailed}
+              disabled={generatingAll}
+              className="px-4 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-50 flex items-center gap-1.5 min-h-[40px] shrink-0"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              {generatingAll ? "重试中..." : `重试失败面板 (${failedPanels})`}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 参考图设置 */}
       {(isScriptReady || isCompleted) && task.script && (
         <ReferenceImagePanel
@@ -332,10 +419,14 @@ export default function ResultPage() {
           taskId={taskId}
           taskStatus={task.status}
           viewMode={viewMode === "read" ? "read" : "edit"}
+          globalStyle={task.script.style}
+          script={task.script}
+          llmConfig={getStoredRequestConfigs(llmIdRef.current || undefined).llmConfig}
           onPanelUpdate={handlePanelUpdate}
           onRegenerate={handleRegenerate}
           onCancel={handleCancel}
           onVersionChange={handleVersionChange}
+          onReorder={handleReorder}
         />
       )}
 
@@ -344,13 +435,36 @@ export default function ResultPage() {
         <QualityScorePanel script={task.script} />
       )}
 
+      {/* 知识测验 */}
+      {isCompleted && task.script && (
+        <QuizPanel
+          script={task.script}
+          llmConfig={getStoredRequestConfigs(llmIdRef.current || undefined).llmConfig}
+          onQuizGenerated={handleQuizGenerated}
+        />
+      )}
+
+      {/* 延伸阅读（仅 wikipedia/science 类型） */}
+      {isCompleted && task.script && (
+        <RelatedTopicsPanel
+          script={task.script}
+          llmConfig={getStoredRequestConfigs(llmIdRef.current || undefined).llmConfig}
+          onRelatedTopicsGenerated={handleRelatedTopicsGenerated}
+        />
+      )}
+
       {/* 操作按钮 */}
       {isCompleted && task.script && (
         <CompletedActions
           script={task.script}
+          taskId={taskId}
+          llmConfigs={storedConfigs.llmConfigs}
           imageConfigs={storedConfigs.imageConfigs}
+          activeLLMId={storedConfigs.activeLLMId ?? ""}
           activeImageId={storedConfigs.activeImageId ?? ""}
+          selectedLLMId={selectedLLMId}
           selectedImageId={selectedImageId}
+          onSelectedLLMIdChange={setSelectedLLMId}
           onSelectedImageIdChange={setSelectedImageId}
           onExportMarkdown={handleExportMarkdown}
         />

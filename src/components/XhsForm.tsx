@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useContentForm } from "@/hooks/useContentForm";
 import { StyleSelector } from "./StyleSelector";
 import { PanelCountSelector } from "./PanelCountSelector";
@@ -30,6 +30,14 @@ export function XhsForm({ initialTopic = "" }: { initialTopic?: string }) {
     },
     useCallback(() => topic, [topic]),
   );
+
+  // 恢复草稿文本
+  useEffect(() => {
+    if (!initialTopic) {
+      const draft = form.getDraftInputText();
+      if (draft) setTopic(draft);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleGenerate = () => form.handleSubmit(topic);
 

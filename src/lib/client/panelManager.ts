@@ -5,6 +5,7 @@ import { withRetry } from "@/lib/retryQueue";
 import { saveTask, getTask } from "./db";
 import { notifyListeners } from "./eventBus";
 import { abortControllers, abortKey } from "./abortManager";
+import { buildEnhancedPrompt, mergeReferenceImage } from "./promptEnhancer";
 
 /** 每个面板最多保留的历史版本数 */
 const MAX_IMAGE_VERSIONS = 10;
@@ -20,53 +21,6 @@ export function pushImageVersion(panel: ComicPanel, imageUrl: string): void {
     panel.imageVersions.shift();
   }
   panel.activeVersionIndex = panel.imageVersions.length - 1;
-}
-
-/**
- * 将参考图（panel 级优先于 script 级）合并到 imageConfig.extraBody 中。
- * 支持多参考图：多张时按面板索引轮换使用。
- */
-function mergeReferenceImage(
-  imageConfig: PartialImageGenConfig | undefined,
-  script: ComicScript,
-  panel: ComicPanel,
-  panelIndex?: number,
-): PartialImageGenConfig | undefined {
-  const refImages = panel.referenceImages ?? script.referenceImages;
-  const refImage = panel.referenceImage ?? script.referenceImage;
-
-  let selectedImage: string | undefined;
-  if (refImages && refImages.length > 0) {
-    const idx = (panelIndex ?? 0) % refImages.length;
-    selectedImage = refImages[idx];
-  } else {
-    selectedImage = refImage;
-  }
-
-  if (!selectedImage) return imageConfig;
-
-  const merged = { ...imageConfig };
-  merged.extraBody = {
-    ...merged.extraBody,
-    control_image: selectedImage,
-    control_mode: script.controlMode ?? "HED",
-  } as ZImageExtraBody;
-  return merged;
-}
-
-/**
- * 构建增强 prompt：确保角色描述锚定。
- */
-function buildEnhancedPrompt(
-  basePrompt: string,
-  panelIndex: number,
-  characterDesc?: string,
-): string {
-  let prompt = basePrompt;
-  if (characterDesc && !prompt.startsWith("[")) {
-    prompt = `${characterDesc} ${prompt}`;
-  }
-  return prompt;
 }
 
 /**
@@ -104,7 +58,7 @@ async function saveImageToFileSystem(
 export async function updatePanel(
   taskId: string,
   panelIndex: number,
-  updates: Partial<Pick<ComicPanel, "scene" | "dialogue" | "imagePrompt">>,
+  updates: Partial<Pick<ComicPanel, "scene" | "dialogue" | "imagePrompt" | "styleOverride">>,
 ): Promise<GenerateTask | null> {
   const task = await getTask(taskId);
   if (!task?.script) return null;
@@ -115,6 +69,7 @@ export async function updatePanel(
   if (updates.scene !== undefined) panel.scene = updates.scene;
   if (updates.dialogue !== undefined) panel.dialogue = updates.dialogue;
   if (updates.imagePrompt !== undefined) panel.imagePrompt = updates.imagePrompt;
+  if (updates.styleOverride !== undefined) panel.styleOverride = updates.styleOverride;
 
   task.updatedAt = new Date();
   await saveTask(task);
@@ -148,12 +103,38 @@ export async function setActiveVersion(
 }
 
 /**
- * 重新生成单个面板的图片。
+ * 重新排序面板：将 fromIndex 的面板移动到 toIndex 位置。
  */
+export async function reorderPanels(
+  taskId: string,
+  fromIndex: number,
+  toIndex: number,
+): Promise<void> {
+  const task = await getTask(taskId);
+  if (!task?.script) throw new Error("任务或脚本不存在");
+
+  const panels = [...task.script.panels];
+  if (fromIndex < 0 || fromIndex >= panels.length || toIndex < 0 || toIndex >= panels.length) {
+    throw new Error("面板索引超出范围");
+  }
+
+  // 移除并插入
+  const [moved] = panels.splice(fromIndex, 1);
+  panels.splice(toIndex, 0, moved);
+
+  // 重新编号 panel.id
+  panels.forEach((p, i) => { p.id = i + 1; });
+
+  task.script.panels = panels;
+  task.updatedAt = new Date();
+  await saveTask(task);
+  notifyListeners(task);
+}
 export async function regeneratePanel(
   taskId: string,
   panelIndex: number,
   imageConfig?: PartialImageGenConfig,
+  seedOverride?: number,
 ): Promise<void> {
   const task = await getTask(taskId);
   if (!task?.script) throw new Error("任务或脚本不存在");
@@ -183,12 +164,12 @@ export async function regeneratePanel(
     const characterDesc = script.characterDescription;
     const baseSeed = script.seed;
 
-    const prompt = buildEnhancedPrompt(panel.imagePrompt, panelIndex, characterDesc);
+    const prompt = buildEnhancedPrompt(panel.imagePrompt, panelIndex, characterDesc, panel.styleOverride ?? script.style, script.panels.length);
     const mergedConfig = mergeReferenceImage(imageConfig, script, panel, panelIndex);
     const adapter = getImageAdapter(mergedConfig);
-    const panelSeed = baseSeed !== undefined ? baseSeed + panelIndex : undefined;
+    const panelSeed = seedOverride ?? (baseSeed !== undefined ? baseSeed + panelIndex : undefined);
     const imageUrl = await withRetry(
-      () => adapter.generate(prompt, script.style, panelSeed, controller.signal),
+      () => adapter.generate(prompt, panel.styleOverride ?? script.style, panelSeed, controller.signal),
       { maxRetries: 2, baseDelay: 1000 },
       controller.signal,
     );
@@ -200,9 +181,14 @@ export async function regeneratePanel(
     // 后台异步转换 + 保存
     urlToBase64(imageUrl)
       .then((base64) => {
-        panel.imageUrl = base64;
-        pushImageVersion(panel, base64);
-        saveImageToFileSystem(task.id, panelIndex, base64, script.title);
+        try {
+          panel.imageUrl = base64;
+          pushImageVersion(panel, base64);
+          saveImageToFileSystem(task.id, panelIndex, base64, script.title);
+          notifyListeners(task);
+        } catch (innerErr) {
+          console.error(`Panel ${panelIndex} post-conversion processing failed:`, innerErr);
+        }
       })
       .catch((err) => {
         console.warn(`Panel ${panelIndex} Base64 conversion failed:`, err);

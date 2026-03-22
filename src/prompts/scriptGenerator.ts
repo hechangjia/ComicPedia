@@ -131,7 +131,7 @@ imagePrompt 描述的是**纯视觉画面**，文生图模型会把任何文字�
 如果选择了策略 A 或 C（有角色），必须遵守：
 
 1. 将角色的**完整外观描述**写入 characterDescription 字段，格式：
-   "[角色名: 30-50词详细英文外观描述，包含年龄、体型、发型、服装、显著特征]"
+   "[角色名: 40-60词详细英文外观描述，包含年龄、体型、发型、服装、显著特征]"
 
 2. 每格 imagePrompt 以**完整的 characterDescription 开头**（一字不差地复制）
 
@@ -181,14 +181,45 @@ Panel 5:（概念深入格，人物退场）"abstract visualization of attention
 请开始创作：`;
 }
 
+/** 从 LLM 响应中安全提取 JSON 对象 */
+export function extractJSON(response: string): unknown | null {
+  // 1. 先清理 markdown code fence
+  let cleaned = response.trim();
+  cleaned = cleaned.replace(/^```(?:json)?\s*/m, "").replace(/\s*```\s*$/m, "");
+
+  // 2. 尝试直接解析（LLM 可能返回纯 JSON）
+  try {
+    return JSON.parse(cleaned);
+  } catch { /* 继续尝试 */ }
+
+  // 3. 查找第一个 { 到其匹配的 }（平衡括号）
+  const start = cleaned.indexOf("{");
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+    if (escape) { escape = false; continue; }
+    if (ch === "\\") { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === "{") depth++;
+    if (ch === "}") { depth--; if (depth === 0) {
+      try { return JSON.parse(cleaned.slice(start, i + 1)); } catch { return null; }
+    }}
+  }
+  return null;
+}
+
 /** 解析 LLM 返回的脚本 */
 export function parseScriptResponse(response: string): ComicScript | null {
   try {
-    // 尝试提取 JSON 部分
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
+    const parsed = extractJSON(response);
+    if (!parsed || typeof parsed !== "object") return null;
 
-    const script = JSON.parse(jsonMatch[0]) as ComicScript & {
+    const script = parsed as ComicScript & {
       characterDescription?: string;
       seed?: number;
     };
@@ -219,10 +250,14 @@ export function parseScriptResponse(response: string): ComicScript | null {
         imagePrompt = `${imagePrompt}, ${sceneExpansion}, detailed illustration, high quality`.replace(/^,\s*/, "");
       }
 
-      // 强制注入角色描述到开头（不依赖 LLM 遵守规则）
+      // 角色描述处理：保留 LLM 写的 per-panel 角色标签
+      // 如果 LLM 没写任何 [角色:...] 标签，且有全局角色描述，才注入全局描述作为兜底
       if (characterDesc) {
-        const cleanPrompt = imagePrompt.replace(/^\[.*?\]\s*/g, "");
-        imagePrompt = `${characterDesc} ${cleanPrompt}`;
+        const hasPerPanelCharTags = /\[[\w\s\-'\.]+:/.test(imagePrompt);
+        if (!hasPerPanelCharTags) {
+          const cleanPrompt = imagePrompt.replace(/^\[.*?\]\s*/g, "");
+          imagePrompt = `${characterDesc} ${cleanPrompt}`;
+        }
       }
 
       // 确保末尾有无文字标记
@@ -230,8 +265,7 @@ export function parseScriptResponse(response: string): ComicScript | null {
         imagePrompt = imagePrompt.replace(/,?\s*$/, ", text-free image, no watermark");
       }
 
-      // 清理可能的非英文字符
-      imagePrompt = cleanNonEnglishFromPrompt(imagePrompt);
+      // 注：CJK 字符清理已移至 promptEnhancer（生图前处理），解析阶段保留原始内容便于用户编辑
 
       return {
         ...panel,
@@ -241,6 +275,9 @@ export function parseScriptResponse(response: string): ComicScript | null {
         status: "pending" as const,
       };
     });
+
+    // 强制面板 ID 唯一且连续（LLM 可能返回重复或乱序 ID）
+    script.panels = script.panels.map((p, i) => ({ ...p, id: i + 1 }));
 
     // === 质量修复 A3：检测面板多样性 ===
     // 如果超过一半的面板 scene 完全相同，追加序号区分

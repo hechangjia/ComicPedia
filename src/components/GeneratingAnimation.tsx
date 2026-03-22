@@ -181,9 +181,18 @@ export function GeneratingAnimation({
           {status === "scripting"
             ? "正在生成分镜脚本"
             : isGenerating && totalPanels > 0
-            ? `正在生成第 ${completedPanels + 1}/${totalPanels} 张图片`
+            ? `正在生成第 ${Math.min(completedPanels + 1, totalPanels)}/${totalPanels} 张图片`
             : "正在生成漫画图片"}
         </p>
+      </div>
+
+      {/* 阶段步骤指示器 */}
+      <div className="flex items-center gap-2 text-xs">
+        <StepIndicator step={1} label="主题研究" active={status === "scripting" && progress < 10} done={progress >= 10} />
+        <StepConnector done={progress >= 10} />
+        <StepIndicator step={2} label="脚本生成" active={status === "scripting" && progress >= 10} done={status === "generating" || progress >= 30} />
+        <StepConnector done={status === "generating"} />
+        <StepIndicator step={3} label="图片生成" active={status === "generating"} done={completedPanels >= totalPanels && totalPanels > 0} />
       </div>
 
       {/* 进度条 */}
@@ -226,5 +235,34 @@ export function GeneratingAnimation({
         </div>
       )}
     </div>
+  );
+}
+
+function StepIndicator({ step, label, active, done }: { step: number; label: string; active: boolean; done: boolean }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold transition-colors ${
+        done ? "bg-green-500 text-white" :
+        active ? "bg-primary text-primary-foreground animate-pulse" :
+        "bg-muted text-muted-foreground"
+      }`}>
+        {done ? (
+          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+        ) : step}
+      </div>
+      <span className={`transition-colors ${
+        done ? "text-green-600 dark:text-green-400" :
+        active ? "text-foreground font-medium" :
+        "text-muted-foreground"
+      }`}>{label}</span>
+    </div>
+  );
+}
+
+function StepConnector({ done }: { done: boolean }) {
+  return (
+    <div className={`w-6 h-px transition-colors ${done ? "bg-green-500" : "bg-muted-foreground/30"}`} />
   );
 }

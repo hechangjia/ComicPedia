@@ -35,7 +35,7 @@ export function cancelGeneration(taskId: string, panelIndex: number = -1): void 
     }
   }
 
-  // 更新被取消面板的状态
+  // 更新被取消面板的状态（带错误处理）
   getTask(taskId).then(async (task) => {
     if (!task?.script) return;
     let changed = false;
@@ -67,6 +67,8 @@ export function cancelGeneration(taskId: string, panelIndex: number = -1): void 
       await saveTask(task);
       notifyListeners(task);
     }
+  }).catch((err) => {
+    console.error(`[AbortManager] Failed to update cancelled task ${taskId}:`, err);
   });
 }
 

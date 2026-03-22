@@ -4,6 +4,37 @@ import { ComicPanel, ComicScript } from "./types";
 // 公共辅助函数 (DRY)
 // ============================================================
 
+/** 获取用户自定义水印/署名文字（存储在 localStorage） */
+export function getWatermarkText(): string {
+  try {
+    return localStorage.getItem("comicpedia_watermark") || "";
+  } catch { return ""; }
+}
+
+/** 设置水印/署名文字 */
+export function setWatermarkText(text: string): void {
+  try {
+    if (text) {
+      localStorage.setItem("comicpedia_watermark", text);
+    } else {
+      localStorage.removeItem("comicpedia_watermark");
+    }
+  } catch { /* noop */ }
+}
+
+/** 在 canvas 底部绘制水印/署名（如果已配置） */
+function drawWatermark(ctx: CanvasRenderingContext2D, canvasWidth: number, canvasHeight: number): void {
+  const text = getWatermarkText();
+  if (!text) return;
+
+  ctx.save();
+  ctx.fillStyle = "rgba(150, 150, 150, 0.6)";
+  ctx.font = "12px 'Microsoft YaHei', 'PingFang SC', sans-serif";
+  ctx.textAlign = "right";
+  ctx.fillText(text, canvasWidth - 12, canvasHeight - 8);
+  ctx.restore();
+}
+
 /** 过滤出有效的已完成面板 */
 function getValidPanels(panels: ComicPanel[]): ComicPanel[] {
   return panels.filter(
@@ -45,8 +76,10 @@ function triggerBlobDownload(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-/** 触发 Canvas 转 Blob 下载 */
+/** 触发 Canvas 转 Blob 下载（自动添加水印） */
 function downloadCanvas(canvas: HTMLCanvasElement, filename: string): void {
+  const ctx = canvas.getContext("2d");
+  if (ctx) drawWatermark(ctx, canvas.width, canvas.height);
   canvas.toBlob((blob) => {
     if (!blob) return;
     triggerBlobDownload(blob, filename);

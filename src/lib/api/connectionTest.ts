@@ -72,7 +72,7 @@ export async function testLLMConnection(c: UserLLMConfig): Promise<TestResult> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         targetUrl: normalizedUrl,
-        headers: { Authorization: `Bearer ${c.apiKey.trim()}` },
+        headers: c.apiKey.trim() ? { Authorization: `Bearer ${c.apiKey.trim()}` } : {},
         payload,
       }),
     });
@@ -109,6 +109,25 @@ export async function testLLMConnection(c: UserLLMConfig): Promise<TestResult> {
 export async function testImageConnection(c: UserImageConfig): Promise<TestResult> {
   try {
     const base = c.apiUrl.trim().replace(/\/+$/, "");
+
+    // ComfyUI: 直接 ping 服务器
+    if (c.endpointType === "comfyui") {
+      const res = await fetch(`/api/comfyui`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ comfyuiUrl: base, ping: true }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "连接失败" }));
+        return { status: "error", message: "ComfyUI 连接失败", detail: (err as { error?: string }).error };
+      }
+      const data = await res.json();
+      return {
+        status: "success",
+        message: "ComfyUI 连接成功",
+        detail: (data as { detail?: string }).detail || `服务器地址: ${base}`,
+      };
+    }
 
     let useChatEndpoint: boolean;
     let normalizedUrl: string;

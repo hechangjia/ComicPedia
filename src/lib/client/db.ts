@@ -1,6 +1,7 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { GenerateTask, Character } from '@/lib/types';
 import { Series } from '@/lib/series';
+import { cleanupTaskState } from './eventBus';
 
 // ============================================================
 // 双存储数据层
@@ -64,19 +65,40 @@ function getDB() {
 
 // ── API 调用层 ──────────────────────────────────────────────
 
+/** 默认 API 超时：10 秒 */
+const API_TIMEOUT_MS = 10_000;
+
 async function apiCall<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, options);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `API error: ${res.status}`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `API error: ${res.status}`);
+    }
+    return await res.json();
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error(`API timeout after ${API_TIMEOUT_MS}ms: ${url}`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return res.json();
 }
 
 /** 终态集合：仅这些状态会触发 API 同步 */
 const SYNC_STATUSES = new Set(['completed', 'failed', 'script_ready']);
 
-// ── 缓存操作 ────────────────────────────────────────────────
+/** 活跃状态集合：L3 为权威源，禁止 L1 回写覆盖 */
+const ACTIVE_STATUSES = new Set(['generating', 'scripting']);
+
+// ── 缓存操作（带错误日志）────────────────────────────────────
 
 async function cacheGet<T>(store: 'comics', key: string): Promise<T | undefined>;
 async function cacheGet<T>(store: 'characters', key: string): Promise<T | undefined>;
@@ -85,7 +107,8 @@ async function cacheGet<T>(store: 'comics' | 'characters' | 'series', key: strin
   try {
     const db = await getDB();
     return (await db.get(store, key)) as T | undefined;
-  } catch {
+  } catch (err) {
+    console.error(`[IDB] cacheGet(${store}, ${key}) failed:`, err);
     return undefined;
   }
 }
@@ -100,7 +123,8 @@ async function cacheGetAll<T>(store: 'comics' | 'characters' | 'series'): Promis
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const items = await (db as any).getAllFromIndex(store, indexName);
     return (items as T[]).reverse();
-  } catch {
+  } catch (err) {
+    console.error(`[IDB] cacheGetAll(${store}) failed:`, err);
     return [];
   }
 }
@@ -112,8 +136,8 @@ async function cachePut(store: 'comics' | 'characters' | 'series', data: Generat
   try {
     const db = await getDB();
     await db.put(store, data as never);
-  } catch {
-    // 缓存写入失败不阻断主流程
+  } catch (err) {
+    console.error(`[IDB] cachePut(${store}) failed:`, err);
   }
 }
 
@@ -121,8 +145,8 @@ async function cacheDelete(store: 'comics' | 'characters' | 'series', key: strin
   try {
     const db = await getDB();
     await db.delete(store, key);
-  } catch {
-    // 静默
+  } catch (err) {
+    console.error(`[IDB] cacheDelete(${store}, ${key}) failed:`, err);
   }
 }
 
@@ -130,8 +154,8 @@ async function cacheClear(store: 'comics' | 'characters' | 'series'): Promise<vo
   try {
     const db = await getDB();
     await db.clear(store);
-  } catch {
-    // 静默
+  } catch (err) {
+    console.error(`[IDB] cacheClear(${store}) failed:`, err);
   }
 }
 
@@ -151,31 +175,37 @@ export async function saveTask(task: GenerateTask) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ task }),
       });
-    } catch {
-      console.warn('[DB] 服务端同步失败，数据保留在 IndexedDB');
+    } catch (err) {
+      console.warn('[DB] 服务端同步失败，数据保留在 IndexedDB:', err);
     }
   }
 }
 
 export async function getTask(id: string): Promise<GenerateTask | undefined> {
-  // 先尝试 API
+  // === L1/L3 竞态修复 ===
+  // 活跃状态下 L3（Zustand 内存）是权威源，不应被 L1（SQLite）覆盖。
+  // 先检查 L3，如果处于活跃状态则直接返回，跳过 L1 读取和 L2 回写。
+  const { useTaskStore } = await import("@/stores/taskStore");
+  const storeTask = useTaskStore.getState().tasks[id];
+  if (storeTask && ACTIVE_STATUSES.has(storeTask.status)) {
+    return storeTask;
+  }
+
+  // L3 不活跃或不存在 → 读 L1（SQLite API）
   try {
     const task = await apiCall<GenerateTask>(`/api/tasks/${id}`);
-    // 如果 Zustand store 中有更新的活跃状态（generating/scripting），
-    // 不要用服务端旧数据覆盖 — 活跃状态仅写 IndexedDB 不同步服务端
-    const { useTaskStore } = await import("@/stores/taskStore");
-    const storeTask = useTaskStore.getState().tasks[id];
-    if (storeTask &&
-      (storeTask.status === "generating" || storeTask.status === "scripting") &&
-      task.status !== "generating" && task.status !== "scripting"
-    ) {
-      // Store has active state, server has stale data — keep store version
-      return storeTask;
+
+    // 二次检查：在 await 期间 L3 可能已更新为活跃状态
+    const freshStoreTask = useTaskStore.getState().tasks[id];
+    if (freshStoreTask && ACTIVE_STATUSES.has(freshStoreTask.status)) {
+      return freshStoreTask;
     }
+
+    // L1 数据安全，回写 L2 缓存
     await cachePut('comics', task);
     return task;
-  } catch {
-    // API 不可用，降级缓存
+  } catch (err) {
+    console.warn(`[DB] API getTask(${id}) failed, falling back to IndexedDB:`, err);
     return cacheGet<GenerateTask>('comics', id);
   }
 }
@@ -193,8 +223,8 @@ export async function getAllComics(page = 1, pageSize = 100): Promise<PaginatedR
     const data = await apiCall<{ tasks: GenerateTask[]; total: number; page: number; pageSize: number }>(
       `/api/tasks?page=${page}&pageSize=${pageSize}`
     );
-    // Parallel cache update
-    await Promise.all(data.tasks.map(t => cachePut('comics', t)));
+    // Parallel cache update — use allSettled to not lose all if one fails
+    await Promise.allSettled(data.tasks.map(t => cachePut('comics', t)));
     return {
       items: data.tasks,
       total: data.total,
@@ -202,7 +232,8 @@ export async function getAllComics(page = 1, pageSize = 100): Promise<PaginatedR
       pageSize: data.pageSize,
       hasMore: data.page * data.pageSize < data.total,
     };
-  } catch {
+  } catch (err) {
+    console.warn('[DB] getAllComics API failed, falling back to IndexedDB:', err);
     const cached = await cacheGetAll<GenerateTask>('comics');
     return { items: cached, total: cached.length, page: 1, pageSize: cached.length, hasMore: false };
   }
@@ -211,17 +242,18 @@ export async function getAllComics(page = 1, pageSize = 100): Promise<PaginatedR
 export async function deleteComic(id: string) {
   try {
     await apiCall(`/api/tasks/${id}`, { method: 'DELETE' });
-  } catch {
-    // 静默
+  } catch (err) {
+    console.warn(`[DB] deleteComic(${id}) API failed:`, err);
   }
   await cacheDelete('comics', id);
+  cleanupTaskState(id);
 }
 
 export async function clearAllComics() {
   try {
     await apiCall('/api/tasks', { method: 'DELETE' });
-  } catch {
-    // 静默
+  } catch (err) {
+    console.warn('[DB] clearAllComics API failed:', err);
   }
   await cacheClear('comics');
 }
@@ -239,8 +271,8 @@ export async function saveCharacter(character: Character) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ character }),
     });
-  } catch {
-    console.warn('[DB] 角色同步失败，数据保留在 IndexedDB');
+  } catch (err) {
+    console.warn('[DB] 角色同步失败，数据保留在 IndexedDB:', err);
   }
 }
 
@@ -249,7 +281,8 @@ export async function getCharacter(id: string): Promise<Character | undefined> {
     const char = await apiCall<Character>(`/api/characters/${id}`);
     await cachePut('characters', char);
     return char;
-  } catch {
+  } catch (err) {
+    console.warn(`[DB] getCharacter(${id}) API failed, falling back:`, err);
     return cacheGet<Character>('characters', id);
   }
 }
@@ -262,15 +295,15 @@ export async function getAllCharacters(): Promise<Character[]> {
     const serverIds = new Set(serverChars.map((c) => c.id));
     const localOnly = localChars.filter((c) => !serverIds.has(c.id));
 
-    // 更新缓存（服务端数据） — parallel
-    await Promise.all(serverChars.map(c => cachePut('characters', c)));
+    // 更新缓存（服务端数据） — allSettled 防单点失败
+    await Promise.allSettled(serverChars.map(c => cachePut('characters', c)));
 
     // 合并结果：服务端 + 本地独有（按 updatedAt 降序）
     const merged = [...serverChars, ...localOnly].sort(
       (a, b) => (new Date(b.updatedAt).getTime() || 0) - (new Date(a.updatedAt).getTime() || 0)
     );
 
-    // 尝试将本地独有的角色重新同步到服务端 — parallel
+    // 尝试将本地独有的角色重新同步到服务端
     await Promise.allSettled(
       localOnly.map(c =>
         apiCall('/api/characters', {
@@ -282,7 +315,8 @@ export async function getAllCharacters(): Promise<Character[]> {
     );
 
     return merged;
-  } catch {
+  } catch (err) {
+    console.warn('[DB] getAllCharacters API failed, falling back:', err);
     return cacheGetAll<Character>('characters');
   }
 }
@@ -290,8 +324,8 @@ export async function getAllCharacters(): Promise<Character[]> {
 export async function deleteCharacter(id: string) {
   try {
     await apiCall(`/api/characters/${id}`, { method: 'DELETE' });
-  } catch {
-    // 静默
+  } catch (err) {
+    console.warn(`[DB] deleteCharacter(${id}) API failed:`, err);
   }
   await cacheDelete('characters', id);
 }
@@ -302,8 +336,8 @@ export async function clearAllCharacters() {
     await Promise.allSettled(
       chars.map((c) => apiCall(`/api/characters/${c.id}`, { method: 'DELETE' })),
     );
-  } catch {
-    // 静默
+  } catch (err) {
+    console.warn('[DB] clearAllCharacters API failed:', err);
   }
   await cacheClear('characters');
 }
@@ -321,8 +355,8 @@ export async function saveSeries(series: Series) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ series }),
     });
-  } catch {
-    console.warn('[DB] 连载同步失败，数据保留在 IndexedDB');
+  } catch (err) {
+    console.warn('[DB] 连载同步失败，数据保留在 IndexedDB:', err);
   }
 }
 
@@ -331,7 +365,8 @@ export async function getSeries(id: string): Promise<Series | undefined> {
     const s = await apiCall<Series>(`/api/series/${id}`);
     await cachePut('series', s);
     return s;
-  } catch {
+  } catch (err) {
+    console.warn(`[DB] getSeries(${id}) API failed, falling back:`, err);
     return cacheGet<Series>('series', id);
   }
 }
@@ -339,9 +374,10 @@ export async function getSeries(id: string): Promise<Series | undefined> {
 export async function getAllSeries(): Promise<Series[]> {
   try {
     const list = await apiCall<Series[]>('/api/series');
-    await Promise.all(list.map(s => cachePut('series', s)));
+    await Promise.allSettled(list.map(s => cachePut('series', s)));
     return list;
-  } catch {
+  } catch (err) {
+    console.warn('[DB] getAllSeries API failed, falling back:', err);
     return cacheGetAll<Series>('series');
   }
 }
@@ -349,8 +385,8 @@ export async function getAllSeries(): Promise<Series[]> {
 export async function deleteSeries(id: string) {
   try {
     await apiCall(`/api/series/${id}`, { method: 'DELETE' });
-  } catch {
-    // 静默
+  } catch (err) {
+    console.warn(`[DB] deleteSeries(${id}) API failed:`, err);
   }
   await cacheDelete('series', id);
 }
@@ -364,7 +400,8 @@ export async function getIDBAllComics(): Promise<GenerateTask[]> {
     const db = await getDB();
     const tasks = await db.getAllFromIndex('comics', 'by-date');
     return tasks.reverse();
-  } catch {
+  } catch (err) {
+    console.error('[IDB] getIDBAllComics failed:', err);
     return [];
   }
 }
@@ -374,7 +411,8 @@ export async function getIDBAllCharacters(): Promise<Character[]> {
     const db = await getDB();
     const chars = await db.getAllFromIndex('characters', 'by-updated');
     return chars.reverse();
-  } catch {
+  } catch (err) {
+    console.error('[IDB] getIDBAllCharacters failed:', err);
     return [];
   }
 }
@@ -384,7 +422,8 @@ export async function getIDBAllSeries(): Promise<Series[]> {
     const db = await getDB();
     const list = await db.getAllFromIndex('series', 'by-updated');
     return list.reverse();
-  } catch {
+  } catch (err) {
+    console.error('[IDB] getIDBAllSeries failed:', err);
     return [];
   }
 }

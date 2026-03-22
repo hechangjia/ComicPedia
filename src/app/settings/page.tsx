@@ -11,6 +11,7 @@ import { ImageConfigCard } from "@/components/settings/ImageConfigCard";
 import { LLMForm } from "@/components/settings/LLMForm";
 import { ImageForm } from "@/components/settings/ImageForm";
 import { BackupManager } from "@/components/settings/BackupManager";
+import { getWatermarkText, setWatermarkText } from "@/lib/downloadUtils";
 
 /** 配置导出格式 */
 interface ConfigExportData {
@@ -46,6 +47,40 @@ function isSameImage(a: UserImageConfig, b: UserImageConfig): boolean {
 
 /** 测试结果 Map：configId → TestResult */
 type TestResultMap = Record<string, TestResult>;
+
+function WatermarkInput() {
+  const [text, setText] = useState(() => getWatermarkText());
+  const [saved, setSaved] = useState(false);
+
+  const handleSave = () => {
+    setWatermarkText(text);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  return (
+    <div className="flex gap-2">
+      <input
+        type="text"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="例：Created by Alice / @your_handle"
+        className="flex-1 px-3 py-2 text-sm border rounded-lg min-h-[44px]"
+        maxLength={100}
+      />
+      <button
+        onClick={handleSave}
+        className={`px-4 py-2 text-sm rounded-lg min-h-[44px] transition-colors ${
+          saved
+            ? "bg-green-500 text-white"
+            : "bg-primary text-primary-foreground hover:opacity-90"
+        }`}
+      >
+        {saved ? "已保存" : "保存"}
+      </button>
+    </div>
+  );
+}
 
 export default function SettingsPage() {
   const {
@@ -476,6 +511,15 @@ export default function SettingsPage() {
       {/* 数据备份 */}
       <div className="p-6 rounded-xl border bg-card">
         <BackupManager />
+      </div>
+
+      {/* 导出署名 */}
+      <div className="p-6 rounded-xl border bg-card space-y-3">
+        <h2 className="font-medium">导出署名</h2>
+        <p className="text-xs text-muted-foreground">
+          设置后，导出的 PNG 长图和小红书图片右下角会自动添加你的署名。留空则不添加。
+        </p>
+        <WatermarkInput />
       </div>
 
       {/* 危险区域 */}

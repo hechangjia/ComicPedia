@@ -17,19 +17,21 @@ const DEFAULT_LLM_FIELDS: LLMFormFields = {
   protocolType: "openai-compatible",
 };
 
+function getDefaultLLMFields(): LLMFormFields {
+  const preset = getLLMPreset("deepseek");
+  return {
+    ...DEFAULT_LLM_FIELDS,
+    apiUrl: preset?.apiUrl || "",
+    model: preset?.defaultModel || "",
+    protocolType: preset?.protocolType || "openai-compatible",
+  };
+}
+
 export function useLLMForm(actions: {
   addLLM: (data: Omit<UserLLMConfig, "id">) => void;
   updateLLMById: (id: string, data: Partial<Omit<UserLLMConfig, "id">>) => void;
 }) {
-  const [fields, setFields] = useState<LLMFormFields>(() => {
-    const preset = getLLMPreset("deepseek");
-    return {
-      ...DEFAULT_LLM_FIELDS,
-      apiUrl: preset?.apiUrl || "",
-      model: preset?.defaultModel || "",
-      protocolType: preset?.protocolType || "openai-compatible",
-    };
-  });
+  const [fields, setFields] = useState<LLMFormFields>(getDefaultLLMFields);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
 
@@ -38,13 +40,7 @@ export function useLLMForm(actions: {
   }, []);
 
   const reset = useCallback(() => {
-    const preset = getLLMPreset("deepseek");
-    setFields({
-      ...DEFAULT_LLM_FIELDS,
-      apiUrl: preset?.apiUrl || "",
-      model: preset?.defaultModel || "",
-      protocolType: preset?.protocolType || "openai-compatible",
-    });
+    setFields(getDefaultLLMFields());
   }, []);
 
   const handleProviderChange = useCallback((provider: APIProvider) => {
@@ -92,8 +88,8 @@ export function useLLMForm(actions: {
 
   /** 保存。返回 true 表示成功，返回错误信息字符串表示失败。 */
   const save = useCallback((): true | string => {
-    if (!fields.apiUrl.trim() || !fields.apiKey.trim() || !fields.model.trim()) {
-      return "请填写完整的 LLM 配置";
+    if (!fields.apiUrl.trim() || !fields.model.trim()) {
+      return "请填写 API URL 和模型名称";
     }
 
     const name = fields.name.trim() || `${fields.provider} - ${fields.model.trim()}`;
@@ -144,20 +140,22 @@ const DEFAULT_IMAGE_FIELDS: ImageFormFields = {
   endpointType: "auto",
 };
 
+function getDefaultImageFields(): ImageFormFields {
+  const preset = getImagePreset("openai");
+  return {
+    ...DEFAULT_IMAGE_FIELDS,
+    apiUrl: preset?.apiUrl || "",
+    model: preset?.defaultModel || "",
+    size: preset?.defaultSize || "1024x1024",
+    endpointType: preset?.defaultEndpointType || "auto",
+  };
+}
+
 export function useImageForm(actions: {
   addImage: (data: Omit<UserImageConfig, "id">) => void;
   updateImageById: (id: string, data: Partial<Omit<UserImageConfig, "id">>) => void;
 }) {
-  const [fields, setFields] = useState<ImageFormFields>(() => {
-    const preset = getImagePreset("openai");
-    return {
-      ...DEFAULT_IMAGE_FIELDS,
-      apiUrl: preset?.apiUrl || "",
-      model: preset?.defaultModel || "",
-      size: preset?.defaultSize || "1024x1024",
-      endpointType: preset?.defaultEndpointType || "auto",
-    };
-  });
+  const [fields, setFields] = useState<ImageFormFields>(getDefaultImageFields);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
 
@@ -166,14 +164,7 @@ export function useImageForm(actions: {
   }, []);
 
   const reset = useCallback(() => {
-    const preset = getImagePreset("openai");
-    setFields({
-      ...DEFAULT_IMAGE_FIELDS,
-      apiUrl: preset?.apiUrl || "",
-      model: preset?.defaultModel || "",
-      size: preset?.defaultSize || "1024x1024",
-      endpointType: preset?.defaultEndpointType || "auto",
-    });
+    setFields(getDefaultImageFields());
   }, []);
 
   const handleProviderChange = useCallback((provider: APIProvider) => {
@@ -200,6 +191,7 @@ export function useImageForm(actions: {
       model: c.model,
       size: c.size,
       endpointType: c.endpointType || "auto",
+      comfyuiWorkflow: c.comfyuiWorkflow,
     });
   }, []);
 
@@ -223,8 +215,14 @@ export function useImageForm(actions: {
 
   /** 保存。返回 true 表示成功，返回错误信息字符串表示失败。 */
   const save = useCallback((): true | string => {
-    if (!fields.apiUrl.trim() || !fields.apiKey.trim()) {
-      return "请填写完整的文生图配置";
+    if (!fields.apiUrl.trim()) {
+      return "请填写 API URL";
+    }
+    // ComfyUI 不需要 API Key，但需要 Workflow
+    if (fields.endpointType === "comfyui") {
+      if (!fields.comfyuiWorkflow?.trim()) return "请粘贴 ComfyUI Workflow JSON";
+    } else if (!fields.apiKey.trim()) {
+      return "请填写 API Key";
     }
 
     const name = fields.name.trim() || `${fields.provider} - ${fields.model.trim() || "default"}`;
@@ -236,6 +234,9 @@ export function useImageForm(actions: {
       model: fields.model.trim() || "default",
       size: fields.size.trim() || "1024x1024",
       endpointType: fields.endpointType,
+      ...(fields.endpointType === "comfyui" && fields.comfyuiWorkflow && {
+        comfyuiWorkflow: fields.comfyuiWorkflow,
+      }),
     };
 
     if (editingId) {

@@ -10,6 +10,7 @@ import { CharacterPicker } from "./CharacterPicker";
 import { ErrorAlert } from "./ErrorAlert";
 import { Spinner } from "./ui/Spinner";
 import { QualitySelector } from "./QualitySelector";
+import { MathText } from "./MathText";
 import { summarizeWikipediaContent } from "@/lib/llm";
 import { getStoredRequestConfigs } from "@/hooks/useAPIConfig";
 import type { WikipediaContent } from "@/lib/types";
@@ -47,6 +48,7 @@ export function WikipediaForm() {
   const [showResults, setShowResults] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [isSummarizing, setIsSummarizing] = useState(false);
+  const [contentViewMode, setContentViewMode] = useState<"edit" | "preview">("edit");
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const resultsRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -155,6 +157,7 @@ export function WikipediaForm() {
         const article = {
           title: data.title,
           extract: data.extract,
+          hasLatex: data.hasLatex,
           sections: data.sections,
           thumbnail: data.thumbnail?.source,
           lang,
@@ -365,15 +368,50 @@ export function WikipediaForm() {
             )}
 
             <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">
-                文章内容（可编辑，编辑后的内容将作为漫画知识源）
-              </label>
-              <textarea
-                value={editedContent}
-                onChange={(e) => setEditedContent(e.target.value)}
-                className="w-full min-h-[200px] max-h-[400px] p-3 rounded-lg border bg-background resize-y text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-primary"
-                disabled={form.isLoading}
-              />
+              <div className="flex items-center justify-between">
+                <label className="text-xs text-muted-foreground">
+                  文章内容（编辑后的内容将作为漫画知识源）
+                </label>
+                {selectedArticle.hasLatex && (
+                  <div className="flex gap-1 p-0.5 rounded-md bg-muted/50">
+                    <button
+                      type="button"
+                      onClick={() => setContentViewMode("edit")}
+                      className={`px-2 py-0.5 text-xs rounded transition-all ${
+                        contentViewMode === "edit"
+                          ? "bg-background shadow-sm text-foreground"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      编辑
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setContentViewMode("preview")}
+                      className={`px-2 py-0.5 text-xs rounded transition-all ${
+                        contentViewMode === "preview"
+                          ? "bg-background shadow-sm text-foreground"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      公式预览
+                    </button>
+                  </div>
+                )}
+              </div>
+              {contentViewMode === "preview" && selectedArticle.hasLatex ? (
+                <MathText
+                  text={editedContent}
+                  className="w-full min-h-[200px] max-h-[400px] overflow-y-auto p-3 rounded-lg border bg-background text-sm leading-relaxed"
+                />
+              ) : (
+                <textarea
+                  value={editedContent}
+                  onChange={(e) => setEditedContent(e.target.value)}
+                  className="w-full min-h-[200px] max-h-[400px] p-3 rounded-lg border bg-background resize-y text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-primary"
+                  disabled={form.isLoading}
+                />
+              )}
               <div className="flex items-center justify-between">
                 <button
                   onClick={handleSummarize}

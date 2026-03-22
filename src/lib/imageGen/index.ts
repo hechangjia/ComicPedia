@@ -11,10 +11,14 @@ interface ImageGenConfig {
   size?: string;
   endpointType: ImageEndpointType;
   extraBody?: ZImageExtraBody;
+  comfyuiWorkflow?: string;
 }
 
-/** 默认 negative prompt：防止文字渲染 + 基础质量负面词 */
-const DEFAULT_NEGATIVE_PROMPT = "text, watermark, caption, label, subtitle, title, signature, logo, speech bubble, dialogue bubble, narration box, letters, words, writing, font, low quality, blurry, deformed";
+/** 默认 negative prompt：基础质量负面词 */
+const DEFAULT_NEGATIVE_PROMPT_BASE = "watermark, signature, logo, speech bubble, dialogue bubble, narration box, low quality, blurry, deformed";
+
+/** 额外的文字禁止词（infographic 等需要文字的风格不应使用） */
+const TEXT_BAN_NEGATIVE = "text, caption, label, subtitle, title, letters, words, writing, font";
 enum ErrorType {
   RETRYABLE = "retryable",      // 可重试：5xx、网络超时、速率限制
   NON_RETRYABLE = "non_retryable", // 不可重试：4xx（除429）、认证失败
@@ -49,6 +53,7 @@ function getImageGenConfig(overrides?: PartialImageGenConfig): ImageGenConfig | 
     size: overrides?.size || "1024x1024",
     endpointType: overrides?.endpointType || "auto",
     extraBody: overrides?.extraBody,
+    comfyuiWorkflow: overrides?.comfyuiWorkflow,
   };
 }
 
@@ -60,6 +65,10 @@ export function getImageAdapter(overrides?: PartialImageGenConfig): ImageGenerat
     return new PromptOnlyAdapter();
   }
 
+  if (config.endpointType === "comfyui") {
+    return new ComfyUIAdapter(config);
+  }
+
   return new ChatImageAdapter(config);
 }
 
@@ -69,6 +78,8 @@ class ChatImageAdapter implements ImageGeneratorAdapter {
   private config: ImageGenConfig;
   /** 当前风格的 negative prompt（由 applyStyle 设置，buildImagesBody 消费） */
   private lastStyleNegative = "";
+  /** 当前风格（由 applyStyle 设置，buildImagesBody 消费） */
+  private lastStyle: ComicStyle = "anime";
 
   constructor(config: ImageGenConfig) {
     this.config = config;
@@ -209,11 +220,14 @@ class ChatImageAdapter implements ImageGeneratorAdapter {
 
   /** 构建 /images/generations 请求体 */
   private buildImagesBody(prompt: string, seed?: number): Record<string, unknown> {
-    // 合并默认 negative prompt + 风格级 negative prompt + 用户自定义
+    // 合并 negative prompt：基础 + 文字禁止（infographic 除外）+ 风格级 + 用户自定义
     const styleNeg = this.lastStyleNegative || "";
     const userNegative = this.config.extraBody?.negative_prompt;
-    const parts = [DEFAULT_NEGATIVE_PROMPT, styleNeg, userNegative].filter(Boolean);
-    const negativePrompt = parts.join(", ");
+    // infographic 风格需要文字标注，不禁止 text/label/caption
+    const textBan = this.lastStyle === "infographic" ? "" : TEXT_BAN_NEGATIVE;
+    const parts = [DEFAULT_NEGATIVE_PROMPT_BASE, textBan, styleNeg, userNegative].filter(Boolean);
+    // 去重：多层 negative 合并时可能有重复词（如 "blurry" 同时出现在 base 和 style 中）
+    const negativePrompt = [...new Set(parts.join(", ").split(",").map(s => s.trim()).filter(Boolean))].join(", ");
 
     return {
       model: this.config.model,
@@ -227,10 +241,17 @@ class ChatImageAdapter implements ImageGeneratorAdapter {
       ...(this.config.extraBody && {
         num_inference_steps: this.config.extraBody.num_inference_steps,
         guidance_scale: this.config.extraBody.guidance_scale,
-        control_image: this.config.extraBody.control_image,
-        control_mode: this.config.extraBody.control_mode,
-        control_context_scale: this.config.extraBody.control_context_scale,
-        image_scale: this.config.extraBody.image_scale,
+        // control_image/control_mode 仅在有值时才发送（部分 API 不支持）
+        ...(this.config.extraBody.control_image && {
+          control_image: this.config.extraBody.control_image,
+          control_mode: this.config.extraBody.control_mode || "HED",
+        }),
+        ...(this.config.extraBody.control_context_scale !== undefined && {
+          control_context_scale: this.config.extraBody.control_context_scale,
+        }),
+        ...(this.config.extraBody.image_scale !== undefined && {
+          image_scale: this.config.extraBody.image_scale,
+        }),
         ...(this.config.extraBody.image && { image: this.config.extraBody.image }),
         ...(this.config.extraBody.strength !== undefined && { strength: this.config.extraBody.strength }),
       }),
@@ -289,11 +310,12 @@ class ChatImageAdapter implements ImageGeneratorAdapter {
    */
   private extractImage(data: Record<string, unknown>): string | undefined {
     // ── 1. OpenAI images API 兼容: data: [{url, b64_json}] ──
-    const dataArr = data.data as Array<{ url?: string; b64_json?: string }> | undefined;
+    const dataArr = data.data as Array<{ url?: string; b64_json?: string; content_type?: string }> | undefined;
     if (Array.isArray(dataArr) && dataArr.length > 0) {
       const first = dataArr[0];
       if (first.b64_json && typeof first.b64_json === "string") {
-        return `data:image/png;base64,${first.b64_json}`;
+        const mime = first.content_type || "image/png";
+        return `data:${mime};base64,${first.b64_json}`;
       }
       if (first.url && typeof first.url === "string") return first.url;
     }
@@ -426,8 +448,117 @@ class ChatImageAdapter implements ImageGeneratorAdapter {
   private applyStyle(prompt: string, style: ComicStyle): string {
     // 缓存风格级 negative prompt 供 buildImagesBody 使用
     this.lastStyleNegative = getStyleNegativePrompt(style);
-    // 风格标签置于 prompt 前部，权重更高（SD 模型特性）
-    return `${getStyleModifier(style)}, ${prompt}`;
+    this.lastStyle = style;
+
+    const modifier = getStyleModifier(style);
+
+    // 移除 prompt 中与 modifier 重复/矛盾的风格词
+    // 提取 modifier 的核心风格标识词（前 5 个短语）
+    const modifierPhrases = modifier.split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+    const coreStyleTerms = modifierPhrases.slice(0, 5);
+
+    // 从 negative prompt 提取矛盾词（如 watercolor 的 negative 包含 "anime"）
+    const negTerms = (getStyleNegativePrompt(style) || "")
+      .split(",").map(s => s.trim().toLowerCase()).filter(s => s.length > 3);
+
+    let cleanedPrompt = prompt;
+    for (const term of negTerms) {
+      // 移除 prompt 中出现的矛盾风格词（如选了 watercolor 但 prompt 含 "anime style"）
+      const regex = new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi");
+      cleanedPrompt = cleanedPrompt.replace(regex, "");
+    }
+
+    // 避免重复：如果 prompt 已包含 modifier 的核心词，不重复添加
+    const promptLower = cleanedPrompt.toLowerCase();
+    const alreadyHasStyle = coreStyleTerms.some(t => t.length > 8 && promptLower.includes(t));
+    if (alreadyHasStyle) {
+      // prompt 已经包含风格词，只补充 "best quality" 前缀
+      cleanedPrompt = cleanedPrompt.replace(/,\s*,/g, ",").replace(/\s+/g, " ").trim();
+      return `best quality, ${cleanedPrompt}`;
+    }
+
+    cleanedPrompt = cleanedPrompt.replace(/,\s*,/g, ",").replace(/\s+/g, " ").trim();
+    return `${modifier}, ${cleanedPrompt}`;
+  }
+}
+
+/** ComfyUI workflow 适配器 */
+class ComfyUIAdapter implements ImageGeneratorAdapter {
+  name = "ComfyUI";
+  private config: ImageGenConfig;
+
+  constructor(config: ImageGenConfig) {
+    this.config = config;
+  }
+
+  async generate(prompt: string, style: ComicStyle, seed?: number, signal?: AbortSignal): Promise<string> {
+    const styledPrompt = `${getStyleModifier(style)}, ${prompt}`;
+
+    if (!this.config.comfyuiWorkflow) {
+      throw new AppError({
+        code: "COMFYUI_NO_WORKFLOW",
+        message: "未配置 ComfyUI Workflow JSON",
+        retryable: false,
+      });
+    }
+
+    let workflow: Record<string, unknown>;
+    try {
+      workflow = JSON.parse(this.config.comfyuiWorkflow);
+    } catch {
+      throw new AppError({
+        code: "COMFYUI_INVALID_WORKFLOW",
+        message: "ComfyUI Workflow JSON 格式错误",
+        retryable: false,
+      });
+    }
+
+    // 解析尺寸
+    const [width, height] = (this.config.size || "1024x1024").split("x").map(Number);
+
+    // 构建 negative prompt（基础 + 文字禁止 + 风格级）
+    const textBan = style === "infographic" ? "" : TEXT_BAN_NEGATIVE;
+    const negParts = [DEFAULT_NEGATIVE_PROMPT_BASE, textBan, getStyleNegativePrompt(style)].filter(Boolean);
+    const negativePrompt = negParts.join(", ");
+
+    // 从 extraBody 提取参考图（用于 IP-Adapter）
+    const referenceImage = this.config.extraBody?.control_image || this.config.extraBody?.image;
+
+    const response = await fetch("/api/comfyui", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        comfyuiUrl: this.config.apiUrl,
+        workflow,
+        prompt: styledPrompt,
+        negativePrompt: negativePrompt || undefined,
+        referenceImage: typeof referenceImage === "string" && referenceImage.startsWith("data:image") ? referenceImage : undefined,
+        width: width || 1024,
+        height: height || 1024,
+        seed,
+      }),
+      signal,
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({ error: response.statusText }));
+      throw new AppError({
+        code: "COMFYUI_ERROR",
+        message: (data as { error?: string }).error || `ComfyUI 错误: ${response.status}`,
+        retryable: response.status >= 500,
+      });
+    }
+
+    const data = await response.json();
+    if (!data.image) {
+      throw new AppError({
+        code: "COMFYUI_NO_IMAGE",
+        message: "ComfyUI 未返回图片",
+        retryable: false,
+      });
+    }
+
+    return data.image;
   }
 }
 

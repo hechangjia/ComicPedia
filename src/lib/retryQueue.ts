@@ -91,14 +91,26 @@ export async function withRetry<T>(
         err instanceof Error ? err.message : err,
       );
 
-      // 带取消的延迟
+      // 带取消的延迟（确保 abort listener 清理，防泄漏）
       await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(resolve, delay);
+        let settled = false;
+        const timer = setTimeout(() => {
+          settled = true;
+          if (signal) signal.removeEventListener("abort", onAbort);
+          resolve();
+        }, delay);
+        const onAbort = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          reject(new DOMException("Aborted", "AbortError"));
+        };
         if (signal) {
-          const onAbort = () => {
+          if (signal.aborted) {
             clearTimeout(timer);
             reject(new DOMException("Aborted", "AbortError"));
-          };
+            return;
+          }
           signal.addEventListener("abort", onAbort, { once: true });
         }
       });

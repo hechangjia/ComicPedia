@@ -18,7 +18,7 @@ import type { ExportProgress } from "@/lib/exportImport";
 import { Spinner } from "@/components/ui/Spinner";
 import { CharacterCard } from "@/components/CharacterCard";
 import { CHARACTER_PRESETS } from "@/lib/config/characterPresets";
-import { generateCharacterProfile } from "@/lib/llm";
+import { generateCharacterProfile, generateCharacterReferencePrompt } from "@/lib/llm";
 
 // ============================================================
 // Constants
@@ -303,13 +303,26 @@ function CharacterDialog({
       return;
     }
 
-    const subjectType = isNonHuman ? "mascot character" : "character";
-    const prompt = `portrait of ${name || subjectType}, ${parts.join(", ")}, character reference sheet, white background, studio lighting`;
-
     setAiGenerating(true);
     setRegeneratingIndex(targetIndex ?? -1);
     setAiError("");
     try {
+      // 尝试用 LLM 生成高质量参考图 prompt（如果 LLM 已配置）
+      let prompt: string;
+      try {
+        const { llmConfig } = getStoredRequestConfigs(selectedLLMId || undefined, undefined);
+        if (llmConfig?.apiUrl) {
+          const charForPrompt = { ...form, appearance: { ...appearance } } as import("@/lib/types").Character;
+          prompt = await generateCharacterReferencePrompt(charForPrompt, charStyle, llmConfig);
+        } else {
+          throw new Error("no LLM");
+        }
+      } catch {
+        // LLM 不可用时降级为直接拼接
+        const subjectType = isNonHuman ? "mascot character" : "character";
+        prompt = `portrait of ${name || subjectType}, ${parts.join(", ")}, character reference sheet, white background, studio lighting`;
+      }
+
       const { imageConfig } = getStoredRequestConfigs(undefined, selectedImageId || undefined);
       if (!imageConfig) throw new Error("请先配置文生图 API");
       const adapter = getImageAdapter(imageConfig);

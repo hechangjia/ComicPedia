@@ -1,5 +1,6 @@
 import { ComicScript, ComicStyle } from "../lib/types";
 import { getStyleGuidanceForLLM } from "../lib/config/styles";
+import { extractJSON } from "./scriptGenerator";
 
 /** 构建小红书图文分镜脚本 Prompt */
 export function buildXhsPrompt(
@@ -89,4 +90,52 @@ ${panelGuidance}
 6. **风格统一**：所有图片保持一致的视觉语言
 
 请开始创作：`;
+}
+
+/** 解析小红书脚本响应 */
+export function parseXhsResponse(response: string): ComicScript | null {
+  try {
+    const parsed = extractJSON(response);
+    if (!parsed || typeof parsed !== "object") return null;
+
+    const script = parsed as ComicScript & {
+      characterDescription?: string;
+    };
+
+    if (!script.title || !script.panels || !Array.isArray(script.panels)) {
+      return null;
+    }
+
+    const characterDesc = script.characterDescription || "";
+
+    script.panels = script.panels.map((panel, index) => {
+      let imagePrompt = panel.imagePrompt || "";
+      const dialogue = panel.dialogue || panel.scene || "";
+
+      // 角色/视觉主体注入（小红书的 characterDescription 通常是视觉主体如图标/吉祥物）
+      if (characterDesc) {
+        const hasCharTag = /\[[\w\s\-'\.]+:/.test(imagePrompt);
+        if (!hasCharTag && !imagePrompt.includes(characterDesc.slice(0, 20))) {
+          imagePrompt = `${characterDesc} ${imagePrompt}`;
+        }
+      }
+
+      // 确保无文字标记
+      if (!imagePrompt.includes("text-free")) {
+        imagePrompt = imagePrompt.replace(/,?\s*$/, ", text-free image, no watermark");
+      }
+
+      return {
+        ...panel,
+        id: index + 1,
+        dialogue,
+        imagePrompt,
+        status: "pending" as const,
+      };
+    });
+
+    return script;
+  } catch {
+    return null;
+  }
 }

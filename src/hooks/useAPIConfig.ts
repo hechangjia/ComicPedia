@@ -167,7 +167,7 @@ function pullConfigFromServer(onUpdate: (config: UserAPIConfigV2) => void): void
 function validateLLMConfig(config: UserLLMConfig): string[] {
   const errors: string[] = [];
   if (!config.apiUrl?.trim()) errors.push("LLM API URL 不能为空");
-  if (!config.apiKey?.trim()) errors.push("LLM API Key 不能为空");
+  // API Key 非必填（本地 Ollama 等不需要）
   if (!config.model?.trim()) errors.push("LLM 模型名称不能为空");
   return errors;
 }
@@ -176,7 +176,7 @@ function validateLLMConfig(config: UserLLMConfig): string[] {
 function validateImageConfig(config: UserImageConfig): string[] {
   const errors: string[] = [];
   if (!config.apiUrl?.trim()) errors.push("文生图 API URL 不能为空");
-  if (!config.apiKey?.trim()) errors.push("文生图 API Key 不能为空");
+  // API Key 非必填（ComfyUI 等本地服务不需要）
   return errors;
 }
 
@@ -417,6 +417,7 @@ export function getStoredRequestConfigs(llmId?: string, imageId?: string): Reque
       model: image.model,
       size: image.size,
       endpointType: image.endpointType,
+      comfyuiWorkflow: image.comfyuiWorkflow,
     };
   }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useContentForm } from "@/hooks/useContentForm";
 import { StyleSelector } from "./StyleSelector";
 import { PanelCountSelector } from "./PanelCountSelector";
@@ -10,6 +10,7 @@ import { CharacterPicker } from "./CharacterPicker";
 import { ErrorAlert } from "./ErrorAlert";
 import { Spinner } from "./ui/Spinner";
 import { QualitySelector } from "./QualitySelector";
+import { DifficultySelector } from "./DifficultySelector";
 
 const EXAMPLE_TOPICS = [
   "黑洞是如何形成的",
@@ -29,6 +30,14 @@ export function ScienceForm({ initialTopic = "" }: { initialTopic?: string }) {
     },
     useCallback(() => topic, [topic]),
   );
+
+  // 恢复草稿文本
+  useEffect(() => {
+    if (!initialTopic) {
+      const draft = form.getDraftInputText();
+      if (draft) setTopic(draft);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleGenerate = () => form.handleSubmit(topic);
 
@@ -61,6 +70,8 @@ export function ScienceForm({ initialTopic = "" }: { initialTopic?: string }) {
         />
 
         <QualitySelector value={form.quality} onChange={form.setQuality} disabled={form.isLoading} />
+
+        <DifficultySelector value={form.difficulty} onChange={form.setDifficulty} disabled={form.isLoading} />
 
         <CharacterPicker
           selectedIds={form.selectedCharacterIds}

@@ -6,6 +6,7 @@ import {
   updatePanel,
   cancelGeneration,
   setActiveVersion,
+  reorderPanels,
   updateReferenceImage,
   updateReferenceImages,
   updateControlMode,
@@ -79,6 +80,7 @@ export function useTaskActions(
         scene: updatedPanel.scene,
         dialogue: updatedPanel.dialogue,
         imagePrompt: updatedPanel.imagePrompt,
+        styleOverride: updatedPanel.styleOverride,
       }).catch((err) => {
         console.error("Failed to persist panel update:", err);
         showError("面板更新保存失败，请重试");
@@ -89,9 +91,9 @@ export function useTaskActions(
 
   // 单个面板生成/重生成
   const handleRegenerate = useCallback(
-    (panelIndex: number) => {
+    (panelIndex: number, seedOverride?: number) => {
       const imageConfig = getSelectedImageConfig();
-      regeneratePanel(taskId, panelIndex, imageConfig).catch((err) => {
+      regeneratePanel(taskId, panelIndex, imageConfig, seedOverride).catch((err) => {
         console.error("Panel regeneration failed:", err);
         showError(`第 ${panelIndex + 1} 格图片生成失败: ${err instanceof Error ? err.message : "未知错误"}`);
       });
@@ -127,6 +129,21 @@ export function useTaskActions(
     } catch (err) {
       console.error("Batch generation failed:", err);
       showError(`批量生成失败: ${err instanceof Error ? err.message : "未知错误"}`);
+    } finally {
+      setGeneratingAll(false);
+    }
+  }, [taskId, showError, getSelectedImageConfig]);
+
+  // 仅重试失败/待处理的面板
+  const handleRetryFailed = useCallback(async () => {
+    setGeneratingAll(true);
+    try {
+      const imageConfig = getSelectedImageConfig();
+      // forceAll=false 只会生成 status !== "completed" 的面板
+      await generateAllImages(taskId, imageConfig, false);
+    } catch (err) {
+      console.error("Retry failed panels failed:", err);
+      showError(`重试失败: ${err instanceof Error ? err.message : "未知错误"}`);
     } finally {
       setGeneratingAll(false);
     }
@@ -201,6 +218,27 @@ export function useTaskActions(
     }
   }, [taskId, showError, getSelectedLLMConfig]);
 
+  // 面板排序
+  const handleReorder = useCallback(
+    (fromIndex: number, toIndex: number) => {
+      // 乐观更新 UI
+      setTask((prev) => {
+        if (!prev?.script) return prev;
+        const panels = [...prev.script.panels];
+        const [moved] = panels.splice(fromIndex, 1);
+        panels.splice(toIndex, 0, moved);
+        panels.forEach((p, i) => { p.id = i + 1; });
+        return { ...prev, script: { ...prev.script, panels } };
+      });
+
+      reorderPanels(taskId, fromIndex, toIndex).catch((err) => {
+        console.error("Panel reorder failed:", err);
+        showError("面板排序失败，请重试");
+      });
+    },
+    [taskId, setTask, showError],
+  );
+
   // 切换风格并重新生成所有图片
   const handleChangeStyle = useCallback(async (newStyle: ComicStyle) => {
     setGeneratingAll(true);
@@ -221,6 +259,7 @@ export function useTaskActions(
     handleCancel,
     handleVersionChange,
     handleGenerateAll,
+    handleRetryFailed,
     handleReferenceImageChange,
     handleReferenceImagesChange,
     handleControlModeChange,
@@ -230,6 +269,7 @@ export function useTaskActions(
     handleRefEntriesChange,
     handleRegenerateScript,
     handleChangeStyle,
+    handleReorder,
     generatingAll,
     actionError,
     clearActionError,

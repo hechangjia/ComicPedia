@@ -116,6 +116,20 @@ const lastWriteTime: Map<string, number> = new Map();
 const lastWriteFingerprint: Map<string, string> = new Map();
 
 /**
+ * Clean up all event bus state for a task (call on task delete or completion).
+ * Prevents memory leak from accumulated Map entries.
+ */
+export function cleanupTaskState(taskId: string) {
+  streamTextCache.delete(taskId);
+  streamTextListeners.delete(taskId);
+  const timer = pendingFlush.get(taskId);
+  if (timer) clearTimeout(timer);
+  pendingFlush.delete(taskId);
+  lastWriteTime.delete(taskId);
+  lastWriteFingerprint.delete(taskId);
+}
+
+/**
  * Generate a lightweight fingerprint of task state for diff detection.
  * Only captures fields that matter for persistence — ignores streamText.
  */

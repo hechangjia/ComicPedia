@@ -1,17 +1,26 @@
 "use client";
 
 import { useState, useEffect, memo } from "react";
-import { ComicPanel, GenerateTask } from "@/lib/types";
+import { ComicPanel, ComicStyle, GenerateTask } from "@/lib/types";
 import { SinglePanelDownload } from "@/components/DownloadMenu";
 import { VersionSwitcher } from "@/components/VersionSwitcher";
+import { PanelStyleSelector } from "@/components/PanelStyleSelector";
+import { AIEditAssistant } from "@/components/AIEditAssistant";
+import { useUndoRedo } from "@/hooks/useUndoRedo";
 
 interface EditablePanelProps {
   panel: ComicPanel;
   index: number;
   taskId: string;
   taskStatus: GenerateTask["status"];
+  /** 全局风格（风格混搭用） */
+  globalStyle?: ComicStyle;
+  /** 完整脚本（AI 编辑助手需要上下文） */
+  script?: import("@/lib/types").ComicScript;
+  /** LLM 配置（AI 编辑助手需要） */
+  llmConfig?: import("@/lib/types").PartialLLMConfig;
   onUpdate: (index: number, updatedPanel: ComicPanel) => void;
-  onRegenerate: (index: number) => void;
+  onRegenerate: (index: number, seedOverride?: number) => void;
   onCancel: (index: number) => void;
   onVersionChange: (index: number, versionIndex: number) => void;
 }
@@ -32,7 +41,8 @@ function arePropsEqual(prev: EditablePanelProps, next: EditablePanelProps): bool
     pp.dialogue === np.dialogue &&
     pp.imagePrompt === np.imagePrompt &&
     pp.activeVersionIndex === np.activeVersionIndex &&
-    pp.imageVersions?.length === np.imageVersions?.length
+    pp.imageVersions?.length === np.imageVersions?.length &&
+    pp.styleOverride === np.styleOverride
   );
 }
 
@@ -42,27 +52,48 @@ export const EditablePanel = memo(function EditablePanel({
   index,
   taskId,
   taskStatus,
+  globalStyle,
+  script,
+  llmConfig,
   onUpdate,
   onRegenerate,
   onCancel,
   onVersionChange,
 }: EditablePanelProps) {
   const [editing, setEditing] = useState(false);
-  const [editForm, setEditForm] = useState({
+
+  // Undo/Redo 支持的编辑状态
+  const {
+    state: editForm,
+    pushState: pushEditForm,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    reset: resetEditForm,
+    handleKeyDown: handleUndoRedoKeyDown,
+  } = useUndoRedo({
     scene: panel.scene,
     dialogue: panel.dialogue,
     imagePrompt: panel.imagePrompt,
+    styleOverride: panel.styleOverride,
   });
+
+  /** 更新编辑表单字段（自动推入 undo 栈） */
+  const setEditField = (field: string, value: string | ComicStyle | undefined) => {
+    pushEditForm({ ...editForm, [field]: value });
+  };
 
   useEffect(() => {
     if (!editing) {
-      setEditForm({
+      resetEditForm({
         scene: panel.scene,
         dialogue: panel.dialogue,
         imagePrompt: panel.imagePrompt,
+        styleOverride: panel.styleOverride,
       });
     }
-  }, [panel.scene, panel.dialogue, panel.imagePrompt, editing]);
+  }, [panel.scene, panel.dialogue, panel.imagePrompt, panel.styleOverride, editing, resetEditForm]);
 
   const handleSave = () => {
     onUpdate(index, {
@@ -70,6 +101,7 @@ export const EditablePanel = memo(function EditablePanel({
       scene: editForm.scene,
       dialogue: editForm.dialogue,
       imagePrompt: editForm.imagePrompt,
+      styleOverride: editForm.styleOverride,
     });
     setEditing(false);
   };
@@ -81,6 +113,7 @@ export const EditablePanel = memo(function EditablePanel({
         scene: editForm.scene,
         dialogue: editForm.dialogue,
         imagePrompt: editForm.imagePrompt,
+        styleOverride: editForm.styleOverride,
       });
       setEditing(false);
     }
@@ -117,13 +150,14 @@ export const EditablePanel = memo(function EditablePanel({
             />
           )
         ) : isRegenerating ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3" role="status" aria-label="图片生成中">
             <div className="absolute inset-0 animate-shimmer" />
-            <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full z-10" />
+            <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full z-10" aria-hidden="true" />
             <p className="text-xs text-muted-foreground z-10">生成中...</p>
             <button
               onClick={() => onCancel(index)}
               className="px-3 py-1.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-600 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors z-10"
+              aria-label={`取消第 ${index + 1} 格图片生成`}
             >
               取消
             </button>
@@ -134,6 +168,7 @@ export const EditablePanel = memo(function EditablePanel({
             <button
               onClick={() => onRegenerate(index)}
               className="px-3 py-1.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-600 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/50"
+              aria-label={`重试第 ${index + 1} 格图片生成`}
             >
               重试
             </button>
@@ -166,8 +201,15 @@ export const EditablePanel = memo(function EditablePanel({
         )}
 
         {/* 面板编号 */}
-        <div className="absolute top-2 left-2 w-6 h-6 rounded-full bg-black/50 text-white text-xs flex items-center justify-center print-panel-number">
-          {index + 1}
+        <div className="absolute top-2 left-2 flex items-center gap-1">
+          <div className="w-6 h-6 rounded-full bg-black/50 text-white text-xs flex items-center justify-center print-panel-number">
+            {index + 1}
+          </div>
+          {panel.styleOverride && globalStyle && panel.styleOverride !== globalStyle && (
+            <span className="text-[10px] bg-black/50 text-white px-2 py-0.5 rounded-full">
+              {panel.styleOverride}
+            </span>
+          )}
         </div>
 
         {canEdit && !editing && !isRegenerating && (
@@ -175,6 +217,7 @@ export const EditablePanel = memo(function EditablePanel({
             onClick={() => setEditing(true)}
             className="absolute top-2 right-2 w-10 h-10 sm:w-8 sm:h-8 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 no-print"
             title="编辑"
+            aria-label={`编辑第 ${index + 1} 格`}
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -197,13 +240,13 @@ export const EditablePanel = memo(function EditablePanel({
 
       {/* 文字区域 / 编辑表单 */}
       {editing ? (
-        <div className="p-3 space-y-3 no-print">
+        <div className="p-3 space-y-3 no-print" onKeyDown={handleUndoRedoKeyDown}>
           <div>
             <label className="text-xs text-muted-foreground">对话/旁白</label>
             <input
               type="text"
               value={editForm.dialogue}
-              onChange={(e) => setEditForm({ ...editForm, dialogue: e.target.value })}
+              onChange={(e) => setEditField("dialogue", e.target.value)}
               className="w-full px-3 py-2 text-sm border rounded min-h-[44px]"
             />
           </div>
@@ -212,7 +255,7 @@ export const EditablePanel = memo(function EditablePanel({
             <input
               type="text"
               value={editForm.scene}
-              onChange={(e) => setEditForm({ ...editForm, scene: e.target.value })}
+              onChange={(e) => setEditField("scene", e.target.value)}
               className="w-full px-3 py-2 text-sm border rounded min-h-[44px]"
             />
           </div>
@@ -220,11 +263,57 @@ export const EditablePanel = memo(function EditablePanel({
             <label className="text-xs text-muted-foreground">图片提示词 (英文)</label>
             <textarea
               value={editForm.imagePrompt}
-              onChange={(e) => setEditForm({ ...editForm, imagePrompt: e.target.value })}
+              onChange={(e) => setEditField("imagePrompt", e.target.value)}
               className="w-full px-3 py-2 text-sm border rounded h-20 resize-none"
             />
+            <p className="text-[10px] text-muted-foreground mt-1">
+              提示：添加 <code className="bg-muted px-1 rounded">solo, single character</code> 限制只出现一个角色；
+              添加 <code className="bg-muted px-1 rounded">close-up</code> / <code className="bg-muted px-1 rounded">wide shot</code> 控制构图
+            </p>
           </div>
+          {/* 风格混搭 (P3) */}
+          {globalStyle && (
+            <PanelStyleSelector
+              globalStyle={globalStyle}
+              overrideStyle={editForm.styleOverride}
+              onOverride={(s) => setEditField("styleOverride", s)}
+            />
+          )}
+          {/* AI 编辑助手 (P1-B) */}
+          {script && (
+            <AIEditAssistant
+              panel={panel}
+              script={script}
+              panelIndex={index}
+              llmConfig={llmConfig}
+              onApply={(field, value) => setEditField(field, value)}
+            />
+          )}
           <div className="flex gap-2">
+            {/* Undo/Redo */}
+            <button
+              onClick={undo}
+              disabled={!canUndo}
+              className="px-2 py-2 text-sm border rounded min-h-[44px] disabled:opacity-30"
+              title="撤销 (Ctrl+Z)"
+              aria-label="撤销"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a5 5 0 015 5v2M3 10l4-4M3 10l4 4" />
+              </svg>
+            </button>
+            <button
+              onClick={redo}
+              disabled={!canRedo}
+              className="px-2 py-2 text-sm border rounded min-h-[44px] disabled:opacity-30"
+              title="重做 (Ctrl+Shift+Z)"
+              aria-label="重做"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10H11a5 5 0 00-5 5v2M21 10l-4-4M21 10l-4 4" />
+              </svg>
+            </button>
+
             <button
               onClick={handleSave}
               className="flex-1 px-3 py-2 text-sm bg-primary text-primary-foreground rounded min-h-[44px]"
@@ -238,9 +327,25 @@ export const EditablePanel = memo(function EditablePanel({
             >
               {isRegenerating ? "生成中..." : hasImage ? "重新生成" : "生成图片"}
             </button>
+            {hasImage && (
+              <button
+                onClick={() => {
+                  if (editing) {
+                    onUpdate(index, { ...panel, scene: editForm.scene, dialogue: editForm.dialogue, imagePrompt: editForm.imagePrompt, styleOverride: editForm.styleOverride });
+                    setEditing(false);
+                  }
+                  onRegenerate(index, Math.floor(Math.random() * 1000000));
+                }}
+                disabled={isRegenerating}
+                title="保持提示词不变，换随机种子生成不同构图"
+                className="px-3 py-2 text-sm border border-purple-300 text-purple-600 dark:text-purple-400 rounded disabled:opacity-50 min-h-[44px] hover:bg-purple-50 dark:hover:bg-purple-900/20"
+              >
+                🎲
+              </button>
+            )}
             <button
               onClick={() => {
-                setEditForm({ scene: panel.scene, dialogue: panel.dialogue, imagePrompt: panel.imagePrompt });
+                resetEditForm({ scene: panel.scene, dialogue: panel.dialogue, imagePrompt: panel.imagePrompt, styleOverride: panel.styleOverride });
                 setEditing(false);
               }}
               className="px-3 py-2 text-sm border rounded min-h-[44px]"

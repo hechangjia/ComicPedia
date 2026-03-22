@@ -10,6 +10,7 @@ export interface ImageFormFields {
   model: string;
   size: string;
   endpointType: ImageEndpointType;
+  comfyuiWorkflow?: string;
 }
 
 interface ImageFormProps {
@@ -107,11 +108,56 @@ export function ImageForm({ fields, isEditing, onChange, onProviderChange, onSav
             <option value="auto">自动检测（根据 URL 推断）</option>
             <option value="chat">Chat Completions（Gemini/通用 LLM 文生图）</option>
             <option value="images">Images API（OpenAI DALL-E 等）</option>
+            <option value="comfyui">ComfyUI（本地 Workflow）</option>
           </select>
           <p className="text-xs text-muted-foreground">
-            使用 Gemini 或通过 chat/completions 端点生成图片时，请选择「Chat Completions」。
+            {fields.endpointType === "comfyui"
+              ? "API URL 填 ComfyUI 地址（如 http://localhost:8188），下方粘贴 Workflow JSON。"
+              : "使用 Gemini 或通过 chat/completions 端点生成图片时，请选择「Chat Completions」。"}
           </p>
         </div>
+
+        {/* ComfyUI Workflow JSON */}
+        {fields.endpointType === "comfyui" && (
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <label className="text-sm text-muted-foreground">Workflow JSON（API 格式）</label>
+              <label className="px-2 py-1 text-xs border rounded-lg hover:bg-muted transition-colors cursor-pointer">
+                导入 JSON 文件
+                <input
+                  type="file"
+                  accept=".json"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                      const text = ev.target?.result as string;
+                      try {
+                        JSON.parse(text); // validate
+                        onChange({ comfyuiWorkflow: text });
+                      } catch {
+                        alert("无效的 JSON 文件");
+                      }
+                    };
+                    reader.readAsText(file);
+                    e.target.value = ""; // reset for re-import
+                  }}
+                />
+              </label>
+            </div>
+            <textarea
+              value={fields.comfyuiWorkflow || ""}
+              onChange={(e) => onChange({ comfyuiWorkflow: e.target.value })}
+              placeholder='粘贴或导入从 ComfyUI "Save (API Format)" 导出的 JSON...'
+              className="w-full min-h-[160px] rounded-lg border bg-background p-3 text-xs font-mono resize-y"
+            />
+            <p className="text-xs text-muted-foreground">
+              系统会自动识别 CLIPTextEncode 节点注入 prompt，KSampler 节点注入 seed，EmptyLatentImage 节点注入尺寸。
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="flex gap-2">

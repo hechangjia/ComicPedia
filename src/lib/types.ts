@@ -22,6 +22,26 @@ export interface MediaOutput {
 /** 面板过渡效果 */
 export type PanelTransition = "cut" | "fade" | "slide" | "zoom" | "dissolve";
 
+/** 难度等级（教育测验） */
+export type DifficultyLevel = "easy" | "medium" | "hard";
+
+/** 测验题目 */
+export interface QuizQuestion {
+  question: string;
+  options: [string, string, string, string];
+  correctIndex: number; // 0-3
+  explanation: string;
+}
+
+/** 关联词条推荐 */
+export interface RelatedTopic {
+  keyword: string;
+  wikipediaTitle: string;
+  description?: string;
+  thumbnail?: string;
+  verified: boolean;
+}
+
 /** 单个漫画面板 */
 export interface ComicPanel {
   id: number;
@@ -30,6 +50,8 @@ export interface ComicPanel {
   imagePrompt: string;
   imageUrl?: string;
   status: "pending" | "generating" | "completed" | "failed";
+  /** 面板级风格覆盖（优先于 script.style） */
+  styleOverride?: ComicStyle;
   /** 所有历史版本（含当前），最新在末尾 */
   imageVersions?: ImageVersion[];
   /** 当前激活版本的索引，undefined 表示最新 */
@@ -46,6 +68,12 @@ export interface ComicPanel {
   transition?: PanelTransition;
   /** 面板展示时长(秒) */
   duration?: number;
+  /** Prompt 增强日志（透明化增强过程） */
+  enhancementLog?: {
+    original: string;
+    enhanced: string;
+    layers: { name: string; action: string }[];
+  };
 }
 
 /** 单张参考图的完整记录 */
@@ -89,6 +117,10 @@ export interface ComicScript {
   controlMode?: "HED" | "Canny" | "Depth";
   /** 结构化参考图列表（新版） */
   referenceEntries?: ReferenceImageEntry[];
+  /** AI 生成的测验题 */
+  quiz?: QuizQuestion[];
+  /** 关联词条推荐 */
+  relatedTopics?: RelatedTopic[];
 }
 
 /** 漫画风格 */
@@ -135,6 +167,7 @@ export interface NovelMeta {
 export interface WikipediaContent {
   title: string;
   extract: string;
+  hasLatex?: boolean;
   sections?: string[];
   thumbnail?: string;
   lang: string;
@@ -185,6 +218,8 @@ export interface GenerateRequest {
   characterIds?: string[];
   /** 生成质量档位 */
   quality?: GenerationQuality;
+  /** 难度等级（影响 prompt 用词和知识深度） */
+  difficulty?: DifficultyLevel;
 }
 
 /** 生成任务状态 */
@@ -202,6 +237,30 @@ export interface GenerateTask {
     expandedDescription: string;
     keyFacts: string[];
     narrativeAngle: string;
+  };
+  /** Script quality validation (auto-run after scripting, before script_ready) */
+  scriptValidation?: {
+    passed: boolean;
+    characterConsistency: boolean;
+    compositionVariety: boolean;
+    styleAlignment: boolean;
+    languagePurity: boolean;
+    warnings: Array<{
+      severity: "critical" | "warning" | "info";
+      dimension: string;
+      panelIndices: number[];
+      message: string;
+      suggestion: string;
+    }>;
+  };
+  /** Generation config snapshot — records which models were used */
+  generationConfig?: {
+    llmModel?: string;
+    llmProvider?: string;
+    imageModel?: string;
+    imageProvider?: string;
+    quality?: string;
+    generatedAt?: string;
   };
   createdAt: Date;
   updatedAt: Date;
@@ -281,7 +340,7 @@ export interface ZImageExtraBody {
 }
 
 /** 文生图端点类型 */
-export type ImageEndpointType = "chat" | "images" | "auto";
+export type ImageEndpointType = "chat" | "images" | "comfyui" | "auto";
 
 /** 文生图可覆盖配置（来自前端） */
 export interface PartialImageGenConfig {
@@ -291,6 +350,8 @@ export interface PartialImageGenConfig {
   size?: string;
   endpointType?: ImageEndpointType;
   extraBody?: ZImageExtraBody;
+  /** ComfyUI workflow JSON template */
+  comfyuiWorkflow?: string;
 }
 
 // ============================================================
@@ -298,7 +359,7 @@ export interface PartialImageGenConfig {
 // ============================================================
 
 /** API 提供商 */
-export type APIProvider = "deepseek" | "openai" | "claude" | "gemini" | "nano-banana" | "z-image" | "custom";
+export type APIProvider = "deepseek" | "openai" | "claude" | "gemini" | "nano-banana" | "z-image" | "ollama" | "comfyui" | "custom";
 
 /** 用户 LLM 配置 */
 export interface UserLLMConfig {
@@ -321,6 +382,7 @@ export interface UserImageConfig {
   model: string;
   size: string;
   endpointType: ImageEndpointType;
+  comfyuiWorkflow?: string;
 }
 
 /** 用户 API 配置 (v1 - 旧版，用于迁移) */

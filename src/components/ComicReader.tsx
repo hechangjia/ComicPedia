@@ -1,6 +1,6 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useCallback, useRef } from "react";
 import { ComicPanel } from "@/lib/types";
 
 interface ComicReaderProps {
@@ -27,9 +27,10 @@ const ReaderPanel = memo(function ReaderPanel({
 
   return (
     <div
-      className="relative overflow-hidden rounded-lg bg-black group"
+      className="relative overflow-hidden rounded-lg bg-black group focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-black"
       role="figure"
-      aria-label={panel.scene}
+      aria-label={`第 ${index + 1} 格: ${panel.scene}`}
+      tabIndex={0}
     >
       {/* 图片 */}
       <div className="aspect-square">
@@ -75,8 +76,36 @@ const ReaderPanel = memo(function ReaderPanel({
  * 画廊式排版：渐变遮罩叠加文字，黑色装订线间隙，完整对话展示。
  */
 export function ComicReader({ panels, title }: ComicReaderProps) {
+  const gridRef = useRef<HTMLDivElement>(null);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    const grid = gridRef.current;
+    if (!grid) return;
+
+    const panelEls = Array.from(grid.querySelectorAll<HTMLElement>('[role="figure"]'));
+    const focused = document.activeElement as HTMLElement;
+    const currentIdx = panelEls.indexOf(focused);
+
+    let nextIdx = -1;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      nextIdx = currentIdx < panelEls.length - 1 ? currentIdx + 1 : 0;
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      nextIdx = currentIdx > 0 ? currentIdx - 1 : panelEls.length - 1;
+    } else if (e.key === "Home") {
+      nextIdx = 0;
+    } else if (e.key === "End") {
+      nextIdx = panelEls.length - 1;
+    }
+
+    if (nextIdx >= 0) {
+      e.preventDefault();
+      panelEls[nextIdx].focus();
+      panelEls[nextIdx].scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, []);
+
   return (
-    <div className="space-y-0" role="article" aria-label="\u6F2B\u753B\u9605\u8BFB\u89C6\u56FE">
+    <div className="space-y-0" role="article" aria-label="漫画阅读视图">
       {/* 标题 */}
       <div className="text-center mb-4">
         <h2 className="text-xl font-bold">{title}</h2>
@@ -84,8 +113,10 @@ export function ComicReader({ panels, title }: ComicReaderProps) {
 
       {/* 漫画网格 — 黑色间隙模拟装订线 */}
       <div
+        ref={gridRef}
         className="grid grid-cols-1 sm:grid-cols-2 bg-black rounded-xl overflow-hidden border-[3px] border-black"
         style={{ gap: "3px" }}
+        onKeyDown={handleKeyDown}
       >
         {panels.map((panel, index) => (
           <ReaderPanel
