@@ -19,7 +19,8 @@ next-env.d.ts
 *.db-wal
 
 # Generated data (runtime, volume-mounted in Docker)
-data/
+data/*
+!data/.gitkeep
 public/output/
 public/reference/
 

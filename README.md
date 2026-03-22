@@ -221,7 +221,7 @@ graph TD
 
 ```bash
 # 克隆仓库
-git clone https://github.com/your-username/ComicPedia.git
+git clone https://github.com/hechangjia/ComicPedia.git
 cd ComicPedia
 
 # 安装依赖
@@ -232,6 +232,14 @@ pnpm dev
 ```
 
 在浏览器中打开 [http://localhost:3000](http://localhost:3000)。
+
+> **注意：** 所有运行时数据（SQLite 数据库、生成的图片）存储在项目根目录的 `data/` 文件夹中，该文件夹已被 `.gitignore` 排除。如果你之前运行过项目，`data/` 中的旧数据（角色、任务等）不会被 `git clone` 或 `git pull` 清除。如需全新数据库，请运行：
+>
+> ```bash
+> pnpm clean   # 删除 data/ 目录，重启后自动创建空数据库
+> ```
+>
+> 同时建议清除浏览器中对应站点的 IndexedDB 缓存（开发者工具 → Application → IndexedDB → 删除 `comicpedia` 数据库），避免旧数据从浏览器缓存回写到服务端。
 
 ### Docker 部署
 

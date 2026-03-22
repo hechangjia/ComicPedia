@@ -221,7 +221,7 @@ graph TD
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/ComicPedia.git
+git clone https://github.com/hechangia/ComicPedia.git
 cd ComicPedia
 
 # Install dependencies
@@ -232,6 +232,14 @@ pnpm dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+> **Note:** All runtime data (SQLite database, generated images) is stored in the `data/` folder at the project root, which is excluded by `.gitignore`. If you have previously run the project, old data (characters, tasks, etc.) in `data/` will NOT be removed by `git clone` or `git pull`. To start with a fresh database:
+>
+> ```bash
+> pnpm clean   # Removes data/ directory; a fresh DB is created on next startup
+> ```
+>
+> Also clear the site's IndexedDB in your browser (DevTools → Application → IndexedDB → delete `comicpedia`) to prevent stale data from syncing back to the server.
 
 ### Docker Deployment
 

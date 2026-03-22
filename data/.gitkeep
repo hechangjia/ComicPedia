@@ -1,0 +1,13 @@
+# Runtime Data Directory
+#
+# This directory is auto-created at startup and stores:
+#   - comicpedia.db   SQLite database (tasks, characters, series, config)
+#   - images/         Generated comic panel images
+#
+# It is excluded from version control (.gitignore).
+# If you see stale data after a fresh clone, run:
+#
+#   pnpm clean
+#
+# This will delete the entire data/ directory. A fresh database
+# will be created automatically on the next startup.

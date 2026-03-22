@@ -290,31 +290,11 @@ export async function getCharacter(id: string): Promise<Character | undefined> {
 export async function getAllCharacters(): Promise<Character[]> {
   try {
     const serverChars = await apiCall<Character[]>('/api/characters');
-    // 合并：服务端数据为主，但保留仅存在于 IndexedDB 中的角色（服务端同步失败的）
-    const localChars = await cacheGetAll<Character>('characters');
-    const serverIds = new Set(serverChars.map((c) => c.id));
-    const localOnly = localChars.filter((c) => !serverIds.has(c.id));
 
     // 更新缓存（服务端数据） — allSettled 防单点失败
     await Promise.allSettled(serverChars.map(c => cachePut('characters', c)));
 
-    // 合并结果：服务端 + 本地独有（按 updatedAt 降序）
-    const merged = [...serverChars, ...localOnly].sort(
-      (a, b) => (new Date(b.updatedAt).getTime() || 0) - (new Date(a.updatedAt).getTime() || 0)
-    );
-
-    // 尝试将本地独有的角色重新同步到服务端
-    await Promise.allSettled(
-      localOnly.map(c =>
-        apiCall('/api/characters', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ character: c }),
-        })
-      )
-    );
-
-    return merged;
+    return serverChars;
   } catch (err) {
     console.warn('[DB] getAllCharacters API failed, falling back:', err);
     return cacheGetAll<Character>('characters');
