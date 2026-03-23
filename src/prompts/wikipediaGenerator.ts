@@ -5,9 +5,6 @@ import { parseScriptResponse } from "./scriptGenerator";
 /** 信息图类风格（适合图示化、布局化表达） */
 const INFOGRAPHIC_STYLES = new Set<ComicStyle>(["flat", "infographic", "banana"]);
 
-/** 叙事类风格（适合场景化、角色化表达） */
-const NARRATIVE_STYLES = new Set<ComicStyle>(["anime", "cartoon", "chibi", "manga", "realistic", "watercolor", "sketch", "inkwash", "pixel"]);
-
 /**
  * 根据风格类型生成差异化的 imagePrompt 指导。
  * 信息图类风格强调布局、图标、连接线、颜色语义；

@@ -2,7 +2,18 @@
 
 import { useState, useCallback, useRef } from "react";
 import dynamic from "next/dynamic";
-import { ComicPanel, ComicStyle, ComicScript, GenerateTask, PartialLLMConfig } from "@/lib/types";
+import type {
+  ComicPanel,
+  ComicStyle,
+  ComicScript,
+  GenerateTask,
+  PanelReview,
+  PanelReviewStatus,
+  PartialLLMConfig,
+  ReviewStatus,
+  VisualRetryCycleStatus,
+  VisualRetrySummary,
+} from "@/lib/types";
 import { EditablePanel } from "@/components/EditablePanel";
 
 const ComicReader = dynamic(() =>
@@ -18,12 +29,55 @@ interface PanelGridProps {
   globalStyle?: ComicStyle;
   script?: ComicScript;
   llmConfig?: PartialLLMConfig;
+  reviewStatus?: ReviewStatus;
+  panelReview?: PanelReview[] | null;
+  visualRetrySummary?: VisualRetrySummary | null;
   onPanelUpdate: (index: number, updatedPanel: ComicPanel) => void;
   onRegenerate: (index: number, seedOverride?: number) => void;
   onCancel: (index: number) => void;
   onVersionChange: (panelIndex: number, versionIndex: number) => void;
   onReorder?: (fromIndex: number, toIndex: number) => void;
 }
+
+const PANEL_REVIEW_LABELS: Record<PanelReviewStatus, string> = {
+  reviewed: "已通过",
+  needs_repair: "待修复",
+  retrying: "修复中",
+  failed: "修复失败",
+};
+
+const PANEL_REVIEW_BADGES: Record<PanelReviewStatus, string> = {
+  reviewed: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+  needs_repair: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  retrying: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  failed: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+};
+
+const TASK_REVIEW_LABELS: Record<ReviewStatus, string> = {
+  unreviewed: "未评审",
+  reviewed: "已评审",
+  needs_repair: "需修复",
+};
+
+const TASK_REVIEW_BADGES: Record<ReviewStatus, string> = {
+  unreviewed: "bg-muted text-muted-foreground",
+  reviewed: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+  needs_repair: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+};
+
+const RETRY_STATUS_LABELS: Record<VisualRetryCycleStatus, string> = {
+  running: "自动修复中",
+  completed: "自动修复完成",
+  failed: "自动修复失败",
+  skipped: "自动修复已跳过",
+};
+
+const RETRY_STATUS_BADGES: Record<VisualRetryCycleStatus, string> = {
+  running: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  completed: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+  failed: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  skipped: "bg-muted text-muted-foreground",
+};
 
 export function PanelGrid({
   panels,
@@ -34,6 +88,9 @@ export function PanelGrid({
   globalStyle,
   script,
   llmConfig,
+  reviewStatus,
+  panelReview,
+  visualRetrySummary,
   onPanelUpdate,
   onRegenerate,
   onCancel,
@@ -43,13 +100,19 @@ export function PanelGrid({
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const dragSourceIndex = useRef<number | null>(null);
   const canReorder = (taskStatus === "script_ready" || taskStatus === "completed") && !!onReorder;
+  const reviews = panelReview ?? [];
+  const reviewByIndex = new Map(reviews.map((item) => [item.panelIndex, item]));
+  const reviewedCount = reviews.filter((item) => item.status === "reviewed").length;
+  const needsRepairCount = reviews.filter((item) => item.status === "needs_repair").length;
+  const retryingCount = reviews.filter((item) => item.status === "retrying").length;
+  const failedCount = reviews.filter((item) => item.status === "failed").length;
+  const showReviewSummary = !!reviewStatus || reviews.length > 0 || !!visualRetrySummary;
 
   const handleDragStart = useCallback((e: React.DragEvent, index: number) => {
     if (!canReorder) return;
     dragSourceIndex.current = index;
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", String(index));
-    // 半透明拖拽预览
     const el = e.currentTarget as HTMLElement;
     el.style.opacity = "0.5";
   }, [canReorder]);
@@ -85,46 +148,116 @@ export function PanelGrid({
 
   return (
     <>
+      {showReviewSummary && (
+        <div className="rounded-xl border bg-card p-4 space-y-3 no-print">
+          <div className="flex flex-wrap items-center gap-2">
+            {reviewStatus && (
+              <span className={`px-2 py-1 rounded-full text-xs font-medium ${TASK_REVIEW_BADGES[reviewStatus]}`}>
+                任务评审：{TASK_REVIEW_LABELS[reviewStatus]}
+              </span>
+            )}
+            {visualRetrySummary && (
+              <span className={`px-2 py-1 rounded-full text-xs font-medium ${RETRY_STATUS_BADGES[visualRetrySummary.status]}`}>
+                {RETRY_STATUS_LABELS[visualRetrySummary.status]}
+              </span>
+            )}
+            {visualRetrySummary && visualRetrySummary.attemptedPanels.length > 0 && (
+              <span className="px-2 py-1 rounded-full text-xs font-medium bg-muted text-muted-foreground">
+                已尝试修复 {visualRetrySummary.attemptedPanels.length} 格
+              </span>
+            )}
+            {visualRetrySummary?.finalOverallScore !== undefined && (
+              <span className="px-2 py-1 rounded-full text-xs font-medium bg-muted text-muted-foreground">
+                总分 {visualRetrySummary.initialOverallScore} → {visualRetrySummary.finalOverallScore}
+              </span>
+            )}
+          </div>
+
+          {reviews.length > 0 && (
+            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+              <span className="px-2 py-1 rounded-full bg-muted/70">已评审 {reviews.length}/{panels.length}</span>
+              {reviewedCount > 0 && <span className="px-2 py-1 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">通过 {reviewedCount}</span>}
+              {needsRepairCount > 0 && <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">待修复 {needsRepairCount}</span>}
+              {retryingCount > 0 && <span className="px-2 py-1 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">修复中 {retryingCount}</span>}
+              {failedCount > 0 && <span className="px-2 py-1 rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">失败 {failedCount}</span>}
+            </div>
+          )}
+
+          {viewMode === "read" && reviews.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {panels.map((_, index) => {
+                const review = reviewByIndex.get(index);
+                if (!review) {
+                  return (
+                    <span key={index} className="px-2 py-0.5 rounded-full text-[11px] bg-muted text-muted-foreground">
+                      P{index + 1} 未评审
+                    </span>
+                  );
+                }
+                return (
+                  <span key={index} className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${PANEL_REVIEW_BADGES[review.status]}`}>
+                    P{index + 1} {PANEL_REVIEW_LABELS[review.status]} · {review.score}/10
+                  </span>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {viewMode === "read" ? (
         <ComicReader panels={panels} title={title} />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 print-grid">
-          {panels.map((panel: ComicPanel, index: number) => (
-            <div
-              key={panel.id}
-              draggable={canReorder}
-              onDragStart={(e) => handleDragStart(e, index)}
-              onDragEnd={handleDragEnd}
-              onDragOver={(e) => handleDragOver(e, index)}
-              onDrop={(e) => handleDrop(e, index)}
-              onDragLeave={handleDragLeave}
-              className={`transition-all ${
-                canReorder ? "cursor-grab active:cursor-grabbing" : ""
-              } ${
-                dragOverIndex === index
-                  ? "ring-2 ring-primary ring-offset-2 scale-[1.02]"
-                  : ""
-              }`}
-            >
-              <EditablePanel
-                panel={panel}
-                index={index}
-                taskId={taskId}
-                taskStatus={taskStatus}
-                globalStyle={globalStyle}
-                script={script}
-                llmConfig={llmConfig}
-                onUpdate={onPanelUpdate}
-                onRegenerate={onRegenerate}
-                onCancel={onCancel}
-                onVersionChange={onVersionChange}
-              />
-            </div>
-          ))}
+          {panels.map((panel: ComicPanel, index: number) => {
+            const review = reviewByIndex.get(index);
+            return (
+              <div
+                key={panel.id}
+                draggable={canReorder}
+                onDragStart={(e) => handleDragStart(e, index)}
+                onDragEnd={handleDragEnd}
+                onDragOver={(e) => handleDragOver(e, index)}
+                onDrop={(e) => handleDrop(e, index)}
+                onDragLeave={handleDragLeave}
+                className={`space-y-2 transition-all ${
+                  canReorder ? "cursor-grab active:cursor-grabbing" : ""
+                } ${
+                  dragOverIndex === index
+                    ? "ring-2 ring-primary ring-offset-2 scale-[1.02]"
+                    : ""
+                }`}
+              >
+                {review && (
+                  <div className="flex items-center justify-between gap-2 px-1 no-print">
+                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${PANEL_REVIEW_BADGES[review.status]}`}>
+                      P{index + 1} {PANEL_REVIEW_LABELS[review.status]}
+                    </span>
+                    <div className="text-[11px] text-muted-foreground text-right">
+                      <span className="font-medium text-foreground/80">{review.score}/10</span>
+                      {review.issues.length > 0 && <span> · {review.issues.length} 项问题</span>}
+                    </div>
+                  </div>
+                )}
+                <EditablePanel
+                  panel={panel}
+                  index={index}
+                  taskId={taskId}
+                  taskStatus={taskStatus}
+                  globalStyle={globalStyle}
+                  script={script}
+                  llmConfig={llmConfig}
+                  onUpdate={onPanelUpdate}
+                  onRegenerate={onRegenerate}
+                  onCancel={onCancel}
+                  onVersionChange={onVersionChange}
+                />
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {/* 打印专用 DOM */}
       {viewMode === "read" && (
         <div className="hidden print:!block">
           <div className="print-grid">

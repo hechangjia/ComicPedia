@@ -1,7 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { subscribeStreamText } from "@/lib/client/eventBus";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  getStreamTextServerSnapshot,
+  getStreamTextSnapshot,
+  subscribeStreamText,
+} from "@/lib/client/eventBus";
 
 interface GeneratingAnimationProps {
   status: "scripting" | "generating" | "pending";
@@ -32,25 +36,42 @@ const statusMessages = {
   ],
 };
 
-/** Subscribe to streamText via ref — updates DOM directly, no React re-render */
+const generationStartTimes = new Map<string, number>();
+
+function subscribeHasStreamText(taskId: string, status: string, listener: () => void) {
+  if (status !== "scripting") {
+    return () => {};
+  }
+
+  return subscribeStreamText(taskId, () => listener());
+}
+
+function getHasStreamTextSnapshot(taskId: string, status: string) {
+  return status === "scripting" && getStreamTextSnapshot(taskId).length > 0;
+}
+
+/** Subscribe to streamText with a single render on first token, then update DOM directly */
 function useStreamText(taskId: string, status: string) {
   const textRef = useRef<HTMLPreElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [hasText, setHasText] = useState(false);
+  const hasText = useSyncExternalStore(
+    (listener) => subscribeHasStreamText(taskId, status, listener),
+    () => getHasStreamTextSnapshot(taskId, status),
+    () => false,
+  );
 
   useEffect(() => {
     if (status !== "scripting") {
-      setHasText(false);
+      if (textRef.current) {
+        textRef.current.textContent = "";
+      }
       return;
     }
 
-    const unsub = subscribeStreamText(taskId, (text) => {
-      if (!hasText && text) setHasText(true);
-      // Direct DOM update — bypasses React render cycle
+    const applyText = (text: string) => {
       if (textRef.current) {
         textRef.current.textContent = text;
       }
-      // Auto-scroll
       if (containerRef.current) {
         requestAnimationFrame(() => {
           if (containerRef.current) {
@@ -58,48 +79,64 @@ function useStreamText(taskId: string, status: string) {
           }
         });
       }
-    });
+    };
 
-    return unsub;
-  }, [taskId, status, hasText]);
+    applyText(getStreamTextSnapshot(taskId));
+    return subscribeStreamText(taskId, applyText);
+  }, [taskId, status]);
 
   return { textRef, containerRef, hasText };
 }
 
 /** 估算剩余时间（基于已完成面板的平均耗时） */
-function useTimeEstimate(completedPanels: number, totalPanels: number) {
-  const startTimeRef = useRef<number | null>(null);
-  const [estimate, setEstimate] = useState<string | null>(null);
+function useTimeEstimate(taskId: string, completedPanels: number, totalPanels: number) {
+  const [now, setNow] = useState<number | null>(null);
 
   useEffect(() => {
-    if (totalPanels <= 0) return;
-
-    if (startTimeRef.current === null && completedPanels === 0) {
-      startTimeRef.current = Date.now();
+    if (totalPanels <= 0 || completedPanels >= totalPanels) {
+      generationStartTimes.delete(taskId);
+      return;
     }
 
-    if (completedPanels > 0 && startTimeRef.current !== null) {
-      const elapsed = (Date.now() - startTimeRef.current) / 1000;
-      const avgPerPanel = elapsed / completedPanels;
-      const remaining = totalPanels - completedPanels;
-      const remainingSec = Math.round(avgPerPanel * remaining);
-
-      if (remainingSec <= 0) {
-        setEstimate(null);
-      } else if (remainingSec < 60) {
-        setEstimate(`约 ${remainingSec} 秒`);
-      } else {
-        setEstimate(`约 ${Math.ceil(remainingSec / 60)} 分钟`);
+    if (completedPanels === 0) {
+      if (!generationStartTimes.has(taskId)) {
+        generationStartTimes.set(taskId, Date.now());
       }
+      return;
     }
 
-    if (completedPanels >= totalPanels) {
-      startTimeRef.current = null;
-      setEstimate(null);
-    }
-  }, [completedPanels, totalPanels]);
+    const timer = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [completedPanels, taskId, totalPanels]);
 
-  return estimate;
+  useEffect(() => {
+    return () => {
+      generationStartTimes.delete(taskId);
+    };
+  }, [taskId]);
+
+  return useMemo(() => {
+    if (totalPanels <= 0 || completedPanels >= totalPanels) {
+      return null;
+    }
+
+    if (completedPanels === 0 || now === null) {
+      return null;
+    }
+
+    const startTime = generationStartTimes.get(taskId);
+    if (!startTime) return null;
+
+    const elapsed = (now - startTime) / 1000;
+    const avgPerPanel = elapsed / completedPanels;
+    const remainingSec = Math.round(avgPerPanel * (totalPanels - completedPanels));
+
+    if (remainingSec <= 0) return null;
+    if (remainingSec < 60) return `约 ${remainingSec} 秒`;
+    return `约 ${Math.ceil(remainingSec / 60)} 分钟`;
+  }, [completedPanels, now, taskId, totalPanels]);
 }
 
 export function GeneratingAnimation({
@@ -112,10 +149,9 @@ export function GeneratingAnimation({
 }: GeneratingAnimationProps) {
   const [messageIndex, setMessageIndex] = useState(0);
   const messages = statusMessages[status] || statusMessages.pending;
-  const timeEstimate = useTimeEstimate(completedPanels, totalPanels);
+  const timeEstimate = useTimeEstimate(taskId, completedPanels, totalPanels);
   const { textRef, containerRef, hasText } = useStreamText(taskId, status);
 
-  // 循环切换消息
   useEffect(() => {
     const interval = setInterval(() => {
       setMessageIndex((prev) => (prev + 1) % messages.length);
@@ -127,16 +163,13 @@ export function GeneratingAnimation({
 
   return (
     <div className="flex flex-col items-center justify-center py-12 space-y-6">
-      {/* 动画容器 */}
       <div className="relative w-32 h-32">
-        {/* 外圈旋转 */}
         <div className="absolute inset-0 rounded-full border-4 border-muted" />
         <div
           className="absolute inset-0 rounded-full border-4 border-transparent border-t-primary animate-spin"
           style={{ animationDuration: "1.5s" }}
         />
 
-        {/* 中心图标 */}
         <div className="absolute inset-0 flex items-center justify-center">
           {status === "scripting" ? (
             <svg
@@ -169,13 +202,11 @@ export function GeneratingAnimation({
           )}
         </div>
 
-        {/* 进度百分比 */}
         <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-primary text-primary-foreground text-sm font-medium">
           {progress}%
         </div>
       </div>
 
-      {/* 状态文字 */}
       <div className="text-center space-y-2">
         <p className="text-lg font-medium text-foreground animate-fade-in">
           {messages[messageIndex]}
@@ -189,7 +220,6 @@ export function GeneratingAnimation({
         </p>
       </div>
 
-      {/* 阶段步骤指示器 */}
       <div className="flex items-center gap-2 text-xs flex-wrap justify-center">
         {qualityLevel !== "fast" && (
           <>
@@ -225,7 +255,6 @@ export function GeneratingAnimation({
         )}
       </div>
 
-      {/* 进度条 */}
       <div className="w-64 space-y-1">
         <div className="h-2 bg-muted rounded-full overflow-hidden">
           <div
@@ -233,7 +262,6 @@ export function GeneratingAnimation({
             style={{ width: `${progress}%` }}
           />
         </div>
-        {/* 图片生成阶段：面板进度详情 */}
         {isGenerating && totalPanels > 0 && (
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>{completedPanels}/{totalPanels} 张完成</span>
@@ -242,14 +270,12 @@ export function GeneratingAnimation({
         )}
       </div>
 
-      {/* 提示 */}
       {!(isGenerating && totalPanels > 0) && (
         <p className="text-xs text-muted-foreground">
           预计需要 1-2 分钟，请耐心等待
         </p>
       )}
 
-      {/* LLM 流式输出预览 — DOM updated via ref, no React re-render per token */}
       {status === "scripting" && hasText && (
         <div
           ref={containerRef}

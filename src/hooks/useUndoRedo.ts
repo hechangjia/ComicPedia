@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback } from "react";
 
 const MAX_HISTORY = 30;
 
@@ -7,49 +7,33 @@ const MAX_HISTORY = 30;
  * 每次调用 pushState 保存快照，支持 Ctrl+Z / Ctrl+Shift+Z。
  */
 export function useUndoRedo<T>(initialState: T) {
-  const [state, setState] = useState(initialState);
-  const historyRef = useRef<T[]>([initialState]);
-  const indexRef = useRef(0);
+  const [history, setHistory] = useState<T[]>([initialState]);
+  const [index, setIndex] = useState(0);
+
+  const state = history[index] ?? initialState;
+  const canUndo = index > 0;
+  const canRedo = index < history.length - 1;
 
   const pushState = useCallback((newState: T) => {
-    const history = historyRef.current;
-    const idx = indexRef.current;
-
-    // 截断 redo 历史
-    historyRef.current = history.slice(0, idx + 1);
-    historyRef.current.push(newState);
-
-    // 限制历史长度
-    if (historyRef.current.length > MAX_HISTORY) {
-      historyRef.current = historyRef.current.slice(-MAX_HISTORY);
-    }
-
-    indexRef.current = historyRef.current.length - 1;
-    setState(newState);
-  }, []);
+    setHistory((prevHistory) => {
+      const nextHistory = [...prevHistory.slice(0, index + 1), newState];
+      return nextHistory.length > MAX_HISTORY ? nextHistory.slice(-MAX_HISTORY) : nextHistory;
+    });
+    setIndex((prevIndex) => Math.min(prevIndex + 1, MAX_HISTORY - 1));
+  }, [index]);
 
   const undo = useCallback(() => {
-    if (indexRef.current > 0) {
-      indexRef.current--;
-      setState(historyRef.current[indexRef.current]);
-    }
+    setIndex((prevIndex) => Math.max(prevIndex - 1, 0));
   }, []);
 
   const redo = useCallback(() => {
-    if (indexRef.current < historyRef.current.length - 1) {
-      indexRef.current++;
-      setState(historyRef.current[indexRef.current]);
-    }
-  }, []);
-
-  const canUndo = indexRef.current > 0;
-  const canRedo = indexRef.current < historyRef.current.length - 1;
+    setIndex((prevIndex) => Math.min(prevIndex + 1, history.length - 1));
+  }, [history.length]);
 
   /** 重置历史（外部数据变更时调用） */
   const reset = useCallback((newState: T) => {
-    historyRef.current = [newState];
-    indexRef.current = 0;
-    setState(newState);
+    setHistory([newState]);
+    setIndex(0);
   }, []);
 
   /** 处理键盘快捷键 */

@@ -22,16 +22,27 @@ export function useTaskSubscription(taskId: string) {
   const [task, setTask] = useState<GenerateTask | null>(null);
   const [error, setError] = useState("");
   const taskRef = useRef(task);
-  taskRef.current = task;
+
+  useEffect(() => {
+    taskRef.current = task;
+  }, [task]);
 
   // Sync Zustand store changes to local state
   useEffect(() => {
-    if (storeTask) {
+    if (!storeTask) return;
+
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
       setTask(storeTask);
       if (storeTask.status === "failed") {
         setError(storeTask.error || "Unknown error");
       }
-    }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [storeTask]);
 
   // Initial load: recover zombie state → hydrate from DB to store

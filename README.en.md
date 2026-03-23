@@ -33,6 +33,7 @@
 
 ## Table of Contents
 
+- [Project Status TODO](#project-status-todo)
 - [Features](#features)
 - [Tech Stack](#tech-stack)
 - [Architecture](#architecture)
@@ -50,6 +51,35 @@
   - [Comic Works](#comic-works)
   - [Character Gallery](#character-gallery)
 - [License](#license)
+
+---
+
+## Project Status TODO
+
+### Done
+
+- [x] Support 5 content types: science, Wikipedia, poetry, novel, and Xiaohongshu
+- [x] Support 12 visual styles with style-specific prompt control
+- [x] Support LLM storyboard generation with SSE streaming
+- [x] Support script editing, per-panel regeneration, and panel version switching
+- [x] Support character library, reference images, and cross-panel character consistency injection
+- [x] Support VLM visual scoring, issue diagnosis, and one-click image repair
+- [x] Support an enhanced pipeline of research -> outline -> script -> image -> review depending on quality tier
+- [x] Support rule-based script validation, script self-repair agent, and intelligent retry strategy
+- [x] Support automatic Wikipedia lookup and encyclopedia-style comic generation
+- [x] Support PDF, ZIP, Markdown, and Seedance script export
+- [x] Support trash, backup/restore, and IndexedDB -> SQLite migration
+- [x] Support Docker deployment, health checks, and local SQLite persistence
+- [x] Support Vitest unit tests and ESLint checks
+- [x] Completed one repository-wide contamination cleanup and removed confirmed dead legacy types/files
+
+### Todo / Next
+
+- [ ] Add integration tests for key API routes (tasks / characters / series / config / backup)
+- [ ] Add E2E tests for critical user flows (create script, generate images, export, restore)
+- [ ] Build more systematic performance baselines and stress tests for large task volumes
+- [ ] Improve background task observability and recovery tooling for long-running jobs
+- [ ] Continue cleaning historical half-finished extension surfaces and redundant code so implementation stays aligned with documentation
 
 ---
 

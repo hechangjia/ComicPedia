@@ -306,16 +306,6 @@ export function parseScriptResponse(response: string): ComicScript | null {
   }
 }
 
-/** 清理 imagePrompt 中的非英文字符（保留基本 ASCII 和常见标点） */
-function cleanNonEnglishFromPrompt(prompt: string): string {
-  // 移除日文假名（\u3040-\u309F \u30A0-\u30FF）、韩文（\uAC00-\uD7AF）
-  // 移除 CJK 统一汉字（\u4E00-\u9FFF）——imagePrompt 应为纯英文
-  // 保留 ASCII（\x00-\x7F）和 Latin Extended（\u00C0-\u024F）用于拼音等
-  return prompt
-    .replace(/[\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
 
 /** 验证角色描述一致性 */
 export function validateCharacterConsistency(script: ComicScript): {

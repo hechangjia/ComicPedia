@@ -1,9 +1,59 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import Link from "next/link";
 
 const STORAGE_KEY = "comicpedia_onboarding_completed";
+const onboardingListeners = new Set<() => void>();
+let onboardingCompletedSnapshot = false;
+let onboardingSnapshotLoaded = false;
+
+function emitOnboardingCompleted(nextValue: boolean) {
+  onboardingCompletedSnapshot = nextValue;
+  onboardingSnapshotLoaded = true;
+
+  try {
+    if (nextValue) {
+      localStorage.setItem(STORAGE_KEY, "true");
+    } else {
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  } catch (error) {
+    console.warn("[OnboardingGuide] 保存引导状态失败:", error);
+  }
+
+  onboardingListeners.forEach((listener) => listener());
+}
+
+function getOnboardingCompletedSnapshot() {
+  if (typeof window === "undefined") return false;
+  if (!onboardingSnapshotLoaded) {
+    onboardingCompletedSnapshot = localStorage.getItem(STORAGE_KEY) === "true";
+    onboardingSnapshotLoaded = true;
+  }
+  return onboardingCompletedSnapshot;
+}
+
+function getOnboardingCompletedServerSnapshot() {
+  return false;
+}
+
+function subscribeOnboardingCompleted(listener: () => void) {
+  onboardingListeners.add(listener);
+
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key !== STORAGE_KEY) return;
+    onboardingCompletedSnapshot = event.newValue === "true";
+    onboardingSnapshotLoaded = true;
+    onboardingListeners.forEach((currentListener) => currentListener());
+  };
+
+  window.addEventListener("storage", handleStorage);
+  return () => {
+    onboardingListeners.delete(listener);
+    window.removeEventListener("storage", handleStorage);
+  };
+}
 
 interface OnboardingGuideProps {
   hasLLM: boolean;
@@ -41,37 +91,34 @@ const STEPS = [
  * 完成后记录到 localStorage 不再显示。
  */
 export function OnboardingGuide({ hasLLM, hasImage, isLoaded }: OnboardingGuideProps) {
-  const [dismissed, setDismissed] = useState(true); // 默认隐藏，防止闪烁
+  const completed = useSyncExternalStore(
+    subscribeOnboardingCompleted,
+    getOnboardingCompletedSnapshot,
+    getOnboardingCompletedServerSnapshot,
+  );
 
   useEffect(() => {
-    if (!isLoaded) return;
-    const completed = localStorage.getItem(STORAGE_KEY);
-    // 已完成引导且已有 LLM 配置 → 不显示
-    if (completed && hasLLM) return;
-    // 已有 LLM 配置但没完成过引导 → 标记完成，不显示
-    if (hasLLM && hasImage) {
-      localStorage.setItem(STORAGE_KEY, "true");
-      return;
-    }
-    setDismissed(false);
-  }, [isLoaded, hasLLM, hasImage]);
+    if (!isLoaded || !hasLLM || !hasImage || completed) return;
+    emitOnboardingCompleted(true);
+  }, [completed, hasImage, hasLLM, isLoaded]);
 
-  if (dismissed || !isLoaded) return null;
+  const shouldShow = isLoaded && !completed && !hasLLM;
+
+  if (!shouldShow) return null;
 
   const handleDismiss = () => {
     if (hasLLM) {
-      localStorage.setItem(STORAGE_KEY, "true");
+      emitOnboardingCompleted(true);
+      return;
     }
-    setDismissed(true);
   };
 
-  const getStepStatus = (step: typeof STEPS[0], index: number) => {
+  const getStepStatus = (step: typeof STEPS[0]) => {
     if (step.requiredField === "llm") return hasLLM ? "completed" : "current";
     if (step.requiredField === "image") {
       if (!hasLLM) return "upcoming";
       return hasImage ? "completed" : "current";
     }
-    // 第三步：都配好了才算 current
     return hasLLM ? "current" : "upcoming";
   };
 
@@ -92,7 +139,7 @@ export function OnboardingGuide({ hasLLM, hasImage, isLoaded }: OnboardingGuideP
 
       <div className="space-y-3" role="list">
         {STEPS.map((step, index) => {
-          const status = getStepStatus(step, index);
+          const status = getStepStatus(step);
           return (
             <div
               key={index}

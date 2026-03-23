@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from "react";
-import { ComicPanel, ComicStyle, GenerateTask, PartialImageGenConfig, PartialLLMConfig, ReferenceImageEntry } from "@/lib/types";
+import { ComicPanel, ComicStyle, GenerateTask, PartialImageGenConfig, PartialLLMConfig, ReferenceImageEntry, VisualQualityScore } from "@/lib/types";
+import type { QualityScore } from "@/lib/qualityScore";
 import {
   regeneratePanel,
   generateAllImages,
@@ -17,8 +18,10 @@ import {
   regenerateScript,
   changeStyleAndRegenerate,
 } from "@/lib/client/generator";
+import { getTask, saveTask } from "@/lib/client/db";
+import { notifyListeners } from "@/lib/client/eventBus";
 import { getStoredRequestConfigs } from "@/hooks/useAPIConfig";
-import type { PromptPatch } from "@/lib/vlmRetry";
+import { buildPanelReview, buildTaskReviewStatus, type PromptPatch } from "@/lib/vlmRetry";
 
 /** 获取文生图配置（可按 ID 指定） */
 function getImageConfig(imageId?: string): PartialImageGenConfig | undefined {
@@ -38,17 +41,15 @@ function getLLMConfig(llmId?: string): PartialLLMConfig | undefined {
 export function useTaskActions(
   taskId: string,
   setTask: React.Dispatch<React.SetStateAction<GenerateTask | null>>,
-  /** Ref to the currently selected image config ID (avoids stale closure) */
-  imageIdRef?: React.RefObject<string>,
-  /** Ref to the currently selected LLM config ID (avoids stale closure) */
-  llmIdRef?: React.RefObject<string>,
+  selectedImageId?: string | null,
+  selectedLLMId?: string | null,
 ) {
   const getSelectedImageConfig = useCallback(() => {
-    return getImageConfig(imageIdRef?.current || undefined);
-  }, [imageIdRef]);
+    return getImageConfig(selectedImageId || undefined);
+  }, [selectedImageId]);
   const getSelectedLLMConfig = useCallback(() => {
-    return getLLMConfig(llmIdRef?.current || undefined);
-  }, [llmIdRef]);
+    return getLLMConfig(selectedLLMId || undefined);
+  }, [selectedLLMId]);
   const [generatingAll, setGeneratingAll] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -64,6 +65,55 @@ export function useTaskActions(
     if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
     setActionError(null);
   }, []);
+
+  const persistTaskUpdate = useCallback(
+    async (updater: (task: GenerateTask) => GenerateTask | void) => {
+      const freshTask = await getTask(taskId);
+      if (!freshTask) throw new Error("任务不存在");
+
+      const updatedTask = updater(freshTask) ?? freshTask;
+      updatedTask.updatedAt = new Date();
+
+      await saveTask(updatedTask);
+      notifyListeners(updatedTask);
+      setTask(updatedTask);
+      return updatedTask;
+    },
+    [taskId, setTask],
+  );
+
+  const handleSaveQualityScore = useCallback(
+    async (qualityScore: QualityScore) => {
+      try {
+        await persistTaskUpdate((task) => {
+          task.qualityScore = qualityScore;
+        });
+      } catch (err) {
+        console.error("Quality score persistence failed:", err);
+        showError(`文本评分保存失败: ${err instanceof Error ? err.message : "未知错误"}`);
+        throw err;
+      }
+    },
+    [persistTaskUpdate, showError],
+  );
+
+  const handleSaveVisualQualityScore = useCallback(
+    async (visualQualityScore: VisualQualityScore) => {
+      try {
+        await persistTaskUpdate((task) => {
+          task.visualQualityScore = visualQualityScore;
+          task.panelReview = buildPanelReview(visualQualityScore);
+          task.reviewStatus = buildTaskReviewStatus(task.panelReview);
+          task.lastReviewAt = visualQualityScore.evaluatedAt;
+        });
+      } catch (err) {
+        console.error("Visual quality score persistence failed:", err);
+        showError(`视觉评分保存失败: ${err instanceof Error ? err.message : "未知错误"}`);
+        throw err;
+      }
+    },
+    [persistTaskUpdate, showError],
+  );
 
   // 更新单个面板 (持久化到 DB)
   const handlePanelUpdate = useCallback(
@@ -87,7 +137,7 @@ export function useTaskActions(
         showError("面板更新保存失败，请重试");
       });
     },
-    [taskId, setTask],
+    [taskId, setTask, showError],
   );
 
   // 单个面板生成/重生成
@@ -296,6 +346,8 @@ export function useTaskActions(
   );
 
   return {
+    handleSaveQualityScore,
+    handleSaveVisualQualityScore,
     handlePanelUpdate,
     handleRegenerate,
     handleCancel,

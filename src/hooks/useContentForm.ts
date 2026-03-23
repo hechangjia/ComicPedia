@@ -154,25 +154,25 @@ export function useContentForm(
       const raw = localStorage.getItem(DRAFT_KEY);
       if (!raw) return;
       const draft = JSON.parse(raw);
-      if (draft.style) setStyle(draft.style);
-      if (draft.panelCount !== undefined) setPanelCount(draft.panelCount);
-      if (draft.quality) setQuality(draft.quality);
-      if (draft.difficulty) setDifficulty(draft.difficulty);
+      const timer = setTimeout(() => {
+        if (draft.style) setStyle(draft.style);
+        if (draft.panelCount !== undefined) setPanelCount(draft.panelCount);
+        if (draft.quality) setQuality(draft.quality);
+        if (draft.difficulty) setDifficulty(draft.difficulty);
+      }, 0);
+      return () => clearTimeout(timer);
     } catch {
       // 草稿损坏，忽略
     }
   }, [DRAFT_KEY]);
 
   // 保存草稿（节流 1 秒）
-  // 用 ref 持有 getInputText 避免它作为 effect 依赖导致频繁触发
-  const getInputTextRef = useRef(getInputText);
-  getInputTextRef.current = getInputText;
   const draftTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
     if (draftTimer.current) clearTimeout(draftTimer.current);
     draftTimer.current = setTimeout(() => {
       try {
-        const inputText = getInputTextRef.current();
+        const inputText = getInputText();
         const draft = {
           style, panelCount, quality, difficulty,
           inputText: inputText.slice(0, 5000),
@@ -184,7 +184,7 @@ export function useContentForm(
       }
     }, 1000);
     return () => { if (draftTimer.current) clearTimeout(draftTimer.current); };
-  }, [style, panelCount, quality, difficulty, DRAFT_KEY]);
+  }, [DRAFT_KEY, difficulty, getInputText, panelCount, quality, style]);
 
   /** 获取已保存的草稿输入文本（供 Form 组件恢复主输入） */
   const getDraftInputText = useCallback((): string => {
@@ -401,10 +401,23 @@ export function useContentForm(
       setIsLoading(false);
     }
   }, [
-    config.contentType, config.emptyInputMessage, configStatus.hasLLM,
-    controlMode, customPanelCount, panelCount, referenceImage,
-    referenceImages, router, selectedCharacterIds, selectedImageId,
-    selectedLLMId, style,
+    clearDraft,
+    config.contentType,
+    config.emptyInputMessage,
+    configStatus.hasLLM,
+    controlMode,
+    customPanelCount,
+    difficulty,
+    panelCount,
+    quality,
+    referenceEntries,
+    referenceImage,
+    referenceImages,
+    router,
+    selectedCharacterIds,
+    selectedImageId,
+    selectedLLMId,
+    style,
   ]);
 
   return {

@@ -1,6 +1,8 @@
 import { APIProvider, ImageEndpointType } from "@/lib/types";
 import { IMAGE_PRESETS } from "@/lib/config/presets";
 import { PasswordInput } from "@/components/ui/PasswordInput";
+import { useModelDiscovery } from "@/hooks/useModelDiscovery";
+import { useEffect } from "react";
 
 export interface ImageFormFields {
   name: string;
@@ -23,6 +25,26 @@ interface ImageFormProps {
 }
 
 export function ImageForm({ fields, isEditing, onChange, onProviderChange, onSave, onCancel }: ImageFormProps) {
+  const discovery = useModelDiscovery();
+  const clearModels = discovery.clearModels;
+  const isComfyUI = fields.endpointType === "comfyui";
+
+  // provider 切换时清除已发现的模型列表
+  useEffect(() => {
+    clearModels();
+  }, [clearModels, fields.provider]);
+
+  const handleFetchModels = async () => {
+    const models = await discovery.fetchModels({
+      apiUrl: fields.apiUrl,
+      apiKey: fields.apiKey,
+      protocolType: "openai-compatible",
+    });
+    if (models.length > 0 && !models.includes(fields.model)) {
+      onChange({ model: models[0] });
+    }
+  };
+
   return (
     <div className="p-4 rounded-lg border border-dashed border-primary/40 bg-primary/5 space-y-4">
       <h3 className="text-sm font-medium">
@@ -78,26 +100,86 @@ export function ImageForm({ fields, isEditing, onChange, onProviderChange, onSav
             onChange={(v) => onChange({ apiKey: v })}
           />
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
+
+        {/* 模型 + 尺寸 */}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
             <label className="text-sm text-muted-foreground">模型名称</label>
-            <input
-              value={fields.model}
-              onChange={(e) => onChange({ model: e.target.value })}
-              placeholder="dall-e-3"
-              className="w-full rounded-lg border bg-background p-3 text-sm"
-            />
+            {!isComfyUI && fields.apiUrl.trim() && (
+              <button
+                onClick={handleFetchModels}
+                disabled={discovery.loading}
+                className="text-xs px-2 py-1 rounded border hover:bg-accent transition-colors disabled:opacity-50 flex items-center gap-1"
+              >
+                {discovery.loading ? (
+                  <>
+                    <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    获取中...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    获取模型列表
+                  </>
+                )}
+              </button>
+            )}
           </div>
-          <div className="space-y-1">
-            <label className="text-sm text-muted-foreground">图片尺寸</label>
-            <input
-              value={fields.size}
-              onChange={(e) => onChange({ size: e.target.value })}
-              placeholder="1024x1024"
-              className="w-full rounded-lg border bg-background p-3 text-sm"
-            />
+
+          {/* 连通状态指示 */}
+          {discovery.status !== "idle" && !isComfyUI && (
+            <div className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded ${
+              discovery.status === "success"
+                ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400"
+                : "bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400"
+            }`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${
+                discovery.status === "success" ? "bg-green-500" : "bg-red-500"
+              }`} />
+              {discovery.status === "success"
+                ? `连接成功${discovery.models.length > 0 ? `，${discovery.models.length} 个可用模型` : ""}`
+                : discovery.error
+              }
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              {discovery.models.length > 0 ? (
+                <select
+                  value={fields.model}
+                  onChange={(e) => onChange({ model: e.target.value })}
+                  className="w-full rounded-lg border bg-background p-3 text-sm"
+                >
+                  {discovery.models.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  value={fields.model}
+                  onChange={(e) => onChange({ model: e.target.value })}
+                  placeholder="dall-e-3"
+                  className="w-full rounded-lg border bg-background p-3 text-sm"
+                />
+              )}
+            </div>
+            <div>
+              <input
+                value={fields.size}
+                onChange={(e) => onChange({ size: e.target.value })}
+                placeholder="1024x1024"
+                className="w-full rounded-lg border bg-background p-3 text-sm"
+              />
+            </div>
           </div>
         </div>
+
         <div className="space-y-1">
           <label className="text-sm text-muted-foreground">API 端点类型</label>
           <select

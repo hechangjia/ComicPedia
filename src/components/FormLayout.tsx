@@ -54,20 +54,14 @@ export function FormLayout({ defaultTab = "wikipedia" }: FormLayoutProps) {
 
   const modeParam = searchParams.get("mode") as TabMode | null;
   const seriesParam = searchParams.get("series");
-  const [activeTab, setActiveTab] = useState<TabMode>(
-    modeParam && TABS.some((t) => t.value === modeParam) ? modeParam : defaultTab
-  );
+  const requestedTab = modeParam && TABS.some((t) => t.value === modeParam) ? modeParam : null;
+  const [selectedTab, setSelectedTab] = useState<TabMode>(requestedTab ?? defaultTab);
+  const activeTab = requestedTab ?? selectedTab;
 
   const [templateTopic, setTemplateTopic] = useState("");
   const [formKey, setFormKey] = useState(0);
   const [seriesContext, setSeriesContext] = useState<string | null>(null);
   const [seriesInfo, setSeriesInfo] = useState<Series | null>(null);
-
-  useEffect(() => {
-    if (modeParam && TABS.some((t) => t.value === modeParam)) {
-      setActiveTab(modeParam);
-    }
-  }, [modeParam]);
 
   // 连载上下文注入
   useEffect(() => {
@@ -84,7 +78,7 @@ export function FormLayout({ defaultTab = "wikipedia" }: FormLayoutProps) {
   }, [seriesParam]);
 
   const handleTemplateSelect = useCallback((tpl: ComicTemplate) => {
-    setActiveTab(contentTypeToTab(tpl.contentType));
+    setSelectedTab(contentTypeToTab(tpl.contentType));
     setTemplateTopic(tpl.topic);
     setFormKey((k) => k + 1);
   }, []);
@@ -120,7 +114,7 @@ export function FormLayout({ defaultTab = "wikipedia" }: FormLayoutProps) {
         {TABS.map((tab) => (
           <button
             key={tab.value}
-            onClick={() => setActiveTab(tab.value)}
+            onClick={() => setSelectedTab(tab.value)}
             className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-1.5 ${
               activeTab === tab.value
                 ? "bg-background shadow-md text-foreground"

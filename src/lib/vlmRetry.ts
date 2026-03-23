@@ -13,7 +13,7 @@
  * - 退出条件：每面板最多 1 轮自动视觉重试
  */
 
-import { PanelVisualScore } from "./types";
+import type { CharacterVisualScore, PanelReview, PanelVisualScore, ReviewStatus, VisualQualityScore } from "./types";
 
 /** 修正补丁：追加到 prompt 的正向/负向词 */
 export interface PromptPatch {
@@ -174,4 +174,162 @@ export function shouldAutoRetry(panelScore: PanelVisualScore): boolean {
   // 确保有可操作的修正（避免无效重试）
   const patch = generatePromptPatch(panelScore);
   return patch.positive.length > 0;
+}
+
+/**
+ * 从最新完整视觉评分构建面板级 review 投影。
+ * retry recommendation 和跨面板问题都会映射为 needs_repair。
+ */
+export function buildPanelReview(score: VisualQualityScore): PanelReview[] {
+  const retryPanels = new Set(score.retryRecommendations.map((item) => item.panelIndex));
+  const crossPanelIssuesByIndex = new Map<number, Set<string>>();
+
+  for (const issue of score.crossPanelDetail?.issues ?? []) {
+    for (const panelIndex of issue.panelIndices) {
+      const issues = crossPanelIssuesByIndex.get(panelIndex) ?? new Set<string>();
+      issues.add(issue.description);
+      crossPanelIssuesByIndex.set(panelIndex, issues);
+    }
+  }
+
+  return [...score.panels]
+    .sort((a, b) => a.panelIndex - b.panelIndex)
+    .map((panelScore) => {
+      const issues = new Set(panelScore.issues);
+      const crossPanelIssues = crossPanelIssuesByIndex.get(panelScore.panelIndex);
+      for (const crossPanelIssue of crossPanelIssues ?? []) {
+        issues.add(crossPanelIssue);
+      }
+
+      return {
+        panelIndex: panelScore.panelIndex,
+        status: retryPanels.has(panelScore.panelIndex) || !!crossPanelIssues?.size ? "needs_repair" : "reviewed",
+        score: panelScore.overall,
+        issues: Array.from(issues),
+      };
+    });
+}
+
+/**
+ * 从面板级 review 投影导出任务级终态。
+ * 进行中的 panel 状态也投影为 needs_repair，保持任务级状态集合稳定。
+ */
+export function buildTaskReviewStatus(panelReview?: PanelReview[] | null): ReviewStatus {
+  if (!panelReview?.length) return "unreviewed";
+  return panelReview.some((panel) => panel.status !== "reviewed") ? "needs_repair" : "reviewed";
+}
+
+// ============================================================
+// 角色参考图 VLM 反馈闭环
+// ============================================================
+
+/** 角色参考图专用 issue patterns */
+const CHARACTER_ISSUE_PATTERNS: IssuePattern[] = [
+  // 风格/比例不统一（如 chibi vs 写实混搭）
+  {
+    keywords: ["chibi", "3d", "unified design", "proportion system", "simplified", "style", "inconsisten", "rendering"],
+    patch: {
+      positive: ["consistent art style", "unified character design", "same proportions in all views"],
+      negative: ["chibi", "3D render", "mixed styles", "inconsistent proportions"],
+    },
+  },
+  // 头饰/发型不一致
+  {
+    keywords: ["headwear", "hairstyle", "hat", "hair", "topknot", "headscarf", "纶巾", "发型"],
+    patch: {
+      positive: ["consistent hairstyle across all views", "same headwear design"],
+      negative: ["inconsistent hairstyle", "different headwear"],
+    },
+  },
+  // 配饰/道具不一致
+  {
+    keywords: ["prop", "fan", "weapon", "sword", "accessory", "handheld", "羽扇", "道具"],
+    patch: {
+      positive: ["consistent prop design", "same accessory in every view", "detailed prop reference"],
+      negative: ["inconsistent props", "different accessories"],
+    },
+  },
+  // 面部/年龄不一致
+  {
+    keywords: ["facial structure", "age cue", "face shape", "beard", "expression", "cute mascot", "面部"],
+    patch: {
+      positive: ["consistent facial features", "same face shape and age across views"],
+      negative: ["inconsistent facial features", "varying age appearance"],
+    },
+  },
+  // 服装细节不足
+  {
+    keywords: ["clothing", "costume", "robe", "sleeve", "collar", "belt", "armor", "服装", "衣"],
+    patch: {
+      positive: ["detailed clothing design", "clear costume layers", "visible fabric texture and seams"],
+      negative: ["vague clothing details", "undefined costume edges"],
+    },
+  },
+  // 角色设定图要求
+  {
+    keywords: ["character sheet", "front", "side", "full-body", "turnaround", "production reference"],
+    patch: {
+      positive: ["character reference sheet", "front view, 3/4 view, side view", "full body turnaround", "white background", "clean lineart"],
+      negative: ["cropped view", "partial body"],
+    },
+  },
+];
+
+/**
+ * 根据角色参考图 VLM 评分生成 prompt 修正补丁。
+ * 结合通用 ISSUE_PATTERNS 和角色专用 CHARACTER_ISSUE_PATTERNS。
+ */
+export function generateCharacterPromptPatch(score: CharacterVisualScore): PromptPatch {
+  const allPositive = new Set<string>();
+  const allNegative = new Set<string>();
+
+  const allPatterns = [...ISSUE_PATTERNS, ...CHARACTER_ISSUE_PATTERNS];
+
+  // 匹配 issues
+  for (const issue of score.issues) {
+    const issueLower = issue.toLowerCase();
+    for (const pattern of allPatterns) {
+      if (pattern.keywords.some(kw => issueLower.includes(kw.toLowerCase()))) {
+        pattern.patch.positive.forEach(p => allPositive.add(p));
+        pattern.patch.negative.forEach(n => allNegative.add(n));
+      }
+    }
+  }
+
+  // 匹配 suggestions
+  for (const suggestion of score.suggestions) {
+    const suggLower = suggestion.toLowerCase();
+    for (const pattern of allPatterns) {
+      if (pattern.keywords.some(kw => suggLower.includes(kw.toLowerCase()))) {
+        pattern.patch.positive.forEach(p => allPositive.add(p));
+        pattern.patch.negative.forEach(n => allNegative.add(n));
+      }
+    }
+  }
+
+  // 基于维度低分自动补丁
+  if (score.featureClarity < 6) {
+    allPositive.add("sharp details");
+    allPositive.add("clear lineart");
+    allPositive.add("high detail character design");
+    allNegative.add("blurry details");
+    allNegative.add("vague features");
+  }
+  if (score.consistency < 6) {
+    allPositive.add("consistent character design across all views");
+    allPositive.add("same face, hair, clothing in every panel");
+    allNegative.add("inconsistent design");
+    allNegative.add("mixed styles");
+  }
+  if (score.imageQuality < 6) {
+    allPositive.add("best quality");
+    allPositive.add("masterpiece");
+    allNegative.add("low quality");
+    allNegative.add("artifacts");
+  }
+
+  return {
+    positive: Array.from(allPositive),
+    negative: Array.from(allNegative),
+  };
 }

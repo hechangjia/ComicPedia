@@ -6,7 +6,7 @@ import { repairScript } from "@/lib/scriptRepair";
 import { evaluateQuality } from "@/lib/qualityScore";
 import { evaluateVisualQuality } from "@/lib/vlmScorer";
 import { generateNarrativeOutline, buildOutlineGuidance } from "@/lib/director";
-import { shouldAutoRetry, generatePromptPatch, applyPromptPatch } from "@/lib/vlmRetry";
+import { shouldAutoRetry, generatePromptPatch, applyPromptPatch, buildPanelReview, buildTaskReviewStatus } from "@/lib/vlmRetry";
 import { getStyleModifier, getStyleNegativePrompt, STYLE_META } from "@/lib/config/styles";
 import { urlToBase64 } from "@/lib/utils";
 import { withConcurrency } from "@/lib/concurrency";
@@ -103,6 +103,228 @@ function adaptPromptForRetry(original: string, retryLevel: number, lastError: Er
   console.log(`[RetryStrategy] Default strategy level ${retryLevel}`);
   if (retryLevel === 1) return removeSensitiveTerms(original);
   return removeAtmosphereTerms(original);
+}
+
+function applyVisualReviewResult(task: GenerateTask, visualScore: NonNullable<GenerateTask["visualQualityScore"]>) {
+  task.visualQualityScore = visualScore;
+  task.panelReview = buildPanelReview(visualScore);
+  task.reviewStatus = buildTaskReviewStatus(task.panelReview);
+  task.lastReviewAt = visualScore.evaluatedAt;
+}
+
+function markRetryingPanelReview(
+  visualScore: NonNullable<GenerateTask["visualQualityScore"]>,
+  attemptedPanels: number[],
+) {
+  const retryingPanels = new Set(attemptedPanels);
+  return buildPanelReview(visualScore).map((panel) =>
+    retryingPanels.has(panel.panelIndex)
+      ? { ...panel, status: "retrying" as const }
+      : panel,
+  );
+}
+
+function markFailedPanelReview(task: GenerateTask, panelIndex: number) {
+  task.panelReview = (task.panelReview ?? []).map((panel) =>
+    panel.panelIndex === panelIndex
+      ? { ...panel, status: "failed" as const }
+      : panel,
+  );
+  task.reviewStatus = buildTaskReviewStatus(task.panelReview);
+}
+
+function finalizeRetryCycleFailure(task: GenerateTask, attemptedPanels: number[]) {
+  const attempted = new Set(attemptedPanels);
+  task.panelReview = (task.panelReview ?? []).map((panel) =>
+    attempted.has(panel.panelIndex) && panel.status === "retrying"
+      ? { ...panel, status: "needs_repair" as const }
+      : panel,
+  );
+  task.reviewStatus = buildTaskReviewStatus(task.panelReview);
+}
+
+async function runAutomaticVisualRetryCycle(
+  taskId: string,
+  visualScore: NonNullable<GenerateTask["visualQualityScore"]>,
+  imageConfig: PartialImageGenConfig | undefined,
+  vlmConfig: PartialLLMConfig,
+): Promise<void> {
+  const freshTask = await getTask(taskId);
+  if (!freshTask?.script) return;
+
+  applyVisualReviewResult(freshTask, visualScore);
+
+  if (freshTask.visualRetrySummary) {
+    freshTask.updatedAt = new Date();
+    await saveTask(freshTask);
+    notifyListeners(freshTask);
+    console.log(`[VLM] Visual score: ${visualScore.overall}/10, retry skipped because cycle already exists`);
+    return;
+  }
+
+  const retryCandidates = [...visualScore.panels]
+    .sort((a, b) => a.panelIndex - b.panelIndex)
+    .filter(shouldAutoRetry)
+    .flatMap((panelScore) => {
+      const panel = freshTask.script?.panels[panelScore.panelIndex];
+      if (!panel) return [];
+
+      const patch = generatePromptPatch(panelScore);
+      const refinedPrompt = applyPromptPatch(panel.imagePrompt, patch);
+      if (refinedPrompt === panel.imagePrompt && patch.negative.length === 0) {
+        return [];
+      }
+
+      return [{ panelScore, panel, patch, refinedPrompt }];
+    })
+    .slice(0, 3);
+
+  if (retryCandidates.length === 0) {
+    const now = new Date().toISOString();
+    freshTask.visualRetrySummary = {
+      status: "skipped",
+      startedAt: now,
+      finishedAt: now,
+      initialOverallScore: visualScore.overall,
+      finalOverallScore: visualScore.overall,
+      attemptedPanels: [],
+      outcomes: [],
+    };
+    freshTask.updatedAt = new Date();
+    await saveTask(freshTask);
+    notifyListeners(freshTask);
+    console.log(`[VLM] Visual score: ${visualScore.overall}/10, no retryable panels`);
+    return;
+  }
+
+  const startedAt = new Date().toISOString();
+  const attemptedPanels = retryCandidates.map(({ panelScore }) => panelScore.panelIndex);
+  freshTask.visualRetrySummary = {
+    status: "running",
+    startedAt,
+    initialOverallScore: visualScore.overall,
+    attemptedPanels,
+    outcomes: attemptedPanels.map((panelIndex) => ({
+      panelIndex,
+      status: "retrying" as const,
+    })),
+  };
+  freshTask.panelReview = markRetryingPanelReview(visualScore, attemptedPanels);
+  freshTask.reviewStatus = buildTaskReviewStatus(freshTask.panelReview);
+  freshTask.updatedAt = new Date();
+  await saveTask(freshTask);
+  notifyListeners(freshTask);
+  console.log(`[VLM-Retry] Auto-retrying ${attemptedPanels.length} low-scoring panels...`);
+
+  let hasFailure = false;
+
+  for (const { panelScore, panel, patch, refinedPrompt } of retryCandidates) {
+    if (panel.imageUrl?.startsWith("data:image")) {
+      pushImageVersion(panel, panel.imageUrl);
+    }
+    panel.imagePrompt = refinedPrompt;
+    panel.status = "generating";
+
+    try {
+      let mergedConfig = mergeReferenceImage(imageConfig, freshTask.script, panel, panelScore.panelIndex);
+
+      if (patch.negative.length > 0) {
+        const existingNeg = mergedConfig?.extraBody?.negative_prompt || "";
+        const newNeg = patch.negative
+          .filter((item) => !existingNeg.toLowerCase().includes(item.toLowerCase()))
+          .join(", ");
+        if (newNeg) {
+          mergedConfig = {
+            ...mergedConfig,
+            extraBody: {
+              ...mergedConfig?.extraBody,
+              negative_prompt: existingNeg ? `${existingNeg}, ${newNeg}` : newNeg,
+            },
+          };
+        }
+      }
+
+      const adapter = getImageAdapter(mergedConfig);
+      const panelSeed = freshTask.script.seed !== undefined
+        ? freshTask.script.seed + panelScore.panelIndex + 1000
+        : undefined;
+
+      const imageUrl = await withRetry(
+        () => adapter.generate(refinedPrompt, panel.styleOverride ?? freshTask.script!.style, panelSeed),
+        { maxRetries: 1, baseDelay: 1000 },
+      );
+
+      panel.status = "completed";
+      panel.imageUrl = imageUrl;
+      try {
+        const base64 = await urlToBase64(imageUrl);
+        panel.imageUrl = base64;
+        pushImageVersion(panel, base64);
+        saveImageToFileSystem(taskId, panelScore.panelIndex, base64, freshTask.script.title);
+      } catch {
+        pushImageVersion(panel, imageUrl);
+      }
+
+      const outcome = freshTask.visualRetrySummary.outcomes.find((item) => item.panelIndex === panelScore.panelIndex);
+      if (outcome) outcome.status = "completed";
+      console.log(`[VLM-Retry] Panel ${panelScore.panelIndex + 1} regenerated successfully`);
+    } catch (err) {
+      hasFailure = true;
+      console.warn(`[VLM-Retry] Panel ${panelScore.panelIndex + 1} retry failed:`, err);
+      panel.status = "completed";
+      if (panel.imageVersions?.length) {
+        panel.imageUrl = panel.imageVersions[panel.imageVersions.length - 1].imageUrl;
+      }
+      const outcome = freshTask.visualRetrySummary.outcomes.find((item) => item.panelIndex === panelScore.panelIndex);
+      if (outcome) outcome.status = "failed";
+      markFailedPanelReview(freshTask, panelScore.panelIndex);
+    }
+
+    freshTask.updatedAt = new Date();
+    await saveTask(freshTask);
+    notifyListeners(freshTask);
+  }
+
+  if (hasFailure) {
+    finalizeRetryCycleFailure(freshTask, attemptedPanels);
+    freshTask.visualRetrySummary = {
+      ...freshTask.visualRetrySummary,
+      status: "failed",
+      finishedAt: new Date().toISOString(),
+      finalOverallScore: freshTask.visualQualityScore?.overall ?? visualScore.overall,
+    };
+    freshTask.updatedAt = new Date();
+    await saveTask(freshTask);
+    notifyListeners(freshTask);
+    return;
+  }
+
+  try {
+    const reevaluatedScore = await evaluateVisualQuality(freshTask.script, vlmConfig);
+    applyVisualReviewResult(freshTask, reevaluatedScore);
+    freshTask.visualRetrySummary = {
+      ...freshTask.visualRetrySummary,
+      status: "completed",
+      finishedAt: new Date().toISOString(),
+      finalOverallScore: reevaluatedScore.overall,
+    };
+    freshTask.updatedAt = new Date();
+    await saveTask(freshTask);
+    notifyListeners(freshTask);
+    console.log(`[VLM-Retry] Re-evaluated score: ${reevaluatedScore.overall}/10`);
+  } catch (err) {
+    console.warn("[VLM-Retry] Re-evaluation failed:", err);
+    finalizeRetryCycleFailure(freshTask, attemptedPanels);
+    freshTask.visualRetrySummary = {
+      ...freshTask.visualRetrySummary,
+      status: "failed",
+      finishedAt: new Date().toISOString(),
+      finalOverallScore: freshTask.visualQualityScore?.overall ?? visualScore.overall,
+    };
+    freshTask.updatedAt = new Date();
+    await saveTask(freshTask);
+    notifyListeners(freshTask);
+  }
 }
 
 /** 将 Base64 图片保存到文件系统（非阻塞） */
@@ -786,88 +1008,7 @@ export async function generateAllImages(
       const vlmConfig = getStoredRequestConfigs().vlmConfig || llmConfig;
       evaluateVisualQuality(script, vlmConfig)
         .then(async (visualScore) => {
-          const freshTask = await getTask(taskId);
-          if (!freshTask) return;
-
-          freshTask.visualQualityScore = visualScore;
-          freshTask.updatedAt = new Date();
-          await saveTask(freshTask);
-          notifyListeners(freshTask);
-          console.log(`[VLM] Visual score: ${visualScore.overall}/10, retry recommendations: ${visualScore.retryRecommendations.length}`);
-
-          // ── VLM 反馈闭环：自动重试低分面板（最多 1 轮） ──
-          const retryPanels = visualScore.panels.filter(shouldAutoRetry);
-          if (retryPanels.length > 0 && retryPanels.length <= 3) {
-            console.log(`[VLM-Retry] Auto-retrying ${retryPanels.length} low-scoring panels...`);
-            for (const panelScore of retryPanels) {
-              const panel = freshTask.script?.panels[panelScore.panelIndex];
-              if (!panel || !freshTask.script) continue;
-
-              const patch = generatePromptPatch(panelScore);
-              const refinedPrompt = applyPromptPatch(panel.imagePrompt, patch);
-
-              if (refinedPrompt === panel.imagePrompt && patch.negative.length === 0) continue; // 无修正可做
-
-              // 归档旧图 + 更新 prompt
-              if (panel.imageUrl?.startsWith("data:image")) {
-                pushImageVersion(panel, panel.imageUrl);
-              }
-              panel.imagePrompt = refinedPrompt;
-              panel.status = "generating";
-
-              try {
-                let mergedConfig = mergeReferenceImage(imageConfig, freshTask.script, panel, panelScore.panelIndex);
-
-                // 将 VLM negative patch 注入到 extraBody.negative_prompt
-                if (patch.negative.length > 0) {
-                  const existingNeg = mergedConfig?.extraBody?.negative_prompt || "";
-                  const newNeg = patch.negative.filter(n => !existingNeg.toLowerCase().includes(n.toLowerCase())).join(", ");
-                  if (newNeg) {
-                    mergedConfig = {
-                      ...mergedConfig,
-                      extraBody: {
-                        ...mergedConfig?.extraBody,
-                        negative_prompt: existingNeg ? `${existingNeg}, ${newNeg}` : newNeg,
-                      },
-                    };
-                  }
-                }
-
-                const adapter = getImageAdapter(mergedConfig);
-                const panelSeed = freshTask.script.seed !== undefined
-                  ? freshTask.script.seed + panelScore.panelIndex + 1000
-                  : undefined;
-
-                const imageUrl = await withRetry(
-                  () => adapter.generate(refinedPrompt, panel.styleOverride ?? freshTask.script!.style, panelSeed),
-                  { maxRetries: 1, baseDelay: 1000 },
-                );
-
-                panel.status = "completed";
-                panel.imageUrl = imageUrl;
-                try {
-                  const base64 = await urlToBase64(imageUrl);
-                  panel.imageUrl = base64;
-                  pushImageVersion(panel, base64);
-                  saveImageToFileSystem(taskId, panelScore.panelIndex, base64, freshTask.script?.title);
-                } catch {
-                  pushImageVersion(panel, imageUrl);
-                }
-
-                console.log(`[VLM-Retry] Panel ${panelScore.panelIndex + 1} regenerated successfully`);
-              } catch (err) {
-                console.warn(`[VLM-Retry] Panel ${panelScore.panelIndex + 1} retry failed:`, err);
-                panel.status = "completed"; // 保留旧图
-                if (panel.imageVersions?.length) {
-                  panel.imageUrl = panel.imageVersions[panel.imageVersions.length - 1].imageUrl;
-                }
-              }
-            }
-
-            freshTask.updatedAt = new Date();
-            await saveTask(freshTask);
-            notifyListeners(freshTask);
-          }
+          await runAutomaticVisualRetryCycle(taskId, visualScore, imageConfig, vlmConfig);
         })
         .catch((err) => {
           console.warn("[VLM] Visual evaluation failed (non-fatal):", err);

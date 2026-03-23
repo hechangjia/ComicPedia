@@ -69,3 +69,7 @@ ehthumbs.db
 CLAUDE.md
 .claude/
 .context/
+
+.codex/
+.gemini/
+openspec/

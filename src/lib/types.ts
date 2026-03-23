@@ -34,6 +34,56 @@ export interface VisualQualityScore {
   evaluatedAt: string;
 }
 
+/** Review 终态（任务/角色共用） */
+export type ReviewStatus = "unreviewed" | "reviewed" | "needs_repair";
+
+/** 角色参考图视觉评分结果 */
+export interface CharacterVisualScore {
+  overall: number;
+  /** 角色特征清晰度（面部、服装、体型是否清楚呈现） */
+  featureClarity: number;
+  /** 跨图一致性（多张参考图间角色外貌是否统一） */
+  consistency: number;
+  /** 画面质量（瑕疵、分辨率、构图） */
+  imageQuality: number;
+  /** 具体问题 */
+  issues: string[];
+  /** 改进建议 */
+  suggestions: string[];
+  evaluatedAt: string;
+}
+
+/** 面板级 review 状态 */
+export type PanelReviewStatus = "reviewed" | "needs_repair" | "retrying" | "failed";
+
+/** 面板级 review 投影 */
+export interface PanelReview {
+  panelIndex: number;
+  status: PanelReviewStatus;
+  score: number;
+  issues: string[];
+}
+
+/** 单次自动视觉 retry cycle 状态 */
+export type VisualRetryCycleStatus = "running" | "completed" | "failed" | "skipped";
+
+/** 单个面板在 retry cycle 内的 outcome */
+export type VisualRetryOutcomeStatus = "retrying" | "completed" | "failed";
+
+/** 轻量视觉 retry 摘要 */
+export interface VisualRetrySummary {
+  status: VisualRetryCycleStatus;
+  startedAt: string;
+  finishedAt?: string;
+  initialOverallScore: number;
+  finalOverallScore?: number;
+  attemptedPanels: number[];
+  outcomes: Array<{
+    panelIndex: number;
+    status: VisualRetryOutcomeStatus;
+  }>;
+}
+
 /** 叙事大纲 — 面板级蓝图 (Director Agent) */
 export interface PanelBlueprint {
   narrativeFunction: "opening" | "setup" | "development" | "climax" | "resolution" | "epilogue";
@@ -56,19 +106,6 @@ export interface NarrativeOutline {
 export interface ImageVersion {
   imageUrl: string;      // base64 data URI
   createdAt: number;     // Date.now() 时间戳
-}
-
-/** 媒体输出类型（图片/视频/动画） */
-export type MediaType = "image" | "video" | "animation";
-
-/** 媒体输出（为 AnimePedia 扩展准备） */
-export interface MediaOutput {
-  type: MediaType;
-  url: string;
-  duration?: number;
-  thumbnail?: string;
-  format?: string;
-  size?: number;
 }
 
 /** 面板过渡效果 */
@@ -112,10 +149,6 @@ export interface ComicPanel {
   referenceImage?: string;
   /** 面板级多参考图覆盖 */
   referenceImages?: string[];
-  /** 媒体输出（AnimePedia 扩展，优先于 imageUrl） */
-  media?: MediaOutput;
-  /** 旁白/配音文本（AnimePedia 使用） */
-  voiceOver?: string;
   /** 面板过渡效果 */
   transition?: PanelTransition;
   /** 面板展示时长(秒) */
@@ -332,6 +365,14 @@ export interface GenerateTask {
   };
   /** VLM visual quality score — evaluates actual generated images, not prompts */
   visualQualityScore?: VisualQualityScore;
+  /** Task-level review terminal state; in-progress state lives in panelReview/visualRetrySummary */
+  reviewStatus?: ReviewStatus;
+  /** Lightweight panel-by-panel review projection derived from the latest visual score */
+  panelReview?: PanelReview[];
+  /** Latest bounded retry cycle summary */
+  visualRetrySummary?: VisualRetrySummary;
+  /** Latest time task visual review state was updated */
+  lastReviewAt?: string;
   /** Generation config snapshot — records which models were used */
   generationConfig?: {
     llmModel?: string;
@@ -383,6 +424,12 @@ export interface Character {
   tags: string[];
   /** 形象变体列表（同一角色的不同年龄/状态/服装） */
   variants?: CharacterVariant[];
+  /** Latest persisted character visual review score */
+  visualScore?: CharacterVisualScore;
+  /** Character-level review terminal state */
+  reviewStatus?: ReviewStatus;
+  /** Latest time character visual review state was updated */
+  lastReviewAt?: string;
   /** Custom display order (lower = earlier). Characters without this sort by updatedAt. */
   sortOrder?: number;
   createdAt: string;

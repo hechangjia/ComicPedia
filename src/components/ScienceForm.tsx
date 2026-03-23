@@ -30,14 +30,18 @@ export function ScienceForm({ initialTopic = "" }: { initialTopic?: string }) {
     },
     useCallback(() => topic, [topic]),
   );
+  const getDraftInputText = form.getDraftInputText;
 
   // 恢复草稿文本
   useEffect(() => {
-    if (!initialTopic) {
-      const draft = form.getDraftInputText();
-      if (draft) setTopic(draft);
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    if (initialTopic) return;
+    const draft = getDraftInputText();
+    if (!draft) return;
+    const timer = setTimeout(() => {
+      setTopic(draft);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [getDraftInputText, initialTopic]);
 
   const handleGenerate = () => form.handleSubmit(topic);
 

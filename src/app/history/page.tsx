@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useRef, memo } from "react";
+import { useEffect, useState, useRef, useCallback, memo } from "react";
 import Link from "next/link";
-import { getAllComics, deleteComic, clearAllComics, saveTask, PaginatedResult } from "@/lib/client/db";
+import { getAllComics, deleteComic, clearAllComics, saveTask } from "@/lib/client/db";
 import { useListCache } from "@/stores/listCache";
 import { recoverZombieTask } from "@/lib/client/generator";
 import { GenerateTask, ComicStyle } from "@/lib/types";
@@ -27,6 +27,27 @@ interface HistoryCardProps {
   isSelected: boolean;
   onToggleSelect: (id: string) => void;
   onRemove: (id: string) => void;
+}
+
+const REVIEW_BADGE_STYLES: Record<string, string> = {
+  reviewed: "bg-emerald-100/90 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400",
+  needs_repair: "bg-amber-100/90 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400",
+};
+
+function ReviewBadge({ item }: { item: GenerateTask }) {
+  if (item.status !== "completed") return null;
+  const rs = item.reviewStatus;
+  if (!rs || rs === "unreviewed") return null;
+  const score = item.visualQualityScore?.overall;
+  const repairCount = item.visualQualityScore?.retryRecommendations?.length ?? 0;
+  const label = rs === "reviewed"
+    ? `已评审${score ? ` ${Math.round(score * 10) / 10}` : ""}`
+    : `待修复${repairCount > 0 ? ` (${repairCount})` : ""}`;
+  return (
+    <span className={`px-1.5 py-0.5 text-[10px] rounded-full ${REVIEW_BADGE_STYLES[rs]}`}>
+      {label}
+    </span>
+  );
 }
 
 const HistoryCard = memo(function HistoryCard({
@@ -131,7 +152,10 @@ const HistoryCard = memo(function HistoryCard({
         </div>
       ) : (
         <Link href={`/result/${item.id}`} className="block p-3 space-y-1">
-          <h3 className="font-medium truncate">{item.script?.title || "无标题"}</h3>
+          <div className="flex items-center gap-1.5">
+            <h3 className="font-medium truncate flex-1">{item.script?.title || "无标题"}</h3>
+            <ReviewBadge item={item} />
+          </div>
           <p className="text-sm text-muted-foreground truncate">{item.script?.topic || "未知主题"}</p>
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{item.script?.style ? (styleNames[item.script.style] || item.script.style) : "未知风格"}</span>
@@ -147,30 +171,21 @@ const HistoryCard = memo(function HistoryCard({
 });
 
 export default function HistoryPage() {
-  const [history, setHistory] = useState<GenerateTask[]>([]);
+  const { getTasks, setTasks, invalidateTasks } = useListCache();
+  const [history, setHistory] = useState<GenerateTask[]>(() => getTasks()?.items ?? []);
   const [hasMore, setHasMore] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const importFileRef = useRef<HTMLInputElement>(null);
+  const clearConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Selective export state
   const [exportMode, setExportMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
 
-  const { getTasks, setTasks, invalidateTasks } = useListCache();
-
-  useEffect(() => {
-    // 优先使用缓存数据实现秒开，后台刷新
-    const cached = getTasks();
-    if (cached) {
-      setHistory(cached.items);
-    }
-    loadHistory(1);
-  }, []);
-
-  const loadHistory = async (page: number) => {
+  const loadHistory = useCallback(async (page: number) => {
     try {
       if (page > 1) setLoadingMore(true);
       const result = await getAllComics(page, 50);
@@ -178,16 +193,16 @@ export default function HistoryPage() {
       const tasks = result.items;
       // 恢复僵尸状态的任务（generating/scripting 但实际已中断）
       const zombieIds = tasks
-        .filter(t => t.status === "generating" || t.status === "scripting")
-        .map(t => t.id);
+        .filter((t) => t.status === "generating" || t.status === "scripting")
+        .map((t) => t.id);
       if (zombieIds.length > 0) {
-        await Promise.all(zombieIds.map(id => recoverZombieTask(id)));
+        await Promise.all(zombieIds.map((id) => recoverZombieTask(id)));
         const refreshed = await getAllComics(page, 50);
         if (page === 1) {
           setHistory(refreshed.items);
           setTasks(refreshed.items, refreshed.total);
         } else {
-          setHistory(prev => {
+          setHistory((prev) => {
             const merged = [...prev, ...refreshed.items];
             setTasks(merged, refreshed.total);
             return merged;
@@ -202,7 +217,7 @@ export default function HistoryPage() {
         setHistory(tasks);
         setTasks(tasks, result.total);
       } else {
-        setHistory(prev => {
+        setHistory((prev) => {
           const merged = [...prev, ...tasks];
           setTasks(merged, result.total);
           return merged;
@@ -215,58 +230,83 @@ export default function HistoryPage() {
     } finally {
       setLoadingMore(false);
     }
-  };
+  }, [setTasks]);
 
-  const loadMore = () => {
+  useEffect(() => {
+    loadHistory(1);
+  }, [loadHistory]);
+
+  useEffect(() => {
+    return () => {
+      if (clearConfirmTimeoutRef.current) {
+        clearTimeout(clearConfirmTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const loadMore = useCallback(() => {
     if (!loadingMore && hasMore) {
       loadHistory(currentPage + 1);
     }
-  };
+  }, [currentPage, hasMore, loadHistory, loadingMore]);
 
-  const handleRemove = async (id: string) => {
+  const handleRemove = useCallback(async (id: string) => {
     await deleteComic(id);
     invalidateTasks();
     loadHistory(1);
-  };
+  }, [invalidateTasks, loadHistory]);
 
-  const handleClearAll = async () => {
+  const handleClearAll = useCallback(async () => {
     if (confirmClear) {
+      if (clearConfirmTimeoutRef.current) {
+        clearTimeout(clearConfirmTimeoutRef.current);
+        clearConfirmTimeoutRef.current = null;
+      }
       await clearAllComics();
       setHistory([]);
       setHasMore(false);
       setCurrentPage(1);
       setConfirmClear(false);
       invalidateTasks();
-    } else {
-      setConfirmClear(true);
-      setTimeout(() => setConfirmClear(false), 3000);
+      return;
     }
-  };
+
+    setConfirmClear(true);
+    if (clearConfirmTimeoutRef.current) {
+      clearTimeout(clearConfirmTimeoutRef.current);
+    }
+    clearConfirmTimeoutRef.current = setTimeout(() => {
+      setConfirmClear(false);
+      clearConfirmTimeoutRef.current = null;
+    }, 3000);
+  }, [confirmClear, invalidateTasks]);
 
   // ── Export ──
 
-  const enterExportMode = () => {
+  const enterExportMode = useCallback(() => {
     setExportMode(true);
     setSelectedIds(new Set());
-  };
+  }, []);
 
-  const exitExportMode = () => {
+  const exitExportMode = useCallback(() => {
     setExportMode(false);
     setSelectedIds(new Set());
-  };
+  }, []);
 
-  const toggleSelect = (id: string) => {
+  const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  };
+  }, []);
 
-  const selectAll = () => setSelectedIds(new Set(history.map((t) => t.id)));
+  const selectAll = useCallback(() => {
+    setSelectedIds(new Set(history.map((t) => t.id)));
+  }, [history]);
 
-  const handleExportSelected = async () => {
+  const handleExportSelected = useCallback(async () => {
     const selected = history.filter((t) => selectedIds.has(t.id));
     if (selected.length === 0) return;
     try {
@@ -278,9 +318,9 @@ export default function HistoryPage() {
       setExportProgress(null);
     }
     exitExportMode();
-  };
+  }, [exitExportMode, history, selectedIds]);
 
-  const handleExportAll = async () => {
+  const handleExportAll = useCallback(async () => {
     if (history.length === 0) return;
     try {
       await exportTasksAsZip(history, setExportProgress);
@@ -290,11 +330,11 @@ export default function HistoryPage() {
     } finally {
       setExportProgress(null);
     }
-  };
+  }, [history]);
 
   // ── Import ──
 
-  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
@@ -325,7 +365,7 @@ export default function HistoryPage() {
       setExportProgress(null);
     }
     e.target.value = "";
-  };
+  }, [loadHistory]);
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">

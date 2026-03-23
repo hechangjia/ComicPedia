@@ -14,22 +14,6 @@ const GENRE_DESCRIPTIONS: Record<NovelGenre, string> = {
   fantasy: "奇幻小说，魔法世界，种族设定，史诗冒险",
 };
 
-/** 体裁对应的风格推荐 */
-export function getNovelRecommendedStyles(genre?: NovelGenre): ComicStyle[] {
-  if (!genre) return ["manga", "realistic", "anime"];
-  const recommendations: Record<NovelGenre, ComicStyle[]> = {
-    wuxia: ["inkwash", "manga", "sketch"],
-    xianxia: ["inkwash", "watercolor", "anime"],
-    historical: ["inkwash", "realistic", "sketch"],
-    romance: ["watercolor", "anime", "sketch"],
-    scifi: ["realistic", "anime", "pixel"],
-    mystery: ["sketch", "manga", "realistic"],
-    classic: ["inkwash", "watercolor", "realistic"],
-    fantasy: ["anime", "watercolor", "realistic"],
-  };
-  return recommendations[genre];
-}
-
 /** 构建小说场景漫画 Prompt */
 export function buildNovelPrompt(
   content: string,
@@ -214,10 +198,3 @@ export function parseNovelResponse(response: string): ComicScript | null {
   }
 }
 
-/** 清理 imagePrompt 中的非英文字符 */
-function cleanNonEnglishFromPrompt(prompt: string): string {
-  return prompt
-    .replace(/[\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}

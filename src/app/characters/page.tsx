@@ -8,7 +8,7 @@ import {
   deleteCharacter,
   clearAllCharacters,
 } from "@/lib/client/db";
-import type { Character, ComicStyle, ReferenceImageEntry } from "@/lib/types";
+import type { Character, CharacterVisualScore, ComicStyle, ReferenceImageEntry } from "@/lib/types";
 import { STYLE_DESCRIPTIONS } from "@/lib/config/styles";
 import { getStoredRequestConfigs, getStoredConfigs } from "@/hooks/useAPIConfig";
 import { getImageAdapter } from "@/lib/imageGen";
@@ -19,7 +19,8 @@ import { Spinner } from "@/components/ui/Spinner";
 import { CharacterCard } from "@/components/CharacterCard";
 import { CHARACTER_PRESETS } from "@/lib/config/characterPresets";
 import { generateCharacterProfile, generateCharacterReferencePrompt } from "@/lib/llm";
-import { evaluateCharacterVisual, type CharacterVisualScore } from "@/lib/vlmScorer";
+import { evaluateCharacterVisual } from "@/lib/vlmScorer";
+import { generateCharacterPromptPatch, applyPromptPatch } from "@/lib/vlmRetry";
 
 // ============================================================
 // Constants
@@ -81,6 +82,11 @@ function createEmptyCharacter(): Omit<Character, "id" | "createdAt" | "updatedAt
   };
 }
 
+function deriveCharacterReviewStatus(score?: CharacterVisualScore | null): Character["reviewStatus"] {
+  if (!score) return "unreviewed";
+  return score.overall >= 7 ? "reviewed" : "needs_repair";
+}
+
 // ============================================================
 // CharacterDialog — refactored with clean data flow
 // ============================================================
@@ -104,7 +110,7 @@ function CharacterDialog({
   saveSuccessCount = 0,
 }: {
   character: Partial<Character> | null;
-  onSave: (data: Omit<Character, "id" | "createdAt" | "updatedAt"> & { id?: string }) => void;
+  onSave: (data: Omit<Character, "id" | "createdAt" | "updatedAt"> & { id?: string }) => Promise<Character>;
   onClose: () => void;
   saveSuccessCount?: number;
 }) {
@@ -142,9 +148,10 @@ function CharacterDialog({
   /** Index of entry being regenerated, or -1 for new generation */
   const [regeneratingIndex, setRegeneratingIndex] = useState(-1);
   // --- VLM evaluation state ---
-  const [vlmScore, setVlmScore] = useState<CharacterVisualScore | null>(null);
+  const [vlmScore, setVlmScore] = useState<CharacterVisualScore | null>(character?.visualScore ?? null);
   const [vlmLoading, setVlmLoading] = useState(false);
   const [vlmError, setVlmError] = useState("");
+  const [vlmRetrying, setVlmRetrying] = useState(false);
 
   // --- Model selection state ---
   const storedConfigs = useMemo(() => getStoredConfigs(), []);
@@ -153,17 +160,7 @@ function CharacterDialog({
   /** Index of entry being previewed in lightbox, -1 = closed */
   const [previewIndex, setPreviewIndex] = useState(-1);
 
-  const [variants, setVariants] = useState<Array<{
-    label: string;
-    appearance: { gender: string; age: string; hair: string; eyes: string; clothing: string };
-  }>>(
-    (character as Record<string, unknown>)?.variants
-      ? ((character as Record<string, unknown>).variants as Array<{ label: string; appearance: { gender: string; age: string; hair: string; eyes: string; clothing: string } }>).map((v) => ({
-          label: v.label || "",
-          appearance: v.appearance || { gender: "", age: "", hair: "", eyes: "", clothing: "" },
-        }))
-      : [],
-  );
+  const [variants, setVariants] = useState<Character["variants"]>(character?.variants);
 
   // --- Lightbox keyboard navigation ---
   useEffect(() => {
@@ -179,6 +176,33 @@ function CharacterDialog({
 
   // --- Derived ---
   const avatarUrl = entries[avatarIndex]?.imageUrl ?? null;
+
+  const buildVariantsForSave = () =>
+    variants?.length
+      ? variants.map((variant) => ({
+          label: variant.label,
+          appearance: variant.appearance,
+          referenceEntries: variant.referenceEntries ?? [],
+          avatarUrl: variant.avatarUrl ?? null,
+        }))
+      : undefined;
+
+  const buildCharacterPayload = (
+    overrides: Partial<Omit<Character, "id" | "createdAt" | "updatedAt">> = {},
+  ): Omit<Character, "id" | "createdAt" | "updatedAt"> => ({
+    name: form.name.trim(),
+    description: form.description.trim(),
+    appearance: form.appearance,
+    style: form.style,
+    avatarUrl,
+    referenceEntries: entries,
+    tags: tagInput
+      .split(/[,，、；;]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0),
+    variants: buildVariantsForSave(),
+    ...overrides,
+  });
 
   // --- Mutations ---
 
@@ -644,7 +668,6 @@ function CharacterDialog({
       if (activeVLM) {
         vlmConfig = { apiUrl: activeVLM.apiUrl, apiKey: activeVLM.apiKey, model: activeVLM.model, provider: activeVLM.protocolType as "openai-compatible" | "anthropic" };
       } else {
-        // Fall back to LLM config
         const activeLLM = configs.llmConfigs.find((c) => c.id === configs.activeLLMId) || configs.llmConfigs[0];
         if (!activeLLM) throw new Error("未配置 VLM 或 LLM");
         vlmConfig = { apiUrl: activeLLM.apiUrl, apiKey: activeLLM.apiKey, model: activeLLM.model, provider: activeLLM.protocolType as "openai-compatible" | "anthropic" };
@@ -652,11 +675,104 @@ function CharacterDialog({
       const imageUrls = entries.map((e) => e.imageUrl);
       const desc = `${form.name}: ${form.description}. ${form.appearance.gender}, ${form.appearance.age}, hair: ${form.appearance.hair}, eyes: ${form.appearance.eyes}, clothing: ${form.appearance.clothing}`;
       const result = await evaluateCharacterVisual(form.name, desc, imageUrls, vlmConfig);
-      setVlmScore(result);
+      const persisted = await onSave({
+        ...(isEdit ? { id: character!.id } : {}),
+        ...buildCharacterPayload({
+          visualScore: result,
+          reviewStatus: deriveCharacterReviewStatus(result),
+          lastReviewAt: result.evaluatedAt,
+        }),
+      });
+      setVlmScore(persisted.visualScore ?? result);
     } catch (err) {
       setVlmError(err instanceof Error ? err.message : "视觉评分失败");
     } finally {
       setVlmLoading(false);
+    }
+  };
+
+  // --- VLM one-click retry: generate a corrected reference with VLM feedback (append, not overwrite) ---
+  const handleVlmRetry = async () => {
+    if (!vlmScore || vlmScore.overall >= 7) return;
+    setVlmRetrying(true);
+    setAiError("");
+    try {
+      const patch = generateCharacterPromptPatch(vlmScore);
+      const vlmFeedback = {
+        issues: vlmScore.issues,
+        suggestions: vlmScore.suggestions,
+        patchPositive: patch.positive,
+      };
+
+      const { llmConfig } = getStoredRequestConfigs(selectedLLMId || undefined, undefined);
+      const { imageConfig } = getStoredRequestConfigs(undefined, selectedImageId || undefined);
+      if (!imageConfig) throw new Error("请先配置文生图 API");
+
+      const { appearance, style: charStyle, name } = form;
+      const charForPrompt = { ...form, appearance: { ...appearance } } as import("@/lib/types").Character;
+
+      // Generate ONE new corrected reference image and APPEND it (don't overwrite existing good images)
+      let prompt: string;
+      try {
+        if (llmConfig?.apiUrl) {
+          prompt = await generateCharacterReferencePrompt(charForPrompt, charStyle, llmConfig, vlmFeedback);
+        } else {
+          throw new Error("no LLM");
+        }
+      } catch {
+        const parts = [appearance.gender, appearance.age, appearance.hair && `${appearance.hair} hair`, appearance.eyes && `${appearance.eyes} eyes`, appearance.clothing].filter(Boolean);
+        prompt = `portrait of ${name || "character"}, ${parts.join(", ")}, character reference sheet, white background, studio lighting`;
+        prompt = applyPromptPatch(prompt, patch);
+      }
+
+      const adapter = getImageAdapter(imageConfig);
+      const imageUrl = await adapter.generate(prompt, charStyle);
+      const base64 = await urlToBase64(imageUrl);
+      const newEntry = createEntry(base64, name || "", "ai", charStyle, prompt);
+      const nextEntries = [...entries, newEntry];
+      setEntries(nextEntries);
+
+      const basePersisted = await onSave({
+        ...(isEdit ? { id: character!.id } : {}),
+        ...buildCharacterPayload({
+          avatarUrl: nextEntries[avatarIndex]?.imageUrl ?? newEntry.imageUrl,
+          referenceEntries: nextEntries,
+          visualScore: undefined,
+          reviewStatus: "unreviewed",
+          lastReviewAt: undefined,
+        }),
+      });
+
+      const configs = getStoredConfigs();
+      const vlmConfigs = configs.vlmConfigs || [];
+      const activeVLM = vlmConfigs.find((c) => c.id === configs.activeVLMId) || vlmConfigs[0];
+      let vlmConfig;
+      if (activeVLM) {
+        vlmConfig = { apiUrl: activeVLM.apiUrl, apiKey: activeVLM.apiKey, model: activeVLM.model, provider: activeVLM.protocolType as "openai-compatible" | "anthropic" };
+      } else {
+        const activeLLM = configs.llmConfigs.find((c) => c.id === configs.activeLLMId) || configs.llmConfigs[0];
+        if (!activeLLM) throw new Error("未配置 VLM 或 LLM");
+        vlmConfig = { apiUrl: activeLLM.apiUrl, apiKey: activeLLM.apiKey, model: activeLLM.model, provider: activeLLM.protocolType as "openai-compatible" | "anthropic" };
+      }
+
+      const imageUrls = nextEntries.map((entry) => entry.imageUrl);
+      const desc = `${form.name}: ${form.description}. ${form.appearance.gender}, ${form.appearance.age}, hair: ${form.appearance.hair}, eyes: ${form.appearance.eyes}, clothing: ${form.appearance.clothing}`;
+      const reevaluated = await evaluateCharacterVisual(form.name, desc, imageUrls, vlmConfig);
+      const persisted = await onSave({
+        id: basePersisted.id,
+        ...buildCharacterPayload({
+          avatarUrl: nextEntries[avatarIndex]?.imageUrl ?? newEntry.imageUrl,
+          referenceEntries: nextEntries,
+          visualScore: reevaluated,
+          reviewStatus: deriveCharacterReviewStatus(reevaluated),
+          lastReviewAt: reevaluated.evaluatedAt,
+        }),
+      });
+      setVlmScore(persisted.visualScore ?? reevaluated);
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : "VLM 修复重试失败");
+    } finally {
+      setVlmRetrying(false);
     }
   };
 
@@ -682,8 +798,8 @@ function CharacterDialog({
       avatarUrl,                   // ← computed from entries[avatarIndex]
       referenceEntries: finalEntries,   // ← all entries have explicit style
       tags,
-      variants: variants.length > 0
-        ? variants.map((v) => ({
+      variants: (variants?.length ?? 0) > 0
+        ? (variants ?? []).map((v) => ({
             label: v.label,
             appearance: v.appearance,
             referenceEntries: [],
@@ -1187,6 +1303,27 @@ function CharacterDialog({
                     ))}
                   </ul>
                 )}
+                {vlmScore.overall < 7 && (
+                  <button
+                    onClick={handleVlmRetry}
+                    disabled={vlmRetrying || aiGenerating}
+                    className="w-full mt-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    {vlmRetrying ? (
+                      <>
+                        <Spinner size="sm" />
+                        修复中...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        一键补图（根据 VLM 反馈生成修正参考图）
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -1383,7 +1520,7 @@ export default function CharactersPage() {
 
   const handleSave = async (
     data: Omit<Character, "id" | "createdAt" | "updatedAt"> & { id?: string },
-  ) => {
+  ): Promise<Character> => {
     const now = new Date().toISOString();
     const existing = data.id ? characters.find((c) => c.id === data.id) : null;
     const character: Character = {
@@ -1395,6 +1532,10 @@ export default function CharactersPage() {
       avatarUrl: data.avatarUrl,
       referenceEntries: data.referenceEntries,
       tags: data.tags,
+      variants: data.variants,
+      visualScore: data.visualScore ?? existing?.visualScore,
+      reviewStatus: data.reviewStatus ?? existing?.reviewStatus,
+      lastReviewAt: data.lastReviewAt ?? existing?.lastReviewAt,
       sortOrder: existing?.sortOrder,
       createdAt: existing?.createdAt || now,
       updatedAt: now,
@@ -1402,14 +1543,15 @@ export default function CharactersPage() {
 
     try {
       await saveCharacter(character);
-      // Stay open — update dialogChar to reflect saved state (so re-save works)
       setDialogChar(character);
       setSaveSuccessCount((c) => c + 1);
       await loadCharacters();
+      return character;
     } catch (err) {
       console.error("Save character failed:", err);
       alert("保存失败，请重试");
       await loadCharacters();
+      throw err;
     }
   };
 
@@ -1562,6 +1704,10 @@ export default function CharactersPage() {
           avatarUrl: (item.avatarUrl as string) || null,
           referenceEntries: (item.referenceEntries as ReferenceImageEntry[]) || [],
           tags: (item.tags as string[]) || [],
+          variants: item.variants as Character["variants"],
+          visualScore: item.visualScore as Character["visualScore"],
+          reviewStatus: item.reviewStatus as Character["reviewStatus"],
+          lastReviewAt: item.lastReviewAt as Character["lastReviewAt"],
           sortOrder: item.sortOrder as number | undefined,
           createdAt: (item.createdAt as string) || now,
           updatedAt: now,

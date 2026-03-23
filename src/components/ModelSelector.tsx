@@ -1,8 +1,7 @@
 "use client";
 
 import { getStoredConfigs } from "@/hooks/useAPIConfig";
-import { UserLLMConfig, UserImageConfig } from "@/lib/types";
-import { useState, useEffect } from "react";
+import { useMemo } from "react";
 
 interface ModelSelectorProps {
   type: "llm" | "image";
@@ -12,19 +11,9 @@ interface ModelSelectorProps {
 }
 
 export function ModelSelector({ type, value, onChange, disabled }: ModelSelectorProps) {
-  const [configs, setConfigs] = useState<(UserLLMConfig | UserImageConfig)[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const stored = getStoredConfigs();
-    if (type === "llm") {
-      setConfigs(stored.llmConfigs);
-      setActiveId(stored.activeLLMId);
-    } else {
-      setConfigs(stored.imageConfigs);
-      setActiveId(stored.activeImageId);
-    }
-  }, [type]);
+  const storedConfigs = useMemo(() => getStoredConfigs(), []);
+  const configs = type === "llm" ? storedConfigs.llmConfigs : storedConfigs.imageConfigs;
+  const activeId = type === "llm" ? storedConfigs.activeLLMId : storedConfigs.activeImageId;
 
   // 只有 1 个或 0 个配置时不显示选择器
   if (configs.length <= 1) return null;

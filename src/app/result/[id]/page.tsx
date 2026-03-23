@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -49,12 +49,14 @@ export default function ResultPage() {
   const storedConfigs = useMemo(() => getStoredConfigs(), []);
   const [selectedImageId, setSelectedImageId] = useState(storedConfigs.activeImageId ?? "");
   const [selectedLLMId, setSelectedLLMId] = useState(storedConfigs.activeLLMId ?? "");
-  const imageIdRef = useRef(selectedImageId);
-  imageIdRef.current = selectedImageId;
-  const llmIdRef = useRef(selectedLLMId);
-  llmIdRef.current = selectedLLMId;
+  const selectedLLMConfig = useMemo(
+    () => getStoredRequestConfigs(selectedLLMId || undefined).llmConfig,
+    [selectedLLMId],
+  );
 
   const {
+    handleSaveQualityScore,
+    handleSaveVisualQualityScore,
     handlePanelUpdate,
     handleRegenerate,
     handleCancel,
@@ -75,7 +77,7 @@ export default function ResultPage() {
     generatingAll,
     actionError,
     clearActionError,
-  } = useTaskActions(taskId, setTask, imageIdRef, llmIdRef);
+  } = useTaskActions(taskId, setTask, selectedImageId, selectedLLMId);
 
   const [viewMode, setViewMode] = useState<"edit" | "read" | "play">("edit");
 
@@ -520,7 +522,10 @@ export default function ResultPage() {
           viewMode={viewMode === "read" ? "read" : "edit"}
           globalStyle={task.script.style}
           script={task.script}
-          llmConfig={getStoredRequestConfigs(llmIdRef.current || undefined).llmConfig}
+          llmConfig={selectedLLMConfig}
+          reviewStatus={task.reviewStatus}
+          panelReview={task.panelReview}
+          visualRetrySummary={task.visualRetrySummary}
           onPanelUpdate={handlePanelUpdate}
           onRegenerate={handleRegenerate}
           onCancel={handleCancel}
@@ -542,14 +547,21 @@ export default function ResultPage() {
 
       {/* AI 质量评分 */}
       {isCompleted && task.script && (
-        <QualityScorePanel script={task.script} cachedScore={task.qualityScore} cachedVisualScore={task.visualQualityScore} onRetryPanels={handleVlmRetry} />
+        <QualityScorePanel
+          script={task.script}
+          cachedScore={task.qualityScore}
+          cachedVisualScore={task.visualQualityScore}
+          onSaveQualityScore={handleSaveQualityScore}
+          onSaveVisualQualityScore={handleSaveVisualQualityScore}
+          onRetryPanels={handleVlmRetry}
+        />
       )}
 
       {/* 知识测验 */}
       {isCompleted && task.script && (
         <QuizPanel
           script={task.script}
-          llmConfig={getStoredRequestConfigs(llmIdRef.current || undefined).llmConfig}
+          llmConfig={selectedLLMConfig}
           onQuizGenerated={handleQuizGenerated}
         />
       )}
@@ -558,7 +570,7 @@ export default function ResultPage() {
       {isCompleted && task.script && (
         <RelatedTopicsPanel
           script={task.script}
-          llmConfig={getStoredRequestConfigs(llmIdRef.current || undefined).llmConfig}
+          llmConfig={selectedLLMConfig}
           onRelatedTopicsGenerated={handleRelatedTopicsGenerated}
         />
       )}

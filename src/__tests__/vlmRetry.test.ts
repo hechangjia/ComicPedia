@@ -2,8 +2,8 @@
  * Tests for vlmRetry.ts — VLM feedback-to-prompt conversion
  */
 import { describe, it, expect } from "vitest";
-import { generatePromptPatch, applyPromptPatch, shouldAutoRetry } from "@/lib/vlmRetry";
-import { PanelVisualScore } from "@/lib/types";
+import { applyPromptPatch, buildPanelReview, buildTaskReviewStatus, generatePromptPatch, shouldAutoRetry } from "@/lib/vlmRetry";
+import type { PanelReview, PanelVisualScore, VisualQualityScore } from "@/lib/types";
 
 function makeScore(overrides: Partial<PanelVisualScore> = {}): PanelVisualScore {
   return {
@@ -14,6 +14,25 @@ function makeScore(overrides: Partial<PanelVisualScore> = {}): PanelVisualScore 
     compositionQuality: 7,
     overall: 7,
     issues: [],
+    ...overrides,
+  };
+}
+
+function makeVisualScore(overrides: Partial<VisualQualityScore> = {}): VisualQualityScore {
+  return {
+    overall: 7,
+    panels: [
+      makeScore({ panelIndex: 0, overall: 7, issues: ["minor framing drift"] }),
+      makeScore({ panelIndex: 1, overall: 5, issues: ["image is blurry"] }),
+    ],
+    retryRecommendations: [
+      {
+        panelIndex: 1,
+        reason: "image is blurry",
+        suggestedFix: "tighten focus guidance",
+      },
+    ],
+    evaluatedAt: "2026-03-23T00:00:00.000Z",
     ...overrides,
   };
 }
@@ -138,5 +157,94 @@ describe("shouldAutoRetry", () => {
       overall: 4,
       artifactScore: 3,
     }))).toBe(true);
+  });
+});
+
+describe("buildPanelReview", () => {
+  it("marks retry recommendations as needs_repair", () => {
+    const panelReview = buildPanelReview(makeVisualScore());
+
+    expect(panelReview).toEqual<PanelReview[]>([
+      {
+        panelIndex: 0,
+        status: "reviewed",
+        score: 7,
+        issues: ["minor framing drift"],
+      },
+      {
+        panelIndex: 1,
+        status: "needs_repair",
+        score: 5,
+        issues: ["image is blurry"],
+      },
+    ]);
+  });
+
+  it("marks cross-panel issues as needs_repair in the derived panel review", () => {
+    const panelReview = buildPanelReview(makeVisualScore({
+      panels: [
+        makeScore({ panelIndex: 0, overall: 7, issues: [] }),
+        makeScore({ panelIndex: 1, overall: 7, issues: ["minor blur"] }),
+      ],
+      retryRecommendations: [
+        {
+          panelIndex: 0,
+          reason: "style mismatch",
+          suggestedFix: "match the previous panel",
+        },
+      ],
+      crossPanelDetail: {
+        characterConsistency: 5,
+        styleDrift: 4,
+        colorPaletteCoherence: 6,
+        overall: 5,
+        issues: [
+          {
+            panelIndices: [0, 1],
+            description: "主角服装在相邻面板间不一致",
+          },
+        ],
+      },
+    }));
+
+    expect(panelReview[0]).toEqual({
+      panelIndex: 0,
+      status: "needs_repair",
+      score: 7,
+      issues: ["主角服装在相邻面板间不一致"],
+    });
+    expect(panelReview[1]).toEqual({
+      panelIndex: 1,
+      status: "needs_repair",
+      score: 7,
+      issues: ["minor blur", "主角服装在相邻面板间不一致"],
+    });
+  });
+
+  it("returns an empty projection when no panels were scored", () => {
+    expect(buildPanelReview(makeVisualScore({ panels: [], retryRecommendations: [] }))).toEqual([]);
+  });
+});
+
+describe("buildTaskReviewStatus", () => {
+  it("returns unreviewed when panel review is missing", () => {
+    expect(buildTaskReviewStatus()).toBe("unreviewed");
+  });
+
+  it("returns reviewed when every panel is reviewed", () => {
+    expect(buildTaskReviewStatus([
+      { panelIndex: 0, status: "reviewed", score: 8, issues: [] },
+      { panelIndex: 1, status: "reviewed", score: 7, issues: ["minor issue"] },
+    ])).toBe("reviewed");
+  });
+
+  it("returns needs_repair when any panel is non-terminal or failed", () => {
+    expect(buildTaskReviewStatus([
+      { panelIndex: 0, status: "reviewed", score: 8, issues: [] },
+      { panelIndex: 1, status: "retrying", score: 5, issues: ["retry in progress"] },
+    ])).toBe("needs_repair");
+    expect(buildTaskReviewStatus([
+      { panelIndex: 0, status: "failed", score: 5, issues: ["generation failed"] },
+    ])).toBe("needs_repair");
   });
 });

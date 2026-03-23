@@ -6,7 +6,7 @@
  * 通过 /api/llm 代理，无需额外的 API 路由。
  */
 
-import { ComicScript, ComicStyle, PartialLLMConfig, PanelVisualScore, VisualQualityScore } from "./types";
+import { CharacterVisualScore, ComicScript, ComicStyle, PartialLLMConfig, PanelVisualScore, VisualQualityScore } from "./types";
 import { STYLE_META } from "./config/styles";
 import { clampScore, extractJsonObject } from "./utils";
 
@@ -15,7 +15,7 @@ import { clampScore, extractJsonObject } from "./utils";
 // ============================================================
 
 /** 将任意图片 URL（data:、/api/images/、file://）解析为 base64 data URI */
-async function resolveImageToBase64(imageUrl: string): Promise<string | null> {
+export async function resolveImageToBase64(imageUrl: string): Promise<string | null> {
   if (imageUrl.startsWith("data:image")) return imageUrl;
 
   // file://{key} → /api/images/{key}
@@ -167,7 +167,7 @@ function buildMultimodalPayload(
 }
 
 /** 调用 VLM 评估单个面板 */
-async function evaluatePanel(
+export async function evaluatePanel(
   panelIndex: number,
   imageBase64: string,
   imagePrompt: string,
@@ -611,22 +611,6 @@ function parseCrossPanelScore(content: string): CrossPanelConsistencyResult {
 // ============================================================
 // Character Reference Image Evaluation
 // ============================================================
-
-/** 角色参考图视觉评分结果 */
-export interface CharacterVisualScore {
-  overall: number;
-  /** 角色特征清晰度（面部、服装、体型是否清楚呈现） */
-  featureClarity: number;
-  /** 跨图一致性（多张参考图间角色外貌是否统一） */
-  consistency: number;
-  /** 画面质量（瑕疵、分辨率、构图） */
-  imageQuality: number;
-  /** 具体问题 */
-  issues: string[];
-  /** 改进建议 */
-  suggestions: string[];
-  evaluatedAt: string;
-}
 
 /** 构建角色参考图评估 prompt */
 function buildCharacterEvalPrompt(

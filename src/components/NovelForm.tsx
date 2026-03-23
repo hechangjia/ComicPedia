@@ -71,14 +71,18 @@ export function NovelForm({ initialContent = "" }: { initialContent?: string }) 
     },
     useCallback(() => content, [content]),
   );
+  const getDraftInputText = form.getDraftInputText;
 
   // 恢复草稿文本
   useEffect(() => {
-    if (!initialContent) {
-      const draft = form.getDraftInputText();
-      if (draft) setContent(draft);
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    if (initialContent) return;
+    const draft = getDraftInputText();
+    if (!draft) return;
+    const timer = setTimeout(() => {
+      setContent(draft);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [getDraftInputText, initialContent]);
 
   const handleGenerate = () => form.handleSubmit(content, {
     novelMeta: {

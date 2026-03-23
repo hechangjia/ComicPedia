@@ -12,6 +12,18 @@ const STYLE_NAMES: Record<ComicStyle, string> = Object.fromEntries(
   ])
 ) as Record<ComicStyle, string>;
 
+const CHARACTER_REVIEW_LABELS = {
+  unreviewed: "未评审",
+  reviewed: "已通过",
+  needs_repair: "待修复",
+} as const;
+
+const CHARACTER_REVIEW_BADGES = {
+  unreviewed: "bg-slate-100/90 text-slate-700",
+  reviewed: "bg-emerald-100/90 text-emerald-700",
+  needs_repair: "bg-amber-100/90 text-amber-700",
+} as const;
+
 export function CharacterCard({
   char,
   onEdit,
@@ -44,6 +56,19 @@ export function CharacterCard({
   const safeIndex = Math.min(imgIndex, Math.max(allItems.length - 1, 0));
   const currentItem = allItems[safeIndex] ?? null;
   const displayStyle = currentItem?.style || char.style;
+  const reviewStatus = char.reviewStatus ?? "unreviewed";
+  const reviewLabel = CHARACTER_REVIEW_LABELS[reviewStatus];
+  const reviewBadgeClass = CHARACTER_REVIEW_BADGES[reviewStatus];
+  const reviewScore = char.visualScore ? `${Math.round(char.visualScore.overall * 10) / 10}/10` : null;
+  const reviewTime = char.lastReviewAt ? formatDate(char.lastReviewAt) : null;
+  const cardDescription = char.description || `视觉评审：${reviewLabel}${reviewScore ? ` · ${reviewScore}` : ""}`;
+  const metaLine = reviewTime ? `评审于 ${reviewTime}` : formatDate(char.updatedAt);
+  const referenceBadgeText = `${char.referenceEntries.length} 张参考图${reviewScore ? ` · ${reviewScore}` : ""}`;
+  const topOffsetClass = char.reviewStatus ? "top-10" : "top-2";
+  const bottomOffsetClass = char.reviewStatus ? "bottom-7" : "bottom-2";
+  const showReviewBadge = !!char.reviewStatus;
+  const reviewSummaryText = reviewTime ? `最近评审：${reviewTime}` : null;
+
 
   const goPrev = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -71,7 +96,7 @@ export function CharacterCard({
         )}
 
         {exportMode && (
-          <div className="absolute top-2 left-2 z-20">
+          <div className={`absolute ${topOffsetClass} left-2 z-20`}>
             <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
               isSelected ? "bg-primary border-primary text-white" : "border-white/80 bg-black/30"
             }`}>
@@ -81,6 +106,13 @@ export function CharacterCard({
                 </svg>
               )}
             </div>
+          </div>
+        )}
+
+        {showReviewBadge && (
+          <div className={`absolute top-2 left-2 px-2 py-0.5 text-xs rounded-full ${reviewBadgeClass}`}>
+            {reviewLabel}
+            {reviewScore ? ` · ${reviewScore}` : ""}
           </div>
         )}
 
@@ -104,7 +136,7 @@ export function CharacterCard({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
             </button>
-            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
+            <div className={`absolute ${bottomOffsetClass} left-1/2 -translate-x-1/2 flex gap-1`}>
               {allItems.map((_, i) => (
                 <span
                   key={i}
@@ -118,17 +150,17 @@ export function CharacterCard({
         )}
 
         {!hasMultiple && char.referenceEntries.length > 0 && (
-          <div className="absolute bottom-2 left-2 px-2 py-0.5 text-xs rounded-full bg-black/60 text-white">
-            {char.referenceEntries.length} \u5F20\u53C2\u8003\u56FE
+          <div className={`absolute ${bottomOffsetClass} left-2 px-2 py-0.5 text-xs rounded-full bg-black/60 text-white`}>
+            {referenceBadgeText}
           </div>
         )}
 
-        <div className="absolute top-2 right-2 px-2 py-0.5 text-xs rounded-full bg-black/60 text-white transition-all">
+        <div className={`absolute ${topOffsetClass} right-2 px-2 py-0.5 text-xs rounded-full bg-black/60 text-white transition-all`}>
           {STYLE_NAMES[displayStyle] || displayStyle}
         </div>
 
         {!exportMode && (
-          <div className="absolute top-2 left-2 flex gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+          <div className={`absolute ${topOffsetClass} left-2 flex gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity`}>
           <button
             onClick={onEdit}
             className="w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 transition-colors"
@@ -153,8 +185,9 @@ export function CharacterCard({
 
       <div className="p-3 space-y-1.5">
         <h3 className="font-medium truncate">{char.name}</h3>
-        {char.description && (
-          <p className="text-sm text-muted-foreground line-clamp-2">{char.description}</p>
+        <p className="text-sm text-muted-foreground line-clamp-2">{cardDescription}</p>
+        {reviewSummaryText && (
+          <p className="text-[11px] text-muted-foreground">{reviewSummaryText}</p>
         )}
         {char.tags.length > 0 && (
           <div className="flex gap-1 flex-wrap">
@@ -166,7 +199,7 @@ export function CharacterCard({
           </div>
         )}
         <p className="text-xs text-muted-foreground">
-          {formatDate(char.updatedAt)}
+          {metaLine}
         </p>
       </div>
     </div>

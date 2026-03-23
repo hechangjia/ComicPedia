@@ -663,6 +663,7 @@ export async function generateCharacterReferencePrompt(
   character: Character,
   style?: ComicStyle,
   llmOverrides?: PartialLLMConfig,
+  vlmFeedback?: { issues: string[]; suggestions: string[]; patchPositive: string[] },
 ): Promise<string> {
   const config = getLLMConfig(llmOverrides);
   const isNonHuman = !!character.appearance.species;
@@ -676,18 +677,27 @@ export async function generateCharacterReferencePrompt(
   if (character.appearance.clothing) appearanceParts.push(`Clothing: ${character.appearance.clothing}`);
   if (character.description) appearanceParts.push(`Description: ${character.description}`);
 
+  const feedbackSection = vlmFeedback
+    ? `\n\nPrevious VLM Evaluation Feedback (MUST address these issues):
+Issues found: ${vlmFeedback.issues.join("; ")}
+Suggestions: ${vlmFeedback.suggestions.join("; ")}
+Required corrections: ${vlmFeedback.patchPositive.join(", ")}`
+    : "";
+
   const prompt = `You are an expert character portrait prompt writer for AI image generation. Generate a detailed portrait prompt for this character.
 
 Character: ${character.name}
 ${appearanceParts.join("\n")}
-${style ? `Art Style: ${style}` : ""}
+${style ? `Art Style: ${style}` : ""}${feedbackSection}
 
 Requirements:
 - Output ONLY the English image prompt, no other text
 - Solo portrait, single character only, facing the viewer
 - Include: face details, hair, clothing, expression, pose, background, lighting
+- Character reference sheet style: front view, 3/4 view visible, consistent proportions
+- White or simple background for clean reference
 - Under 150 words, highly detailed
-- Suitable for consistent character reference across multiple illustrations`;
+- Suitable for consistent character reference across multiple illustrations${vlmFeedback ? "\n- CRITICAL: Fix ALL issues from previous VLM evaluation" : ""}`;
 
   let response: string;
   if (config.provider === "anthropic") {

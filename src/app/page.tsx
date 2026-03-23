@@ -1,22 +1,20 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { FormLayout } from "@/components/FormLayout";
 
 export default function HomePage() {
   const router = useRouter();
-  const [ready, setReady] = useState(false);
+  const isShowcaseMode = process.env.NEXT_PUBLIC_SHOWCASE_MODE === "true";
 
   useEffect(() => {
-    if (process.env.NEXT_PUBLIC_SHOWCASE_MODE === "true") {
+    if (isShowcaseMode) {
       router.replace("/gallery");
-    } else {
-      setReady(true);
     }
-  }, [router]);
+  }, [isShowcaseMode, router]);
 
-  if (!ready) return null;
+  if (isShowcaseMode) return null;
   return (
     <Suspense>
       <FormLayout defaultTab="wikipedia" />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useEffect, useCallback, useSyncExternalStore } from "react";
 import {
   UserAPIConfig,
   UserAPIConfigV2,
@@ -126,15 +126,21 @@ function loadConfig(): UserAPIConfigV2 {
 function saveConfig(config: UserAPIConfigV2): void {
   if (typeof window === "undefined") return;
 
+  const nextConfig: UserAPIConfigV2 = {
+    ...config,
+    updatedAt: new Date().toISOString(),
+  };
+
   try {
-    config.updatedAt = new Date().toISOString();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(nextConfig));
   } catch (error) {
     console.error("[APIConfig] 保存配置失败:", error);
   }
 
+  emitConfigStore({ config: nextConfig, isLoaded: true });
+
   // 异步同步到服务端 SQLite
-  syncConfigToServer(config);
+  syncConfigToServer(nextConfig);
 }
 
 /** 异步同步配置到服务端 */
@@ -188,175 +194,185 @@ function validateImageConfig(config: UserImageConfig): string[] {
   return errors;
 }
 
+/** 配置 Store 快照 */
+interface ConfigStoreSnapshot {
+  config: UserAPIConfigV2;
+  isLoaded: boolean;
+}
+
+const EMPTY_CONFIG_SNAPSHOT: ConfigStoreSnapshot = {
+  config: createEmptyConfig(),
+  isLoaded: false,
+};
+
+let configStoreSnapshot = EMPTY_CONFIG_SNAPSHOT;
+let configStoreInitialized = false;
+const configStoreListeners = new Set<() => void>();
+
+function emitConfigStore(snapshot: ConfigStoreSnapshot) {
+  configStoreSnapshot = snapshot;
+  configStoreListeners.forEach((listener) => listener());
+}
+
+function subscribeConfigStore(listener: () => void) {
+  configStoreListeners.add(listener);
+  return () => {
+    configStoreListeners.delete(listener);
+  };
+}
+
+function getConfigStoreSnapshot() {
+  return configStoreSnapshot;
+}
+
+function getConfigStoreServerSnapshot() {
+  return EMPTY_CONFIG_SNAPSHOT;
+}
+
+function ensureConfigStoreLoaded() {
+  if (configStoreInitialized) return;
+  configStoreInitialized = true;
+
+  const loaded = loadConfig();
+  emitConfigStore({ config: loaded, isLoaded: true });
+
+  pullConfigFromServer((serverConfig) => {
+    emitConfigStore({ config: serverConfig, isLoaded: true });
+  });
+}
+
+function useConfigStore() {
+  const snapshot = useSyncExternalStore(
+    subscribeConfigStore,
+    getConfigStoreSnapshot,
+    getConfigStoreServerSnapshot,
+  );
+
+  useEffect(() => {
+    ensureConfigStoreLoaded();
+  }, []);
+
+  return snapshot;
+}
+
 /** 完整配置管理 Hook */
 export function useAPIConfig() {
-  const [config, setConfig] = useState<UserAPIConfigV2>(createEmptyConfig);
-  const [isLoaded, setIsLoaded] = useState(false);
+  const { config, isLoaded } = useConfigStore();
 
-  // 初始加载：localStorage 即时 + 服务端异步拉取
-  useEffect(() => {
-    const loaded = loadConfig();
-    setConfig(loaded);
-    setIsLoaded(true);
-
-    // 后台从服务端拉取最新配置
-    pullConfigFromServer((serverConfig) => {
-      setConfig(serverConfig);
-    });
-  }, []);
+  const updateConfig = useCallback((updater: (prev: UserAPIConfigV2) => UserAPIConfigV2) => {
+    saveConfig(updater(config));
+  }, [config]);
 
   // --- LLM CRUD ---
 
   const addLLM = useCallback((llm: Omit<UserLLMConfig, "id">) => {
-    setConfig((prev) => {
+    updateConfig((prev) => {
       const id = generateId();
-      const newConfig: UserAPIConfigV2 = {
+      return {
         ...prev,
         llmConfigs: [...prev.llmConfigs, { ...llm, id }],
-        activeLLMId: prev.activeLLMId ?? id, // 第一个自动设为默认
+        activeLLMId: prev.activeLLMId ?? id,
       };
-      saveConfig(newConfig);
-      return newConfig;
     });
-  }, []);
+  }, [updateConfig]);
 
   const updateLLMById = useCallback((id: string, updates: Partial<Omit<UserLLMConfig, "id">>) => {
-    setConfig((prev) => {
-      const newConfig: UserAPIConfigV2 = {
-        ...prev,
-        llmConfigs: prev.llmConfigs.map((c) =>
-          c.id === id ? { ...c, ...updates } : c
-        ),
-      };
-      saveConfig(newConfig);
-      return newConfig;
-    });
-  }, []);
+    updateConfig((prev) => ({
+      ...prev,
+      llmConfigs: prev.llmConfigs.map((c) =>
+        c.id === id ? { ...c, ...updates } : c,
+      ),
+    }));
+  }, [updateConfig]);
 
   const removeLLM = useCallback((id: string) => {
-    setConfig((prev) => {
+    updateConfig((prev) => {
       const remaining = prev.llmConfigs.filter((c) => c.id !== id);
-      const newConfig: UserAPIConfigV2 = {
+      return {
         ...prev,
         llmConfigs: remaining,
-        activeLLMId: prev.activeLLMId === id
-          ? (remaining[0]?.id ?? null)
-          : prev.activeLLMId,
+        activeLLMId: prev.activeLLMId === id ? (remaining[0]?.id ?? null) : prev.activeLLMId,
       };
-      saveConfig(newConfig);
-      return newConfig;
     });
-  }, []);
+  }, [updateConfig]);
 
   const setActiveLLM = useCallback((id: string) => {
-    setConfig((prev) => {
-      const newConfig: UserAPIConfigV2 = { ...prev, activeLLMId: id };
-      saveConfig(newConfig);
-      return newConfig;
-    });
-  }, []);
+    updateConfig((prev) => ({ ...prev, activeLLMId: id }));
+  }, [updateConfig]);
 
   // --- Image CRUD ---
 
   const addImage = useCallback((img: Omit<UserImageConfig, "id">) => {
-    setConfig((prev) => {
+    updateConfig((prev) => {
       const id = generateId();
-      const newConfig: UserAPIConfigV2 = {
+      return {
         ...prev,
         imageConfigs: [...prev.imageConfigs, { ...img, id }],
         activeImageId: prev.activeImageId ?? id,
       };
-      saveConfig(newConfig);
-      return newConfig;
     });
-  }, []);
+  }, [updateConfig]);
 
   const updateImageById = useCallback((id: string, updates: Partial<Omit<UserImageConfig, "id">>) => {
-    setConfig((prev) => {
-      const newConfig: UserAPIConfigV2 = {
-        ...prev,
-        imageConfigs: prev.imageConfigs.map((c) =>
-          c.id === id ? { ...c, ...updates } : c
-        ),
-      };
-      saveConfig(newConfig);
-      return newConfig;
-    });
-  }, []);
+    updateConfig((prev) => ({
+      ...prev,
+      imageConfigs: prev.imageConfigs.map((c) =>
+        c.id === id ? { ...c, ...updates } : c,
+      ),
+    }));
+  }, [updateConfig]);
 
   const removeImage = useCallback((id: string) => {
-    setConfig((prev) => {
+    updateConfig((prev) => {
       const remaining = prev.imageConfigs.filter((c) => c.id !== id);
-      const newConfig: UserAPIConfigV2 = {
+      return {
         ...prev,
         imageConfigs: remaining,
-        activeImageId: prev.activeImageId === id
-          ? (remaining[0]?.id ?? null)
-          : prev.activeImageId,
+        activeImageId: prev.activeImageId === id ? (remaining[0]?.id ?? null) : prev.activeImageId,
       };
-      saveConfig(newConfig);
-      return newConfig;
     });
-  }, []);
+  }, [updateConfig]);
 
   const setActiveImage = useCallback((id: string) => {
-    setConfig((prev) => {
-      const newConfig: UserAPIConfigV2 = { ...prev, activeImageId: id };
-      saveConfig(newConfig);
-      return newConfig;
-    });
-  }, []);
+    updateConfig((prev) => ({ ...prev, activeImageId: id }));
+  }, [updateConfig]);
 
   // --- VLM CRUD ---
 
   const addVLM = useCallback((vlm: Omit<UserLLMConfig, "id">) => {
-    setConfig((prev) => {
+    updateConfig((prev) => {
       const id = generateId();
-      const newConfig: UserAPIConfigV2 = {
+      return {
         ...prev,
         vlmConfigs: [...(prev.vlmConfigs || []), { ...vlm, id }],
         activeVLMId: prev.activeVLMId ?? id,
       };
-      saveConfig(newConfig);
-      return newConfig;
     });
-  }, []);
+  }, [updateConfig]);
 
   const updateVLMById = useCallback((id: string, updates: Partial<Omit<UserLLMConfig, "id">>) => {
-    setConfig((prev) => {
-      const newConfig: UserAPIConfigV2 = {
-        ...prev,
-        vlmConfigs: (prev.vlmConfigs || []).map((c) =>
-          c.id === id ? { ...c, ...updates } : c
-        ),
-      };
-      saveConfig(newConfig);
-      return newConfig;
-    });
-  }, []);
+    updateConfig((prev) => ({
+      ...prev,
+      vlmConfigs: (prev.vlmConfigs || []).map((c) =>
+        c.id === id ? { ...c, ...updates } : c,
+      ),
+    }));
+  }, [updateConfig]);
 
   const removeVLM = useCallback((id: string) => {
-    setConfig((prev) => {
+    updateConfig((prev) => {
       const remaining = (prev.vlmConfigs || []).filter((c) => c.id !== id);
-      const newConfig: UserAPIConfigV2 = {
+      return {
         ...prev,
         vlmConfigs: remaining,
-        activeVLMId: prev.activeVLMId === id
-          ? (remaining[0]?.id ?? null)
-          : prev.activeVLMId,
+        activeVLMId: prev.activeVLMId === id ? (remaining[0]?.id ?? null) : prev.activeVLMId,
       };
-      saveConfig(newConfig);
-      return newConfig;
     });
-  }, []);
+  }, [updateConfig]);
 
   const setActiveVLM = useCallback((id: string) => {
-    setConfig((prev) => {
-      const newConfig: UserAPIConfigV2 = { ...prev, activeVLMId: id };
-      saveConfig(newConfig);
-      return newConfig;
-    });
-  }, []);
+    updateConfig((prev) => ({ ...prev, activeVLMId: id }));
+  }, [updateConfig]);
 
   // --- Helpers ---
 
@@ -372,16 +388,10 @@ export function useAPIConfig() {
     return (config.vlmConfigs || []).find((c) => c.id === id) ?? null;
   }, [config]);
 
-  // 清除所有配置
   const clearAll = useCallback(() => {
-    const empty = createEmptyConfig();
-    setConfig(empty);
-    if (typeof window !== "undefined") {
-      localStorage.removeItem(STORAGE_KEY);
-    }
+    saveConfig(createEmptyConfig());
   }, []);
 
-  // 验证配置
   const validate = useCallback((): ConfigValidation => {
     const activeLLM = config.llmConfigs.find((c) => c.id === config.activeLLMId);
     const activeImage = config.imageConfigs.find((c) => c.id === config.activeImageId);
@@ -429,32 +439,18 @@ export function useAPIConfig() {
 
 /** 快速检测配置状态 Hook（首页使用） */
 export function useConfigCheck() {
-  const [status, setStatus] = useState<{
-    isLoaded: boolean;
-    hasLLM: boolean;
-    hasImage: boolean;
-  }>({
-    isLoaded: false,
-    hasLLM: false,
-    hasImage: false,
-  });
+  const { config, isLoaded } = useConfigStore();
+  const activeLLM = config.llmConfigs.find((c) => c.id === config.activeLLMId);
+  const activeImage = config.imageConfigs.find((c) => c.id === config.activeImageId);
 
-  useEffect(() => {
-    const config = loadConfig();
-    const activeLLM = config.llmConfigs.find((c) => c.id === config.activeLLMId);
-    const activeImage = config.imageConfigs.find((c) => c.id === config.activeImageId);
+  const llmErrors = activeLLM ? validateLLMConfig(activeLLM) : [];
+  const imageErrors = activeImage ? validateImageConfig(activeImage) : [];
 
-    const llmErrors = activeLLM ? validateLLMConfig(activeLLM) : [];
-    const imageErrors = activeImage ? validateImageConfig(activeImage) : [];
-
-    setStatus({
-      isLoaded: true,
-      hasLLM: !!activeLLM && llmErrors.length === 0,
-      hasImage: !!activeImage && imageErrors.length === 0,
-    });
-  }, []);
-
-  return status;
+  return {
+    isLoaded,
+    hasLLM: !!activeLLM && llmErrors.length === 0,
+    hasImage: !!activeImage && imageErrors.length === 0,
+  };
 }
 
 /** 获取所有已保存的配置列表（非 Hook） */

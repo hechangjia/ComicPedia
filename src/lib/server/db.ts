@@ -43,6 +43,7 @@ db.exec(`
     reference_entries TEXT NOT NULL DEFAULT '[]',
     tags              TEXT NOT NULL DEFAULT '[]',
     variants          TEXT,
+    metadata          TEXT,
     created_at        TEXT NOT NULL,
     updated_at        TEXT NOT NULL
   );
@@ -86,31 +87,23 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_trash_deleted ON trash(deleted_at);
 
-  CREATE TABLE IF NOT EXISTS job_queue (
-    id            TEXT PRIMARY KEY,
-    task_id       TEXT NOT NULL,
-    type          TEXT NOT NULL DEFAULT 'image',
-    status        TEXT NOT NULL DEFAULT 'pending',
-    priority      INTEGER NOT NULL DEFAULT 0,
-    payload       TEXT NOT NULL,
-    result        TEXT,
-    error         TEXT,
-    attempts      INTEGER NOT NULL DEFAULT 0,
-    max_attempts  INTEGER NOT NULL DEFAULT 3,
-    created_at    TEXT NOT NULL,
-    started_at    TEXT,
-    completed_at  TEXT
-  );
-  CREATE INDEX IF NOT EXISTS idx_jobs_status ON job_queue(status, priority DESC, created_at);
-  CREATE INDEX IF NOT EXISTS idx_jobs_task ON job_queue(task_id);
 `);
 
-// ── Schema migration: add extensible metadata column ──
-try {
-  db.exec("ALTER TABLE tasks ADD COLUMN metadata TEXT");
-} catch {
-  // Column already exists — expected on subsequent startups
+
+function runAddColumnMigration(table: string, columnDDL: string) {
+  try {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${columnDDL}`);
+  } catch (error) {
+    if (error instanceof Error && /duplicate column name/i.test(error.message)) {
+      return;
+    }
+    throw error;
+  }
 }
+
+// ── Schema migration: add extensible metadata column ──
+runAddColumnMigration("tasks", "metadata TEXT");
+runAddColumnMigration("characters", "metadata TEXT");
 
 // ============================================================
 // Tasks CRUD
@@ -134,6 +127,10 @@ function taskToRow(task: GenerateTask) {
   const metadata: Record<string, unknown> = {};
   if (task.qualityScore) metadata.qualityScore = task.qualityScore;
   if (task.visualQualityScore) metadata.visualQualityScore = task.visualQualityScore;
+  if (task.reviewStatus !== undefined) metadata.reviewStatus = task.reviewStatus;
+  if (task.panelReview !== undefined) metadata.panelReview = task.panelReview;
+  if (task.visualRetrySummary !== undefined) metadata.visualRetrySummary = task.visualRetrySummary;
+  if (task.lastReviewAt !== undefined) metadata.lastReviewAt = task.lastReviewAt;
   if (task.scriptValidation) metadata.scriptValidation = task.scriptValidation;
   if (task.scriptRepairRounds) metadata.scriptRepairRounds = task.scriptRepairRounds;
   if (task.topicResearch) metadata.topicResearch = task.topicResearch;
@@ -164,6 +161,74 @@ function safeJsonParse<T>(json: string | null | undefined, fallback?: T): T | un
   }
 }
 
+const REVIEW_STATUS_VALUES = new Set<GenerateTask["reviewStatus"]>(["unreviewed", "reviewed", "needs_repair"]);
+const PANEL_REVIEW_STATUS_VALUES = new Set<NonNullable<GenerateTask["panelReview"]>[number]["status"]>(["reviewed", "needs_repair", "retrying", "failed"]);
+const VISUAL_RETRY_CYCLE_STATUS_VALUES = new Set<NonNullable<GenerateTask["visualRetrySummary"]>["status"]>(["running", "completed", "failed", "skipped"]);
+const VISUAL_RETRY_OUTCOME_STATUS_VALUES = new Set<NonNullable<NonNullable<GenerateTask["visualRetrySummary"]>["outcomes"]>[number]["status"]>(["retrying", "completed", "failed"]);
+
+function parseReviewStatus(value: unknown): GenerateTask["reviewStatus"] {
+  return typeof value === "string" && REVIEW_STATUS_VALUES.has(value as GenerateTask["reviewStatus"])
+    ? value as GenerateTask["reviewStatus"]
+    : undefined;
+}
+
+function parsePanelReview(value: unknown): GenerateTask["panelReview"] {
+  if (!Array.isArray(value)) return undefined;
+
+  const panelReview = value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const candidate = item as Record<string, unknown>;
+    if (typeof candidate.panelIndex !== "number" || typeof candidate.score !== "number") return [];
+    if (typeof candidate.status !== "string" || !PANEL_REVIEW_STATUS_VALUES.has(candidate.status as NonNullable<GenerateTask["panelReview"]>[number]["status"])) return [];
+    if (!Array.isArray(candidate.issues) || candidate.issues.some((issue) => typeof issue !== "string")) return [];
+
+    return [{
+      panelIndex: candidate.panelIndex,
+      status: candidate.status as NonNullable<GenerateTask["panelReview"]>[number]["status"],
+      score: candidate.score,
+      issues: candidate.issues,
+    }];
+  });
+
+  return panelReview;
+}
+
+function parseVisualRetrySummary(value: unknown): GenerateTask["visualRetrySummary"] {
+  if (!value || typeof value !== "object") return undefined;
+
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate.status !== "string" || !VISUAL_RETRY_CYCLE_STATUS_VALUES.has(candidate.status as NonNullable<GenerateTask["visualRetrySummary"]>["status"])) return undefined;
+  if (typeof candidate.startedAt !== "string") return undefined;
+  if (candidate.finishedAt !== undefined && typeof candidate.finishedAt !== "string") return undefined;
+  if (typeof candidate.initialOverallScore !== "number") return undefined;
+  if (candidate.finalOverallScore !== undefined && typeof candidate.finalOverallScore !== "number") return undefined;
+  if (!Array.isArray(candidate.attemptedPanels) || candidate.attemptedPanels.some((panelIndex) => typeof panelIndex !== "number")) return undefined;
+  if (!Array.isArray(candidate.outcomes)) return undefined;
+
+  const outcomes = candidate.outcomes.flatMap((outcome) => {
+    if (!outcome || typeof outcome !== "object") return [];
+    const parsed = outcome as Record<string, unknown>;
+    if (typeof parsed.panelIndex !== "number") return [];
+    if (typeof parsed.status !== "string" || !VISUAL_RETRY_OUTCOME_STATUS_VALUES.has(parsed.status as NonNullable<NonNullable<GenerateTask["visualRetrySummary"]>["outcomes"]>[number]["status"])) return [];
+    return [{
+      panelIndex: parsed.panelIndex,
+      status: parsed.status as NonNullable<NonNullable<GenerateTask["visualRetrySummary"]>["outcomes"]>[number]["status"],
+    }];
+  });
+
+  if (outcomes.length !== candidate.outcomes.length) return undefined;
+
+  return {
+    status: candidate.status as NonNullable<GenerateTask["visualRetrySummary"]>["status"],
+    startedAt: candidate.startedAt,
+    finishedAt: candidate.finishedAt as string | undefined,
+    initialOverallScore: candidate.initialOverallScore,
+    finalOverallScore: candidate.finalOverallScore as number | undefined,
+    attemptedPanels: candidate.attemptedPanels,
+    outcomes,
+  };
+}
+
 function rowToTask(row: Record<string, unknown>): GenerateTask {
   const meta = safeJsonParse<Record<string, unknown>>(row.metadata as string | null) ?? {};
 
@@ -176,6 +241,10 @@ function rowToTask(row: Record<string, unknown>): GenerateTask {
     error: (row.error as string) ?? undefined,
     qualityScore: meta.qualityScore as GenerateTask["qualityScore"],
     visualQualityScore: meta.visualQualityScore as GenerateTask["visualQualityScore"],
+    reviewStatus: parseReviewStatus(meta.reviewStatus),
+    panelReview: parsePanelReview(meta.panelReview),
+    visualRetrySummary: parseVisualRetrySummary(meta.visualRetrySummary),
+    lastReviewAt: typeof meta.lastReviewAt === "string" ? meta.lastReviewAt : undefined,
     scriptValidation: meta.scriptValidation as GenerateTask["scriptValidation"],
     scriptRepairRounds: meta.scriptRepairRounds as number | undefined,
     topicResearch: meta.topicResearch as GenerateTask["topicResearch"],
@@ -228,9 +297,9 @@ export function getAllTaskIds(): string[] {
 
 const stmtInsertChar = db.prepare(`
   INSERT OR REPLACE INTO characters
-    (id, name, description, appearance, style, avatar_url, reference_entries, tags, variants, created_at, updated_at)
+    (id, name, description, appearance, style, avatar_url, reference_entries, tags, variants, metadata, created_at, updated_at)
   VALUES
-    (@id, @name, @description, @appearance, @style, @avatar_url, @reference_entries, @tags, @variants, @created_at, @updated_at)
+    (@id, @name, @description, @appearance, @style, @avatar_url, @reference_entries, @tags, @variants, @metadata, @created_at, @updated_at)
 `);
 
 const stmtGetChar = db.prepare("SELECT * FROM characters WHERE id = ?");
@@ -240,7 +309,39 @@ const stmtCountChars = db.prepare("SELECT COUNT(*) as total FROM characters");
 const stmtDeleteChar = db.prepare("DELETE FROM characters WHERE id = ?");
 const stmtClearChars = db.prepare("DELETE FROM characters");
 
+function parseCharacterVisualScore(value: unknown): Character["visualScore"] {
+  if (!value || typeof value !== "object") return undefined;
+
+  const candidate = value as Record<string, unknown>;
+  if (
+    typeof candidate.overall !== "number"
+    || typeof candidate.featureClarity !== "number"
+    || typeof candidate.consistency !== "number"
+    || typeof candidate.imageQuality !== "number"
+    || typeof candidate.evaluatedAt !== "string"
+  ) {
+    return undefined;
+  }
+  if (!Array.isArray(candidate.issues) || candidate.issues.some((issue) => typeof issue !== "string")) return undefined;
+  if (!Array.isArray(candidate.suggestions) || candidate.suggestions.some((suggestion) => typeof suggestion !== "string")) return undefined;
+
+  return {
+    overall: candidate.overall,
+    featureClarity: candidate.featureClarity,
+    consistency: candidate.consistency,
+    imageQuality: candidate.imageQuality,
+    issues: candidate.issues,
+    suggestions: candidate.suggestions,
+    evaluatedAt: candidate.evaluatedAt,
+  };
+}
+
 function charToRow(c: Character) {
+  const metadata: Record<string, unknown> = {};
+  if (c.visualScore !== undefined) metadata.visualScore = c.visualScore;
+  if (c.reviewStatus !== undefined) metadata.reviewStatus = c.reviewStatus;
+  if (c.lastReviewAt !== undefined) metadata.lastReviewAt = c.lastReviewAt;
+
   return {
     id: c.id,
     name: c.name,
@@ -251,12 +352,15 @@ function charToRow(c: Character) {
     reference_entries: JSON.stringify(c.referenceEntries),
     tags: JSON.stringify(c.tags),
     variants: c.variants ? JSON.stringify(c.variants) : null,
+    metadata: Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
     created_at: c.createdAt,
     updated_at: c.updatedAt,
   };
 }
 
 function rowToChar(row: Record<string, unknown>): Character {
+  const meta = safeJsonParse<Record<string, unknown>>(row.metadata as string | null) ?? {};
+
   return {
     id: row.id as string,
     name: row.name as string,
@@ -267,6 +371,9 @@ function rowToChar(row: Record<string, unknown>): Character {
     referenceEntries: safeJsonParse(row.reference_entries as string) ?? [],
     tags: safeJsonParse(row.tags as string) ?? [],
     variants: safeJsonParse(row.variants as string | null),
+    visualScore: parseCharacterVisualScore(meta.visualScore),
+    reviewStatus: parseReviewStatus(meta.reviewStatus),
+    lastReviewAt: typeof meta.lastReviewAt === "string" ? meta.lastReviewAt : undefined,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   };
@@ -542,113 +649,3 @@ export const batchUpsertSeries = db.transaction((list: Series[]) => {
   }
 });
 
-// ============================================================
-// Job Queue (for AnimePedia server-side generation)
-// ============================================================
-
-export interface JobRecord {
-  id: string;
-  taskId: string;
-  type: string;
-  status: "pending" | "running" | "completed" | "failed";
-  priority: number;
-  payload: string;
-  result: string | null;
-  error: string | null;
-  attempts: number;
-  maxAttempts: number;
-  createdAt: string;
-  startedAt: string | null;
-  completedAt: string | null;
-}
-
-const stmtInsertJob = db.prepare(`
-  INSERT INTO job_queue (id, task_id, type, status, priority, payload, max_attempts, created_at)
-  VALUES (@id, @task_id, @type, 'pending', @priority, @payload, @max_attempts, @created_at)
-`);
-
-const stmtClaimJob = db.prepare(`
-  UPDATE job_queue SET status = 'running', started_at = @now, attempts = attempts + 1
-  WHERE id = (
-    SELECT id FROM job_queue WHERE status = 'pending' ORDER BY priority DESC, created_at LIMIT 1
-  )
-  RETURNING *
-`);
-
-const stmtCompleteJob = db.prepare(`
-  UPDATE job_queue SET status = 'completed', result = @result, completed_at = @now WHERE id = @id
-`);
-
-const stmtFailJob = db.prepare(`
-  UPDATE job_queue SET status = CASE WHEN attempts < max_attempts THEN 'pending' ELSE 'failed' END,
-  error = @error WHERE id = @id
-`);
-
-const stmtGetJobsByTask = db.prepare("SELECT * FROM job_queue WHERE task_id = ? ORDER BY created_at");
-const stmtGetJob = db.prepare("SELECT * FROM job_queue WHERE id = ?");
-const stmtDeleteJobsByTask = db.prepare("DELETE FROM job_queue WHERE task_id = ?");
-
-function rowToJob(row: Record<string, unknown>): JobRecord {
-  return {
-    id: row.id as string,
-    taskId: row.task_id as string,
-    type: row.type as string,
-    status: row.status as JobRecord["status"],
-    priority: row.priority as number,
-    payload: row.payload as string,
-    result: (row.result as string) || null,
-    error: (row.error as string) || null,
-    attempts: row.attempts as number,
-    maxAttempts: row.max_attempts as number,
-    createdAt: row.created_at as string,
-    startedAt: (row.started_at as string) || null,
-    completedAt: (row.completed_at as string) || null,
-  };
-}
-
-export function createJob(job: {
-  id: string;
-  taskId: string;
-  type: string;
-  priority?: number;
-  payload: string;
-  maxAttempts?: number;
-}): void {
-  stmtInsertJob.run({
-    id: job.id,
-    task_id: job.taskId,
-    type: job.type,
-    priority: job.priority ?? 0,
-    payload: job.payload,
-    max_attempts: job.maxAttempts ?? 3,
-    created_at: new Date().toISOString(),
-  });
-}
-
-export function claimNextJob(): JobRecord | null {
-  const row = stmtClaimJob.get({ now: new Date().toISOString() }) as Record<string, unknown> | undefined;
-  return row ? rowToJob(row) : null;
-}
-
-export function completeJob(id: string, result: string): void {
-  stmtCompleteJob.run({ id, result, now: new Date().toISOString() });
-}
-
-export function failJob(id: string, error: string): void {
-  stmtFailJob.run({ id, error });
-}
-
-export function getJobsByTaskId(taskId: string): JobRecord[] {
-  const rows = stmtGetJobsByTask.all(taskId) as Record<string, unknown>[];
-  return rows.map(rowToJob);
-}
-
-export function getJobById(id: string): JobRecord | null {
-  const row = stmtGetJob.get(id) as Record<string, unknown> | undefined;
-  return row ? rowToJob(row) : null;
-}
-
-export function deleteJobsByTaskId(taskId: string): number {
-  const result = stmtDeleteJobsByTask.run(taskId);
-  return result.changes;
-}

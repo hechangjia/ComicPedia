@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ComicScript, VisualQualityScore, PartialLLMConfig, UserLLMConfig } from "@/lib/types";
-import { evaluateQuality, QualityScore } from "@/lib/qualityScore";
+import { evaluateQuality, type QualityScore } from "@/lib/qualityScore";
 import { evaluateVisualQuality } from "@/lib/vlmScorer";
 import { getStoredConfigs } from "@/hooks/useAPIConfig";
 import { generatePromptPatch, applyPromptPatch, shouldAutoRetry, type PromptPatch } from "@/lib/vlmRetry";
@@ -11,6 +11,8 @@ interface QualityScorePanelProps {
   script: ComicScript;
   cachedScore?: QualityScore | null;
   cachedVisualScore?: VisualQualityScore | null;
+  onSaveQualityScore?: (score: QualityScore) => Promise<void> | void;
+  onSaveVisualQualityScore?: (score: VisualQualityScore) => Promise<void> | void;
   /** Callback to trigger targeted regeneration of specific panels */
   onRetryPanels?: (panelIndices: number[], patchedPrompts: Map<number, string>, patches?: Map<number, PromptPatch>) => Promise<void> | void;
 }
@@ -370,7 +372,14 @@ function avg(values: number[]): number {
   return Math.round(values.reduce((s, v) => s + v, 0) / values.length * 10) / 10;
 }
 
-export function QualityScorePanel({ script, cachedScore, cachedVisualScore, onRetryPanels }: QualityScorePanelProps) {
+export function QualityScorePanel({
+  script,
+  cachedScore,
+  cachedVisualScore,
+  onSaveQualityScore,
+  onSaveVisualQualityScore,
+  onRetryPanels,
+}: QualityScorePanelProps) {
   const [score, setScore] = useState<QualityScore | null>(cachedScore ?? null);
   const [visualScore, setVisualScore] = useState<VisualQualityScore | null>(cachedVisualScore ?? null);
   const [loadingText, setLoadingText] = useState(false);
@@ -378,6 +387,14 @@ export function QualityScorePanel({ script, cachedScore, cachedVisualScore, onRe
   const [errorText, setErrorText] = useState("");
   const [errorVisual, setErrorVisual] = useState("");
   const [selectedVLMOption, setSelectedVLMOption] = useState("");
+
+  useEffect(() => {
+    setScore(cachedScore ?? null);
+  }, [cachedScore]);
+
+  useEffect(() => {
+    setVisualScore(cachedVisualScore ?? null);
+  }, [cachedVisualScore]);
 
   const getActiveLLM = () => {
     const configs = getStoredConfigs();
@@ -420,6 +437,7 @@ export function QualityScorePanel({ script, cachedScore, cachedVisualScore, onRe
       const llm = getActiveLLM();
       const result = await evaluateQuality(script, llm);
       setScore(result);
+      await onSaveQualityScore?.(result);
     } catch (err) {
       setErrorText(err instanceof Error ? err.message : "评分失败");
     } finally {
@@ -449,6 +467,7 @@ export function QualityScorePanel({ script, cachedScore, cachedVisualScore, onRe
       }
       const result = await evaluateVisualQuality(script, vlm);
       setVisualScore(result);
+      await onSaveVisualQualityScore?.(result);
     } catch (err) {
       setErrorVisual(err instanceof Error ? err.message : "视觉评分失败");
     } finally {

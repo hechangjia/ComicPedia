@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback, useRef, memo } from "react";
+import { useEffect, useState, useMemo, useCallback, memo } from "react";
 import Link from "next/link";
-import { getAllComics, PaginatedResult } from "@/lib/client/db";
+import { getAllComics } from "@/lib/client/db";
 import { useListCache } from "@/stores/listCache";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { GenerateTask, ComicPanel, ComicStyle } from "@/lib/types";
@@ -124,7 +124,8 @@ const GalleryCard = memo(function GalleryCard({ task, validPanels, featured, onO
 });
 
 export default function GalleryPage() {
-  const [allTasks, setAllTasks] = useState<GenerateTask[]>([]);
+  const { getTasks, setTasks } = useListCache();
+  const [allTasks, setAllTasks] = useState<GenerateTask[]>(() => getTasks()?.items ?? []);
   const [hasMore, setHasMore] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -139,18 +140,7 @@ export default function GalleryPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [batchDeleting, setBatchDeleting] = useState(false);
 
-  const { getTasks, setTasks } = useListCache();
-
-  useEffect(() => {
-    // 优先使用缓存数据实现秒开，后台刷新
-    const cached = getTasks();
-    if (cached) {
-      setAllTasks(cached.items);
-    }
-    loadGallery(1);
-  }, []);
-
-  const loadGallery = async (page: number) => {
+  const loadGallery = useCallback(async (page: number) => {
     try {
       setLoading(true);
       const result = await getAllComics(page, 100);
@@ -171,13 +161,17 @@ export default function GalleryPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [setTasks]);
 
-  const loadMore = () => {
+  useEffect(() => {
+    loadGallery(1);
+  }, [loadGallery]);
+
+  const loadMore = useCallback(() => {
     if (!loading && hasMore) {
       loadGallery(currentPage + 1);
     }
-  };
+  }, [currentPage, hasMore, loadGallery, loading]);
 
   const getValidPanels = useCallback((task: GenerateTask): ComicPanel[] => {
     return (
@@ -244,7 +238,7 @@ export default function GalleryPage() {
       totalPanels,
       topStyle: topStyle ? styleNames[topStyle[0]] || topStyle[0] : null,
     };
-  }, [completedTasks]);
+  }, [completedTasks, validPanelsMap]);
 
   // 筛选 + 排序
   const filteredTasks = useMemo(() => {
@@ -285,7 +279,7 @@ export default function GalleryPage() {
         break;
     }
     return result;
-  }, [completedTasks, filterStyle, searchQuery, sortBy]);
+  }, [completedTasks, filterStyle, searchQuery, sortBy, validPanelsMap]);
 
   // 计算交错布局：第一个和每第 5 个作品为"大卡"
   const isFeatured = (index: number): boolean => {
@@ -327,15 +321,21 @@ export default function GalleryPage() {
   });
 
   // 灯箱
-  const lightboxPanels = lightboxTask ? (validPanelsMap.get(lightboxTask.id) ?? []) : [];
-  const handleLightboxPrev = () => {
+  const lightboxPanels = useMemo(
+    () => (lightboxTask ? (validPanelsMap.get(lightboxTask.id) ?? []) : []),
+    [lightboxTask, validPanelsMap]
+  );
+  const handleCloseLightbox = useCallback(() => {
+    setLightboxTask(null);
+  }, []);
+  const handleLightboxPrev = useCallback(() => {
     setLightboxPanelIndex((i) => Math.max(0, i - 1));
-  };
-  const handleLightboxNext = () => {
+  }, []);
+  const handleLightboxNext = useCallback(() => {
     setLightboxPanelIndex((i) =>
       Math.min(lightboxPanels.length - 1, i + 1)
     );
-  };
+  }, [lightboxPanels.length]);
 
   // Lightbox image preloading — load adjacent panels in background
   useEffect(() => {
@@ -352,29 +352,28 @@ export default function GalleryPage() {
   useEffect(() => {
     if (!lightboxTask) return;
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setLightboxTask(null);
+      if (e.key === "Escape") handleCloseLightbox();
       else if (e.key === "ArrowLeft") handleLightboxPrev();
       else if (e.key === "ArrowRight") handleLightboxNext();
     };
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lightboxTask, lightboxPanels.length]);
+  }, [handleCloseLightbox, handleLightboxNext, handleLightboxPrev, lightboxTask]);
 
-  const toggleSelect = (id: string) => {
+  const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  };
+  }, []);
 
-  const selectAll = () => {
+  const selectAll = useCallback(() => {
     setSelectedIds(new Set(filteredTasks.map((t) => t.id)));
-  };
+  }, [filteredTasks]);
 
-  const handleBatchDelete = async () => {
+  const handleBatchDelete = useCallback(async () => {
     if (selectedIds.size === 0) return;
     const confirmed = window.confirm(`确定删除 ${selectedIds.size} 部作品？此操作可在回收站恢复。`);
     if (!confirmed) return;
@@ -394,7 +393,7 @@ export default function GalleryPage() {
     } finally {
       setBatchDeleting(false);
     }
-  };
+  }, [selectedIds]);
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">

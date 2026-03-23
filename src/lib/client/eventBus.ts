@@ -36,6 +36,14 @@ export function subscribeStreamText(taskId: string, listener: StreamTextListener
   };
 }
 
+export function getStreamTextSnapshot(taskId: string): string {
+  return streamTextCache.get(taskId) ?? "";
+}
+
+export function getStreamTextServerSnapshot(): string {
+  return "";
+}
+
 /** Push streamText update to subscribers (no Zustand involved) */
 function emitStreamText(taskId: string, text: string) {
   streamTextCache.set(taskId, text);
