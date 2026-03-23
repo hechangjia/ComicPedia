@@ -1,5 +1,57 @@
 // 漫画生成相关类型定义
 
+/** 单面板视觉评分 (VLM) */
+export interface PanelVisualScore {
+  panelIndex: number;
+  textImageAlignment: number;  // 1-10: 画面与 imagePrompt 的匹配度
+  styleAdherence: number;      // 1-10: 风格一致性
+  artifactScore: number;       // 1-10: 视觉瑕疵（10=无瑕疵）
+  compositionQuality: number;  // 1-10: 构图质量
+  overall: number;             // 4 维平均
+  issues: string[];            // 具体问题描述
+}
+
+/** VLM 视觉质量评分（基于实际生成图片） */
+export interface VisualQualityScore {
+  overall: number;
+  panels: PanelVisualScore[];
+  /** 跨面板一致性总分 (P3) */
+  crossPanelConsistency?: number;
+  /** 跨面板一致性详情 (P3) */
+  crossPanelDetail?: {
+    characterConsistency: number;
+    styleDrift: number;
+    colorPaletteCoherence: number;
+    overall: number;
+    issues: Array<{ panelIndices: number[]; description: string }>;
+  };
+  /** 建议重新生成的面板索引 + 修正方向 */
+  retryRecommendations: Array<{
+    panelIndex: number;
+    reason: string;
+    suggestedFix: string;
+  }>;
+  evaluatedAt: string;
+}
+
+/** 叙事大纲 — 面板级蓝图 (Director Agent) */
+export interface PanelBlueprint {
+  narrativeFunction: "opening" | "setup" | "development" | "climax" | "resolution" | "epilogue";
+  suggestedComposition: string;
+  characters: string[];
+  keyInfo: string;
+  infoDensity: "low" | "medium" | "high";
+}
+
+/** Director Agent 生成的叙事大纲 */
+export interface NarrativeOutline {
+  totalPanels: number;
+  panels: PanelBlueprint[];
+  characterList: Array<{ name: string; role: string; firstAppearance: number }>;
+  infoDistribution: string;
+  narrativeArc: string;
+}
+
 /** 图片版本记录 */
 export interface ImageVersion {
   imageUrl: string;      // base64 data URI
@@ -237,7 +289,21 @@ export interface GenerateTask {
     expandedDescription: string;
     keyFacts: string[];
     narrativeAngle: string;
+    /** Multiple narrative angle candidates with relevance scores */
+    narrativeAngles?: Array<{
+      angle: string;
+      relevance: number;
+      rationale: string;
+    }>;
+    /** Hierarchical knowledge map */
+    knowledgeMap?: {
+      core: string[];
+      sub: string[];
+      related: string[];
+    };
   };
+  /** Narrative outline from Director Agent (guides script generation) */
+  narrativeOutline?: NarrativeOutline;
   /** Script quality validation (auto-run after scripting, before script_ready) */
   scriptValidation?: {
     passed: boolean;
@@ -264,6 +330,8 @@ export interface GenerateTask {
     compositionDiversity: number;
     suggestions: string[];
   };
+  /** VLM visual quality score — evaluates actual generated images, not prompts */
+  visualQualityScore?: VisualQualityScore;
   /** Generation config snapshot — records which models were used */
   generationConfig?: {
     llmModel?: string;
@@ -409,7 +477,10 @@ export interface UserAPIConfigV2 {
   version: 2;
   llmConfigs: UserLLMConfig[];
   imageConfigs: UserImageConfig[];
+  /** VLM（视觉语言模型）配置，复用 LLM 配置格式 */
+  vlmConfigs?: UserLLMConfig[];
   activeLLMId: string | null;
   activeImageId: string | null;
+  activeVLMId?: string | null;
   updatedAt: string;
 }

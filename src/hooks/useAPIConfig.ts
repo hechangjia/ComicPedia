@@ -18,6 +18,7 @@ export interface ConfigValidation {
   isValid: boolean;
   hasLLM: boolean;
   hasImage: boolean;
+  hasVLM: boolean;
   errors: string[];
 }
 
@@ -25,6 +26,7 @@ export interface ConfigValidation {
 export interface RequestConfigs {
   llmConfig?: PartialLLMConfig;
   imageConfig?: PartialImageGenConfig;
+  vlmConfig?: PartialLLMConfig;
 }
 
 /** 生成唯一 ID */
@@ -38,8 +40,10 @@ function createEmptyConfig(): UserAPIConfigV2 {
     version: 2,
     llmConfigs: [],
     imageConfigs: [],
+    vlmConfigs: [],
     activeLLMId: null,
     activeImageId: null,
+    activeVLMId: null,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -103,7 +107,11 @@ function loadConfig(): UserAPIConfigV2 {
     }
 
     if (parsed.version === CONFIG_VERSION) {
-      return parsed as UserAPIConfigV2;
+      const cfg = parsed as UserAPIConfigV2;
+      // Ensure vlmConfigs exists (backward compat with pre-VLM configs)
+      if (!cfg.vlmConfigs) cfg.vlmConfigs = [];
+      if (cfg.activeVLMId === undefined) cfg.activeVLMId = null;
+      return cfg;
     }
 
     console.log("[APIConfig] 配置版本不匹配，重置配置");
@@ -299,6 +307,57 @@ export function useAPIConfig() {
     });
   }, []);
 
+  // --- VLM CRUD ---
+
+  const addVLM = useCallback((vlm: Omit<UserLLMConfig, "id">) => {
+    setConfig((prev) => {
+      const id = generateId();
+      const newConfig: UserAPIConfigV2 = {
+        ...prev,
+        vlmConfigs: [...(prev.vlmConfigs || []), { ...vlm, id }],
+        activeVLMId: prev.activeVLMId ?? id,
+      };
+      saveConfig(newConfig);
+      return newConfig;
+    });
+  }, []);
+
+  const updateVLMById = useCallback((id: string, updates: Partial<Omit<UserLLMConfig, "id">>) => {
+    setConfig((prev) => {
+      const newConfig: UserAPIConfigV2 = {
+        ...prev,
+        vlmConfigs: (prev.vlmConfigs || []).map((c) =>
+          c.id === id ? { ...c, ...updates } : c
+        ),
+      };
+      saveConfig(newConfig);
+      return newConfig;
+    });
+  }, []);
+
+  const removeVLM = useCallback((id: string) => {
+    setConfig((prev) => {
+      const remaining = (prev.vlmConfigs || []).filter((c) => c.id !== id);
+      const newConfig: UserAPIConfigV2 = {
+        ...prev,
+        vlmConfigs: remaining,
+        activeVLMId: prev.activeVLMId === id
+          ? (remaining[0]?.id ?? null)
+          : prev.activeVLMId,
+      };
+      saveConfig(newConfig);
+      return newConfig;
+    });
+  }, []);
+
+  const setActiveVLM = useCallback((id: string) => {
+    setConfig((prev) => {
+      const newConfig: UserAPIConfigV2 = { ...prev, activeVLMId: id };
+      saveConfig(newConfig);
+      return newConfig;
+    });
+  }, []);
+
   // --- Helpers ---
 
   const getLLMById = useCallback((id: string) => {
@@ -307,6 +366,10 @@ export function useAPIConfig() {
 
   const getImageById = useCallback((id: string) => {
     return config.imageConfigs.find((c) => c.id === id) ?? null;
+  }, [config]);
+
+  const getVLMById = useCallback((id: string) => {
+    return (config.vlmConfigs || []).find((c) => c.id === id) ?? null;
   }, [config]);
 
   // 清除所有配置
@@ -322,18 +385,22 @@ export function useAPIConfig() {
   const validate = useCallback((): ConfigValidation => {
     const activeLLM = config.llmConfigs.find((c) => c.id === config.activeLLMId);
     const activeImage = config.imageConfigs.find((c) => c.id === config.activeImageId);
+    const activeVLM = (config.vlmConfigs || []).find((c) => c.id === config.activeVLMId);
 
     const llmErrors = activeLLM ? validateLLMConfig(activeLLM) : [];
     const imageErrors = activeImage ? validateImageConfig(activeImage) : [];
+    const vlmErrors = activeVLM ? validateLLMConfig(activeVLM) : [];
 
     const hasLLM = !!activeLLM && llmErrors.length === 0;
     const hasImage = !!activeImage && imageErrors.length === 0;
+    const hasVLM = !!activeVLM && vlmErrors.length === 0;
 
     return {
       isValid: hasLLM,
       hasLLM,
       hasImage,
-      errors: [...llmErrors, ...imageErrors],
+      hasVLM,
+      errors: [...llmErrors, ...imageErrors, ...vlmErrors],
     };
   }, [config]);
 
@@ -348,8 +415,13 @@ export function useAPIConfig() {
     updateImageById,
     removeImage,
     setActiveImage,
+    addVLM,
+    updateVLMById,
+    removeVLM,
+    setActiveVLM,
     getLLMById,
     getImageById,
+    getVLMById,
     clearAll,
     validate,
   };
@@ -391,15 +463,17 @@ export function getStoredConfigs(): UserAPIConfigV2 {
 }
 
 /** 直接获取请求配置（非 Hook，用于事件处理器） */
-export function getStoredRequestConfigs(llmId?: string, imageId?: string): RequestConfigs {
+export function getStoredRequestConfigs(llmId?: string, imageId?: string, vlmId?: string): RequestConfigs {
   const config = loadConfig();
   const result: RequestConfigs = {};
 
   const targetLLMId = llmId ?? config.activeLLMId;
   const targetImageId = imageId ?? config.activeImageId;
+  const targetVLMId = vlmId ?? config.activeVLMId;
 
   const llm = targetLLMId ? config.llmConfigs.find((c) => c.id === targetLLMId) : null;
   const image = targetImageId ? config.imageConfigs.find((c) => c.id === targetImageId) : null;
+  const vlm = targetVLMId ? (config.vlmConfigs || []).find((c) => c.id === targetVLMId) : null;
 
   if (llm) {
     result.llmConfig = {
@@ -419,6 +493,18 @@ export function getStoredRequestConfigs(llmId?: string, imageId?: string): Reque
       endpointType: image.endpointType,
       comfyuiWorkflow: image.comfyuiWorkflow,
     };
+  }
+
+  // VLM config: use dedicated VLM if configured, otherwise fall back to LLM
+  if (vlm) {
+    result.vlmConfig = {
+      apiUrl: vlm.apiUrl,
+      apiKey: vlm.apiKey,
+      model: vlm.model,
+      provider: vlm.protocolType,
+    };
+  } else if (llm) {
+    result.vlmConfig = result.llmConfig;
   }
 
   return result;

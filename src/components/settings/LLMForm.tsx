@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { APIProvider } from "@/lib/types";
-import { LLM_PRESETS } from "@/lib/config/presets";
+import { LLM_PRESETS, type LLMPreset } from "@/lib/config/presets";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 
 export interface LLMFormFields {
@@ -19,6 +19,10 @@ interface LLMFormProps {
   onProviderChange: (provider: APIProvider) => void;
   onSave: () => void;
   onCancel: () => void;
+  /** 覆盖预设列表（VLM 场景） */
+  presets?: LLMPreset[];
+  /** 视觉变体：切换主题色和标签文案 */
+  variant?: "llm" | "vlm";
 }
 
 /** 检测是否为 Ollama URL */
@@ -26,10 +30,33 @@ function isOllamaUrl(url: string): boolean {
   return /localhost:11434|127\.0\.0\.1:11434/i.test(url);
 }
 
-export function LLMForm({ fields, isEditing, onChange, onProviderChange, onSave, onCancel }: LLMFormProps) {
+const VARIANT_STYLES = {
+  llm: {
+    border: "border-primary/40 bg-primary/5",
+    active: "border-primary bg-primary/10 ring-2 ring-primary",
+    hover: "hover:border-primary/50",
+    btn: "bg-primary text-primary-foreground",
+    label: "LLM",
+    placeholder: "如：DeepSeek 主力、Ollama 本地",
+    modelPlaceholder: "gpt-4o-mini",
+  },
+  vlm: {
+    border: "border-violet-400/40 bg-violet-500/5",
+    active: "border-violet-500 bg-violet-500/10 ring-2 ring-violet-500",
+    hover: "hover:border-violet-500/50",
+    btn: "bg-violet-600 text-white",
+    label: "VLM",
+    placeholder: "如：GPT-4o Vision、Qwen-VL",
+    modelPlaceholder: "gpt-4o",
+  },
+};
+
+export function LLMForm({ fields, isEditing, onChange, onProviderChange, onSave, onCancel, presets, variant = "llm" }: LLMFormProps) {
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const isOllama = isOllamaUrl(fields.apiUrl);
+  const items = presets || LLM_PRESETS;
+  const s = VARIANT_STYLES[variant];
 
   // 自动获取 Ollama 模型列表
   useEffect(() => {
@@ -41,7 +68,6 @@ export function LLMForm({ fields, isEditing, onChange, onProviderChange, onSave,
       .then((data) => {
         const models = (data?.models || []).map((m: { name: string }) => m.name);
         setOllamaModels(models);
-        // 自动选中第一个模型（如果当前模型不在列表中）
         if (models.length > 0 && !models.includes(fields.model)) {
           onChange({ model: models[0] });
         }
@@ -51,34 +77,30 @@ export function LLMForm({ fields, isEditing, onChange, onProviderChange, onSave,
   }, [fields.apiUrl]);
 
   return (
-    <div className="p-4 rounded-lg border border-dashed border-primary/40 bg-primary/5 space-y-4">
+    <div className={`p-4 rounded-lg border border-dashed ${s.border} space-y-4`}>
       <h3 className="text-sm font-medium">
-        {isEditing ? "编辑 LLM 配置" : "添加新 LLM 配置"}
+        {isEditing ? `编辑 ${s.label} 配置` : `添加新 ${s.label} 配置`}
       </h3>
 
-      {/* 配置名称 */}
       <div className="space-y-1">
         <label className="text-sm text-muted-foreground">配置名称</label>
         <input
           value={fields.name}
           onChange={(e) => onChange({ name: e.target.value })}
-          placeholder="如：DeepSeek 主力、Ollama 本地"
+          placeholder={s.placeholder}
           className="w-full rounded-lg border bg-background p-3 text-sm"
         />
       </div>
 
-      {/* 提供商选择 */}
       <div className="space-y-2">
         <label className="text-sm font-medium">提供商</label>
         <div className="grid grid-cols-3 gap-2">
-          {LLM_PRESETS.map((preset) => (
+          {items.map((preset) => (
             <button
               key={preset.id}
               onClick={() => onProviderChange(preset.id)}
               className={`p-2 rounded-lg border text-sm transition-all ${
-                fields.provider === preset.id
-                  ? "border-primary bg-primary/10 ring-2 ring-primary"
-                  : "hover:border-primary/50"
+                fields.provider === preset.id ? s.active : s.hover
               }`}
             >
               {preset.name}
@@ -87,7 +109,6 @@ export function LLMForm({ fields, isEditing, onChange, onProviderChange, onSave,
         </div>
       </div>
 
-      {/* 表单字段 */}
       <div className="grid gap-3">
         <div className="space-y-1">
           <label className="text-sm text-muted-foreground">API URL</label>
@@ -100,7 +121,7 @@ export function LLMForm({ fields, isEditing, onChange, onProviderChange, onSave,
         </div>
         {!isOllama && (
           <div className="space-y-1">
-            <label className="text-sm text-muted-foreground">API Key{isOllama ? "（本地服务可留空）" : ""}</label>
+            <label className="text-sm text-muted-foreground">API Key</label>
             <PasswordInput
               value={fields.apiKey}
               onChange={(v) => onChange({ apiKey: v })}
@@ -124,7 +145,7 @@ export function LLMForm({ fields, isEditing, onChange, onProviderChange, onSave,
               <input
                 value={fields.model}
                 onChange={(e) => onChange({ model: e.target.value })}
-                placeholder={isOllama && loadingModels ? "获取模型列表..." : "gpt-4o-mini"}
+                placeholder={isOllama && loadingModels ? "获取模型列表..." : s.modelPlaceholder}
                 className="w-full rounded-lg border bg-background p-3 text-sm"
               />
             )}
@@ -146,7 +167,7 @@ export function LLMForm({ fields, isEditing, onChange, onProviderChange, onSave,
       <div className="flex gap-2">
         <button
           onClick={onSave}
-          className="flex-1 py-2 rounded-lg bg-primary text-primary-foreground font-medium hover:opacity-90 transition-opacity"
+          className={`flex-1 py-2 rounded-lg ${s.btn} font-medium hover:opacity-90 transition-opacity`}
         >
           {isEditing ? "更新配置" : "保存配置"}
         </button>

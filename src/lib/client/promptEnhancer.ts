@@ -84,8 +84,9 @@ export function buildEnhancedPrompt(
   characterDesc?: string,
   style?: ComicStyle,
   totalPanels?: number,
+  directorComposition?: string,
 ): string {
-  const log = buildEnhancedPromptWithLog(basePrompt, panelIndex, characterDesc, style, totalPanels);
+  const log = buildEnhancedPromptWithLog(basePrompt, panelIndex, characterDesc, style, totalPanels, directorComposition);
   return log.enhanced;
 }
 
@@ -98,6 +99,7 @@ export function buildEnhancedPromptWithLog(
   characterDesc?: string,
   style?: ComicStyle,
   totalPanels?: number,
+  directorComposition?: string,
 ): EnhancementLog {
   let prompt = basePrompt;
   const layers: { name: string; action: string }[] = [];
@@ -128,13 +130,13 @@ export function buildEnhancedPromptWithLog(
     }
   }
 
-  // === 层 3：叙事弧构图 ===
+  // === 层 3：叙事弧构图（Director 优先，否则基于面板位置自动编排） ===
   const promptLower = prompt.toLowerCase();
   const hasComposition = COMPOSITION_KEYWORDS.some(k => promptLower.includes(k));
   if (!hasComposition) {
-    const composition = getStoryArcComposition(panelIndex, totalPanels || 6);
+    const composition = directorComposition || getStoryArcComposition(panelIndex, totalPanels || 6);
     prompt = prompt.replace(/,?\s*$/, `, ${composition}`);
-    layers.push({ name: "构图补充", action: `添加: ${composition}` });
+    layers.push({ name: "构图补充", action: `添加: ${composition}${directorComposition ? " (Director)" : ""}` });
   }
 
   // === 层 4：补充光影（风格专属） ===

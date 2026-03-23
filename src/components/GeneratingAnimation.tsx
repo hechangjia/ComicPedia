@@ -12,6 +12,8 @@ interface GeneratingAnimationProps {
   totalPanels?: number;
   /** 已完成面板数（图片生成阶段） */
   completedPanels?: number;
+  /** 质量档位 — fine 模式显示额外阶段 */
+  qualityLevel?: "fast" | "standard" | "fine";
 }
 
 const statusMessages = {
@@ -106,6 +108,7 @@ export function GeneratingAnimation({
   taskId,
   totalPanels = 0,
   completedPanels = 0,
+  qualityLevel = "standard",
 }: GeneratingAnimationProps) {
   const [messageIndex, setMessageIndex] = useState(0);
   const messages = statusMessages[status] || statusMessages.pending;
@@ -187,12 +190,39 @@ export function GeneratingAnimation({
       </div>
 
       {/* 阶段步骤指示器 */}
-      <div className="flex items-center gap-2 text-xs">
-        <StepIndicator step={1} label="主题研究" active={status === "scripting" && progress < 10} done={progress >= 10} />
-        <StepConnector done={progress >= 10} />
-        <StepIndicator step={2} label="脚本生成" active={status === "scripting" && progress >= 10} done={status === "generating" || progress >= 30} />
+      <div className="flex items-center gap-2 text-xs flex-wrap justify-center">
+        {qualityLevel !== "fast" && (
+          <>
+            <StepIndicator step={1} label="主题研究" active={status === "scripting" && progress < 10} done={progress >= 10} />
+            <StepConnector done={progress >= 10} />
+            <StepIndicator step={2} label="叙事大纲" active={status === "scripting" && progress >= 10 && progress < 15} done={progress >= 15} />
+            <StepConnector done={progress >= 15} />
+          </>
+        )}
+        <StepIndicator
+          step={qualityLevel === "fast" ? 1 : 3}
+          label="脚本生成"
+          active={status === "scripting" && (qualityLevel === "fast" || progress >= 15)}
+          done={status === "generating" || progress >= 30}
+        />
         <StepConnector done={status === "generating"} />
-        <StepIndicator step={3} label="图片生成" active={status === "generating"} done={completedPanels >= totalPanels && totalPanels > 0} />
+        <StepIndicator
+          step={qualityLevel === "fast" ? 2 : 4}
+          label="图片生成"
+          active={status === "generating"}
+          done={completedPanels >= totalPanels && totalPanels > 0}
+        />
+        {qualityLevel === "fine" && (
+          <>
+            <StepConnector done={completedPanels >= totalPanels && totalPanels > 0} />
+            <StepIndicator
+              step={5}
+              label="视觉评审"
+              active={false}
+              done={false}
+            />
+          </>
+        )}
       </div>
 
       {/* 进度条 */}

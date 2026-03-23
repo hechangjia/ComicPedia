@@ -1,4 +1,6 @@
 import { ComicScript, ComicPanel, PartialLLMConfig } from "./types";
+import { callLLM } from "./llm";
+import { extractJsonObject, extractJsonArray } from "./utils";
 
 interface AISuggestion {
   original: string;
@@ -13,35 +15,6 @@ interface NarrativeSuggestion {
   original?: string;
   suggested?: string;
   reason: string;
-}
-
-/** LLM 调用辅助 */
-async function callLLM(prompt: string, llmOverrides?: PartialLLMConfig): Promise<string> {
-  const apiUrl = llmOverrides?.apiUrl;
-  const apiKey = llmOverrides?.apiKey || "";
-  if (!apiUrl) throw new Error("未配置 LLM API，请在设置页面配置 API URL");
-
-  const normalizedUrl = apiUrl.includes("/chat/completions")
-    ? apiUrl
-    : `${apiUrl.replace(/\/+$/, "")}/chat/completions`;
-
-  const isAnthropic = llmOverrides?.provider === "anthropic";
-  const payload = isAnthropic
-    ? { model: llmOverrides?.model || "claude-sonnet-4-20250514", max_tokens: 2048, messages: [{ role: "user", content: prompt }] }
-    : { model: llmOverrides?.model || "gpt-4o-mini", messages: [{ role: "user", content: prompt }] };
-  const headers: Record<string, string> = isAnthropic
-    ? { "x-api-key": apiKey, "anthropic-version": "2023-06-01" }
-    : apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
-
-  const response = await fetch("/api/llm", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ targetUrl: normalizedUrl, headers, payload }),
-  });
-
-  if (!response.ok) throw new Error(`AI 编辑请求失败: ${response.status}`);
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || data.content?.[0]?.text || "";
 }
 
 /** 优化单面板的对话 */
@@ -74,13 +47,9 @@ ${context}
 只返回 JSON，不要其他文字。`;
 
   const content = await callLLM(prompt, llmOverrides);
-  try {
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("解析失败");
-    return JSON.parse(jsonMatch[0]);
-  } catch {
-    throw new Error("无法解析 AI 建议");
-  }
+  const parsed = extractJsonObject(content);
+  if (!parsed) throw new Error("无法解析 AI 建议");
+  return parsed as unknown as AISuggestion;
 }
 
 /** 优化单面板的 imagePrompt */
@@ -109,13 +78,9 @@ export async function optimizeImagePrompt(
 只返回 JSON，不要其他文字。`;
 
   const content = await callLLM(prompt, llmOverrides);
-  try {
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("解析失败");
-    return JSON.parse(jsonMatch[0]);
-  } catch {
-    throw new Error("无法解析 AI 建议");
-  }
+  const parsed = extractJsonObject(content);
+  if (!parsed) throw new Error("无法解析 AI 建议");
+  return parsed as unknown as AISuggestion;
 }
 
 /** 全局叙事优化 */
@@ -158,12 +123,6 @@ type 可选值：modify（修改现有面板）。panelIndex 从 0 开始。fiel
 最多返回 8 条建议。只返回 JSON，不要其他文字。`;
 
   const content = await callLLM(prompt, llmOverrides);
-  try {
-    const jsonMatch = content.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) return [];
-    const parsed = JSON.parse(jsonMatch[0]);
-    return Array.isArray(parsed) ? parsed.slice(0, 8) : [];
-  } catch {
-    return [];
-  }
+  const parsed = extractJsonArray(content);
+  return parsed ? (parsed as NarrativeSuggestion[]).slice(0, 8) : [];
 }

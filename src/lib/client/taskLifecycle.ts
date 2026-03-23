@@ -4,6 +4,9 @@ import { getImageAdapter } from "@/lib/imageGen";
 import { validateScript, applyCanonicalCharacterDesc } from "@/lib/scriptValidator";
 import { repairScript } from "@/lib/scriptRepair";
 import { evaluateQuality } from "@/lib/qualityScore";
+import { evaluateVisualQuality } from "@/lib/vlmScorer";
+import { generateNarrativeOutline, buildOutlineGuidance } from "@/lib/director";
+import { shouldAutoRetry, generatePromptPatch, applyPromptPatch } from "@/lib/vlmRetry";
 import { getStyleModifier, getStyleNegativePrompt, STYLE_META } from "@/lib/config/styles";
 import { urlToBase64 } from "@/lib/utils";
 import { withConcurrency } from "@/lib/concurrency";
@@ -14,6 +17,7 @@ import { notifyListeners, saveTaskThrottled, flushThrottledSave, cleanupTaskStat
 import { abortControllers, abortKey } from "./abortManager";
 import { pushImageVersion } from "./panelManager";
 import { buildEnhancedPrompt, buildEnhancedPromptWithLog, mergeReferenceImage } from "./promptEnhancer";
+import { getStoredRequestConfigs } from "@/hooks/useAPIConfig";
 
 // ============================================================
 // 辅助函数
@@ -200,11 +204,53 @@ async function processScripting(taskId: string, request: GenerateRequest) {
           request.llmConfig,
         );
 
+        // ── P3: Wikipedia 自动整合 — 尝试从 Wikipedia 获取权威知识补充 ──
+        try {
+          // 智能语言选择：纯英文/数字主题用 en，否则用 zh
+          const isEnglishTopic = /^[\x00-\x7F]+$/.test(request.topic.trim());
+          const wikiLang = isEnglishTopic ? "en" : "zh";
+          const wikiRes = await fetch(`/api/wikipedia?q=${encodeURIComponent(request.topic)}&lang=${wikiLang}`);
+          if (wikiRes.ok) {
+            const wikiData = await wikiRes.json();
+            const results = wikiData.results as Array<{ title: string; description?: string }>;
+            if (results && results.length > 0) {
+              // 取第一条搜索结果的摘要
+              const topResult = results[0];
+              const summaryRes = await fetch(`/api/wikipedia?title=${encodeURIComponent(topResult.title)}&lang=${wikiLang}`);
+              if (summaryRes.ok) {
+                const summary = await summaryRes.json();
+                if (summary.extract) {
+                  // 将 Wikipedia 摘要前 500 字作为补充事实注入 keyFacts
+                  const wikiSnippet = summary.extract.slice(0, 500).replace(/\n+/g, " ").trim();
+                  if (wikiSnippet.length > 50) {
+                    research.keyFacts.push(`[Wikipedia] ${wikiSnippet}`);
+                    // 将 Wikipedia 章节结构加入知识图谱
+                    if (summary.sections && research.knowledgeMap) {
+                      const wikiSections = (summary.sections as string[]).slice(0, 5);
+                      for (const section of wikiSections) {
+                        if (!research.knowledgeMap.related.includes(section)) {
+                          research.knowledgeMap.related.push(section);
+                        }
+                      }
+                    }
+                    console.log(`[Research] Wikipedia enrichment: "${topResult.title}" (${wikiSnippet.length} chars)`);
+                  }
+                }
+              }
+            }
+          }
+        } catch (wikiErr) {
+          // Wikipedia 整合失败不阻断主流程
+          console.warn("[Research] Wikipedia auto-lookup failed (non-fatal):", wikiErr);
+        }
+
         // Store research result for UI display
         task.topicResearch = {
           expandedDescription: research.expandedDescription,
           keyFacts: research.keyFacts,
           narrativeAngle: research.narrativeAngle,
+          narrativeAngles: research.narrativeAngles,
+          knowledgeMap: research.knowledgeMap,
         };
         task.progress = 10;
         task.streamText = `[Topic Research]\n${research.expandedDescription}\n\nKey Facts:\n${research.keyFacts.map((f, i) => `${i + 1}. ${f}`).join("\n")}\n\nGenerating script...`;
@@ -217,6 +263,35 @@ async function processScripting(taskId: string, request: GenerateRequest) {
         console.warn("[Generator] Topic research failed, using original topic:", researchErr);
         task.streamText = undefined;
         notifyListeners(task);
+      }
+    }
+
+    // ── Phase 0.5: Director Outline (standard + fine 自动触发) ──
+    const qualityPreset = QUALITY_PRESETS[request.quality || "standard"];
+    const qualityLevel = request.quality || "standard";
+
+    if (qualityLevel === "fine" || qualityLevel === "standard") {
+      try {
+        task.streamText = "正在规划叙事大纲...";
+        notifyListeners(task);
+
+        const outline = await generateNarrativeOutline(
+          enhancedTopic,
+          request.style,
+          request.panelCount ?? undefined,
+          request.llmConfig,
+          request.contentType,
+          task.topicResearch?.expandedDescription,
+        );
+
+        if (outline) {
+          task.narrativeOutline = outline;
+          // 将大纲注入到 topic 中，让脚本生成器遵循
+          enhancedTopic = enhancedTopic + buildOutlineGuidance(outline);
+          console.log(`[Director] Outline generated: ${outline.totalPanels} panels, arc: ${outline.narrativeArc}`);
+        }
+      } catch (dirErr) {
+        console.warn("[Director] Outline generation failed (non-fatal):", dirErr);
       }
     }
 
@@ -238,7 +313,6 @@ async function processScripting(taskId: string, request: GenerateRequest) {
     let script: ComicScript;
 
     // Enhance topic with quality preset hint
-    const qualityPreset = QUALITY_PRESETS[request.quality || "standard"];
     const finalTopic = qualityPreset.promptHint
       ? `${enhancedTopic}\n\n[Generation quality requirement: ${qualityPreset.promptHint}]`
       : enhancedTopic;
@@ -542,7 +616,7 @@ export async function generateAllImages(
     abortControllers.set(abortKey(taskId, firstIdx), panelController);
 
     try {
-      const prompt = buildEnhancedPrompt(firstPanel.imagePrompt, firstIdx, characterDesc, script.style, totalPanels);
+      const prompt = buildEnhancedPrompt(firstPanel.imagePrompt, firstIdx, characterDesc, script.style, totalPanels, task.narrativeOutline?.panels[firstIdx]?.suggestedComposition);
       const mergedConfig = mergeReferenceImage(imageConfig, script, firstPanel, firstIdx);
       const adapter = getImageAdapter(mergedConfig);
       const panelSeed = baseSeed !== undefined ? baseSeed + firstIdx : undefined;
@@ -598,7 +672,8 @@ export async function generateAllImages(
     abortControllers.set(abortKey(taskId, panelIndex), panelController);
 
     try {
-      const enhanceResult = buildEnhancedPromptWithLog(panel.imagePrompt, panelIndex, characterDesc, panel.styleOverride ?? script.style, totalPanels);
+      const directorComp = task.narrativeOutline?.panels[panelIndex]?.suggestedComposition;
+      const enhanceResult = buildEnhancedPromptWithLog(panel.imagePrompt, panelIndex, characterDesc, panel.styleOverride ?? script.style, totalPanels, directorComp);
       const prompt = enhanceResult.enhanced;
       panel.enhancementLog = enhanceResult;
       let mergedConfig = mergeReferenceImage(imageConfig, script, panel, panelIndex);
@@ -702,6 +777,102 @@ export async function generateAllImages(
       .catch((err) => {
         console.warn("[QualityGate] Auto-evaluation failed (non-fatal):", err);
       });
+
+    // ── P0: VLM Visual Scoring — 用视觉语言模型评估实际生成的图片（非阻塞） ──
+    // 仅在精细质量档位自动触发，其他档位用户可手动触发
+    const qualityLevel = task.generationConfig?.quality;
+    if (qualityLevel === "fine") {
+      // Use dedicated VLM config if available, otherwise fall back to llmConfig
+      const vlmConfig = getStoredRequestConfigs().vlmConfig || llmConfig;
+      evaluateVisualQuality(script, vlmConfig)
+        .then(async (visualScore) => {
+          const freshTask = await getTask(taskId);
+          if (!freshTask) return;
+
+          freshTask.visualQualityScore = visualScore;
+          freshTask.updatedAt = new Date();
+          await saveTask(freshTask);
+          notifyListeners(freshTask);
+          console.log(`[VLM] Visual score: ${visualScore.overall}/10, retry recommendations: ${visualScore.retryRecommendations.length}`);
+
+          // ── VLM 反馈闭环：自动重试低分面板（最多 1 轮） ──
+          const retryPanels = visualScore.panels.filter(shouldAutoRetry);
+          if (retryPanels.length > 0 && retryPanels.length <= 3) {
+            console.log(`[VLM-Retry] Auto-retrying ${retryPanels.length} low-scoring panels...`);
+            for (const panelScore of retryPanels) {
+              const panel = freshTask.script?.panels[panelScore.panelIndex];
+              if (!panel || !freshTask.script) continue;
+
+              const patch = generatePromptPatch(panelScore);
+              const refinedPrompt = applyPromptPatch(panel.imagePrompt, patch);
+
+              if (refinedPrompt === panel.imagePrompt && patch.negative.length === 0) continue; // 无修正可做
+
+              // 归档旧图 + 更新 prompt
+              if (panel.imageUrl?.startsWith("data:image")) {
+                pushImageVersion(panel, panel.imageUrl);
+              }
+              panel.imagePrompt = refinedPrompt;
+              panel.status = "generating";
+
+              try {
+                let mergedConfig = mergeReferenceImage(imageConfig, freshTask.script, panel, panelScore.panelIndex);
+
+                // 将 VLM negative patch 注入到 extraBody.negative_prompt
+                if (patch.negative.length > 0) {
+                  const existingNeg = mergedConfig?.extraBody?.negative_prompt || "";
+                  const newNeg = patch.negative.filter(n => !existingNeg.toLowerCase().includes(n.toLowerCase())).join(", ");
+                  if (newNeg) {
+                    mergedConfig = {
+                      ...mergedConfig,
+                      extraBody: {
+                        ...mergedConfig?.extraBody,
+                        negative_prompt: existingNeg ? `${existingNeg}, ${newNeg}` : newNeg,
+                      },
+                    };
+                  }
+                }
+
+                const adapter = getImageAdapter(mergedConfig);
+                const panelSeed = freshTask.script.seed !== undefined
+                  ? freshTask.script.seed + panelScore.panelIndex + 1000
+                  : undefined;
+
+                const imageUrl = await withRetry(
+                  () => adapter.generate(refinedPrompt, panel.styleOverride ?? freshTask.script!.style, panelSeed),
+                  { maxRetries: 1, baseDelay: 1000 },
+                );
+
+                panel.status = "completed";
+                panel.imageUrl = imageUrl;
+                try {
+                  const base64 = await urlToBase64(imageUrl);
+                  panel.imageUrl = base64;
+                  pushImageVersion(panel, base64);
+                  saveImageToFileSystem(taskId, panelScore.panelIndex, base64, freshTask.script?.title);
+                } catch {
+                  pushImageVersion(panel, imageUrl);
+                }
+
+                console.log(`[VLM-Retry] Panel ${panelScore.panelIndex + 1} regenerated successfully`);
+              } catch (err) {
+                console.warn(`[VLM-Retry] Panel ${panelScore.panelIndex + 1} retry failed:`, err);
+                panel.status = "completed"; // 保留旧图
+                if (panel.imageVersions?.length) {
+                  panel.imageUrl = panel.imageVersions[panel.imageVersions.length - 1].imageUrl;
+                }
+              }
+            }
+
+            freshTask.updatedAt = new Date();
+            await saveTask(freshTask);
+            notifyListeners(freshTask);
+          }
+        })
+        .catch((err) => {
+          console.warn("[VLM] Visual evaluation failed (non-fatal):", err);
+        });
+    }
   }
 
   // 生成完成后清理 eventBus 中该任务的临时状态，防止内存泄漏

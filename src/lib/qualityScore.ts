@@ -1,5 +1,7 @@
 import { ComicScript, PartialLLMConfig } from "./types";
 import { STYLE_META } from "./config/styles";
+import { clampScore, extractJsonObject } from "./utils";
+import { callLLM } from "./llm";
 
 export interface QualityScore {
   overall: number;
@@ -75,64 +77,16 @@ export async function evaluateQuality(
   llmOverrides?: PartialLLMConfig,
 ): Promise<QualityScore> {
   const prompt = buildQualityPrompt(script);
-
-  const apiUrl = llmOverrides?.apiUrl;
-  const apiKey = llmOverrides?.apiKey || "";
-  if (!apiUrl) throw new Error("未配置 LLM API，请在设置页面配置 API URL");
-
-  const normalizedUrl = apiUrl.includes("/chat/completions")
-    ? apiUrl
-    : `${apiUrl.replace(/\/+$/, "")}/chat/completions`;
-
-  const isAnthropic = llmOverrides?.provider === "anthropic";
-
-  // 构建请求体（区分 OpenAI 和 Anthropic 格式）
-  const payload = isAnthropic
-    ? {
-        model: llmOverrides?.model || "claude-sonnet-4-20250514",
-        max_tokens: 1024,
-        messages: [{ role: "user", content: prompt }],
-      }
-    : {
-        model: llmOverrides?.model || "gpt-4o-mini",
-        messages: [{ role: "user", content: prompt }],
-      };
-
-  // 构建认证头（区分 Bearer token 和 x-api-key）
-  const headers: Record<string, string> = isAnthropic
-    ? { "x-api-key": apiKey, "anthropic-version": "2023-06-01" }
-    : apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
-
-  const response = await fetch("/api/llm", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      targetUrl: normalizedUrl,
-      headers,
-      payload,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Quality evaluation failed: ${response.status}`);
-  }
-
-  const data = await response.json();
-  // 兼容 OpenAI 和 Anthropic 响应格式
-  const content = data.choices?.[0]?.message?.content
-    || data.content?.[0]?.text
-    || "";
+  const content = await callLLM(prompt, llmOverrides);
 
   try {
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("No JSON found");
-    const parsed = JSON.parse(jsonMatch[0]);
+    const parsed = extractJsonObject(content);
+    if (!parsed) throw new Error("No JSON found");
 
-    const clamp = (v: number) => Math.max(1, Math.min(10, v || 5));
-    const knowledge = clamp(parsed.knowledge);
-    const visualConsistency = clamp(parsed.visualConsistency);
-    const narrativeCoherence = clamp(parsed.narrativeCoherence);
-    const compositionDiversity = clamp(parsed.compositionDiversity);
+    const knowledge = clampScore(parsed.knowledge as number);
+    const visualConsistency = clampScore(parsed.visualConsistency as number);
+    const narrativeCoherence = clampScore(parsed.narrativeCoherence as number);
+    const compositionDiversity = clampScore(parsed.compositionDiversity as number);
 
     return {
       knowledge,
@@ -140,7 +94,7 @@ export async function evaluateQuality(
       narrativeCoherence,
       compositionDiversity,
       overall: Math.round((knowledge + visualConsistency + narrativeCoherence + compositionDiversity) / 4 * 10) / 10,
-      suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions.slice(0, 5) : [],
+      suggestions: Array.isArray(parsed.suggestions) ? (parsed.suggestions as string[]).slice(0, 5) : [],
     };
   } catch {
     return {

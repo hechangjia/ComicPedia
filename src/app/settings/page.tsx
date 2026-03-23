@@ -10,6 +10,7 @@ import { LLMConfigCard } from "@/components/settings/LLMConfigCard";
 import { ImageConfigCard } from "@/components/settings/ImageConfigCard";
 import { LLMForm } from "@/components/settings/LLMForm";
 import { ImageForm } from "@/components/settings/ImageForm";
+import { VLM_PRESETS, getVLMPreset } from "@/lib/config/presets";
 import { BackupManager } from "@/components/settings/BackupManager";
 import { getWatermarkText, setWatermarkText } from "@/lib/downloadUtils";
 
@@ -87,6 +88,7 @@ export default function SettingsPage() {
     config, isLoaded,
     addLLM, updateLLMById, removeLLM, setActiveLLM,
     addImage, updateImageById, removeImage, setActiveImage,
+    addVLM, updateVLMById, removeVLM, setActiveVLM,
     clearAll, validate,
   } = useAPIConfig();
   const validation = validate();
@@ -97,10 +99,12 @@ export default function SettingsPage() {
   // 测试结果
   const [llmTests, setLlmTests] = useState<TestResultMap>({});
   const [imgTests, setImgTests] = useState<TestResultMap>({});
+  const [vlmTests, setVlmTests] = useState<TestResultMap>({});
 
   // 表单状态（通过 hook 管理）
   const llmForm = useLLMForm({ addLLM, updateLLMById });
   const imgForm = useImageForm({ addImage, updateImageById });
+  const vlmForm = useLLMForm({ addLLM: addVLM, updateLLMById: updateVLMById }, { getPreset: getVLMPreset, defaultProvider: "openai" });
 
   // 保存 LLM 配置
   const handleSaveLLM = () => {
@@ -124,6 +128,17 @@ export default function SettingsPage() {
     setTimeout(() => setMessage(null), 3000);
   };
 
+  // 保存 VLM 配置
+  const handleSaveVLM = () => {
+    const result = vlmForm.save();
+    if (result === true) {
+      setMessage({ type: "success", text: vlmForm.editingId ? "VLM 配置已更新" : "VLM 配置已添加" });
+    } else {
+      setMessage({ type: "error", text: result });
+    }
+    setTimeout(() => setMessage(null), 3000);
+  };
+
   // 测试 LLM 连接
   const handleTestLLM = async (c: UserLLMConfig) => {
     setLlmTests((prev) => ({ ...prev, [c.id]: { status: "testing" } }));
@@ -138,12 +153,20 @@ export default function SettingsPage() {
     setImgTests((prev) => ({ ...prev, [c.id]: result }));
   };
 
+  // 测试 VLM 连接（复用 LLM 测试，因为 VLM = LLM with vision）
+  const handleTestVLM = async (c: UserLLMConfig) => {
+    setVlmTests((prev) => ({ ...prev, [c.id]: { status: "testing" } }));
+    const result = await testLLMConnection(c);
+    setVlmTests((prev) => ({ ...prev, [c.id]: result }));
+  };
+
   // 清除配置
   const handleClearAll = () => {
     if (confirm("确定要清除所有 API 配置吗？此操作不可撤销。")) {
       clearAll();
       llmForm.cancel();
       imgForm.cancel();
+      vlmForm.cancel();
       setMessage({ type: "success", text: "所有配置已清除" });
       setTimeout(() => setMessage(null), 3000);
     }
@@ -364,7 +387,7 @@ export default function SettingsPage() {
       {/* 配置状态卡片 */}
       <div className="p-4 rounded-xl border bg-card space-y-3">
         <h2 className="font-medium">配置状态</h2>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-3 gap-4">
           <div className="flex items-center gap-2">
             <span
               className={`w-3 h-3 rounded-full ${
@@ -385,6 +408,17 @@ export default function SettingsPage() {
             <span className="text-sm">
               文生图: {config.imageConfigs.length} 个配置
               {validation.hasImage ? "（已就绪）" : "（未配置）"}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span
+              className={`w-3 h-3 rounded-full ${
+                validation.hasVLM ? "bg-green-500" : "bg-gray-300"
+              }`}
+            ></span>
+            <span className="text-sm">
+              VLM: {(config.vlmConfigs || []).length} 个配置
+              {validation.hasVLM ? "（已就绪）" : "（未配置）"}
             </span>
           </div>
         </div>
@@ -504,6 +538,62 @@ export default function SettingsPage() {
             onProviderChange={imgForm.handleProviderChange}
             onSave={handleSaveImage}
             onCancel={imgForm.cancel}
+          />
+        )}
+      </div>
+
+      {/* VLM 配置区 */}
+      <div className="p-6 rounded-xl border bg-card space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-medium">视觉评分模型 (VLM)</h2>
+            <p className="text-xs text-muted-foreground">
+              用于评估生成图片质量的视觉语言模型。需要支持图片理解的模型（如 GPT-4o、Qwen-VL、Claude）。未配置时将使用 LLM 配置
+            </p>
+          </div>
+          {!vlmForm.showNew && !vlmForm.editingId && (
+            <button
+              onClick={vlmForm.startNew}
+              className="px-3 py-1.5 text-sm rounded-lg bg-violet-600 text-white hover:opacity-90 transition-opacity"
+            >
+              + 添加
+            </button>
+          )}
+        </div>
+
+        {(config.vlmConfigs || []).length > 0 && (
+          <div className="space-y-2">
+            {(config.vlmConfigs || []).map((c) => (
+              <LLMConfigCard
+                key={c.id}
+                config={c}
+                isActive={config.activeVLMId === c.id}
+                testResult={vlmTests[c.id]}
+                onSetActive={setActiveVLM}
+                onTest={handleTestVLM}
+                onEdit={vlmForm.startEdit}
+                onDelete={removeVLM}
+              />
+            ))}
+          </div>
+        )}
+
+        {(config.vlmConfigs || []).length === 0 && !vlmForm.showNew && (
+          <div className="text-center py-6 text-sm text-muted-foreground">
+            暂无 VLM 配置。未配置时视觉评分将使用当前 LLM 配置
+          </div>
+        )}
+
+        {(vlmForm.showNew || vlmForm.editingId) && (
+          <LLMForm
+            fields={vlmForm.fields}
+            isEditing={!!vlmForm.editingId}
+            onChange={vlmForm.updateFields}
+            onProviderChange={vlmForm.handleProviderChange}
+            onSave={handleSaveVLM}
+            onCancel={vlmForm.cancel}
+            presets={VLM_PRESETS}
+            variant="vlm"
           />
         )}
       </div>

@@ -19,6 +19,7 @@ import { Spinner } from "@/components/ui/Spinner";
 import { CharacterCard } from "@/components/CharacterCard";
 import { CHARACTER_PRESETS } from "@/lib/config/characterPresets";
 import { generateCharacterProfile, generateCharacterReferencePrompt } from "@/lib/llm";
+import { evaluateCharacterVisual, type CharacterVisualScore } from "@/lib/vlmScorer";
 
 // ============================================================
 // Constants
@@ -140,6 +141,10 @@ function CharacterDialog({
   const [aiError, setAiError] = useState("");
   /** Index of entry being regenerated, or -1 for new generation */
   const [regeneratingIndex, setRegeneratingIndex] = useState(-1);
+  // --- VLM evaluation state ---
+  const [vlmScore, setVlmScore] = useState<CharacterVisualScore | null>(null);
+  const [vlmLoading, setVlmLoading] = useState(false);
+  const [vlmError, setVlmError] = useState("");
 
   // --- Model selection state ---
   const storedConfigs = useMemo(() => getStoredConfigs(), []);
@@ -626,6 +631,35 @@ function CharacterDialog({
     }
   };
 
+  // --- VLM visual evaluation ---
+  const handleVlmEvaluate = async () => {
+    if (entries.length === 0) return;
+    setVlmLoading(true);
+    setVlmError("");
+    try {
+      const configs = getStoredConfigs();
+      const vlmConfigs = configs.vlmConfigs || [];
+      const activeVLM = vlmConfigs.find((c) => c.id === configs.activeVLMId) || vlmConfigs[0];
+      let vlmConfig;
+      if (activeVLM) {
+        vlmConfig = { apiUrl: activeVLM.apiUrl, apiKey: activeVLM.apiKey, model: activeVLM.model, provider: activeVLM.protocolType as "openai-compatible" | "anthropic" };
+      } else {
+        // Fall back to LLM config
+        const activeLLM = configs.llmConfigs.find((c) => c.id === configs.activeLLMId) || configs.llmConfigs[0];
+        if (!activeLLM) throw new Error("未配置 VLM 或 LLM");
+        vlmConfig = { apiUrl: activeLLM.apiUrl, apiKey: activeLLM.apiKey, model: activeLLM.model, provider: activeLLM.protocolType as "openai-compatible" | "anthropic" };
+      }
+      const imageUrls = entries.map((e) => e.imageUrl);
+      const desc = `${form.name}: ${form.description}. ${form.appearance.gender}, ${form.appearance.age}, hair: ${form.appearance.hair}, eyes: ${form.appearance.eyes}, clothing: ${form.appearance.clothing}`;
+      const result = await evaluateCharacterVisual(form.name, desc, imageUrls, vlmConfig);
+      setVlmScore(result);
+    } catch (err) {
+      setVlmError(err instanceof Error ? err.message : "视觉评分失败");
+    } finally {
+      setVlmLoading(false);
+    }
+  };
+
   const handleSubmit = () => {
     if (!form.name.trim()) return;
     const tags = tagInput
@@ -1097,9 +1131,63 @@ function CharacterDialog({
                   "AI 生成参考图"
                 )}
               </button>
+              {entries.length > 0 && (
+                <button
+                  onClick={handleVlmEvaluate}
+                  disabled={vlmLoading}
+                  className="px-3 py-1.5 text-xs border border-violet-200 text-violet-600 rounded-lg hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {vlmLoading ? (
+                    <>
+                      <Spinner size="sm" />
+                      评估中...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                      </svg>
+                      VLM 视觉评分
+                    </>
+                  )}
+                </button>
+              )}
             </div>
             {aiError && (
               <p className="text-xs text-red-500 w-full">{aiError}</p>
+            )}
+            {vlmError && (
+              <p className="text-xs text-red-500 w-full">{vlmError}</p>
+            )}
+
+            {/* VLM Score Display */}
+            {vlmScore && (
+              <div className="w-full p-3 rounded-lg border bg-violet-50/50 dark:bg-violet-900/10 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-violet-700 dark:text-violet-400">视觉评分</span>
+                  <span className="text-sm font-bold text-violet-700 dark:text-violet-400">{vlmScore.overall}/10</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div className="flex justify-between"><span className="text-muted-foreground">特征清晰度</span><span>{vlmScore.featureClarity}/10</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">一致性</span><span>{vlmScore.consistency}/10</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">画面质量</span><span>{vlmScore.imageQuality}/10</span></div>
+                </div>
+                {vlmScore.issues.length > 0 && (
+                  <ul className="text-xs text-muted-foreground space-y-0.5">
+                    {vlmScore.issues.map((issue, i) => (
+                      <li key={i} className="flex gap-1.5"><span className="text-orange-500 shrink-0">!</span>{issue}</li>
+                    ))}
+                  </ul>
+                )}
+                {vlmScore.suggestions.length > 0 && (
+                  <ul className="text-xs text-muted-foreground space-y-0.5">
+                    {vlmScore.suggestions.map((s, i) => (
+                      <li key={i} className="flex gap-1.5"><span className="text-violet-500 shrink-0">-</span>{s}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             )}
           </div>
 

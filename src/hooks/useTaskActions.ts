@@ -18,6 +18,7 @@ import {
   changeStyleAndRegenerate,
 } from "@/lib/client/generator";
 import { getStoredRequestConfigs } from "@/hooks/useAPIConfig";
+import type { PromptPatch } from "@/lib/vlmRetry";
 
 /** 获取文生图配置（可按 ID 指定） */
 function getImageConfig(imageId?: string): PartialImageGenConfig | undefined {
@@ -255,6 +256,45 @@ export function useTaskActions(
     }
   }, [taskId, showError, getSelectedImageConfig]);
 
+  // VLM 一键修复：根据 VLM 评分结果重新生成低分面板
+  const handleVlmRetry = useCallback(
+    async (panelIndices: number[], patchedPrompts: Map<number, string>, patches?: Map<number, PromptPatch>) => {
+      setGeneratingAll(true);
+      try {
+        // 先更新面板 prompt
+        for (const [idx, prompt] of patchedPrompts) {
+          await updatePanel(taskId, idx, { imagePrompt: prompt });
+        }
+        // 然后逐面板重新生成（注入 negative patch 到 imageConfig）
+        const baseImageConfig = getSelectedImageConfig();
+        for (const idx of panelIndices) {
+          let imageConfig = baseImageConfig;
+          const patch = patches?.get(idx);
+          if (patch && patch.negative.length > 0) {
+            const existingNeg = imageConfig?.extraBody?.negative_prompt || "";
+            const newNeg = patch.negative.filter(n => !existingNeg.toLowerCase().includes(n.toLowerCase())).join(", ");
+            if (newNeg) {
+              imageConfig = {
+                ...imageConfig,
+                extraBody: {
+                  ...imageConfig?.extraBody,
+                  negative_prompt: existingNeg ? `${existingNeg}, ${newNeg}` : newNeg,
+                },
+              };
+            }
+          }
+          await regeneratePanel(taskId, idx, imageConfig);
+        }
+      } catch (err) {
+        console.error("VLM retry failed:", err);
+        showError(`VLM 修复失败: ${err instanceof Error ? err.message : "未知错误"}`);
+      } finally {
+        setGeneratingAll(false);
+      }
+    },
+    [taskId, showError, getSelectedImageConfig],
+  );
+
   return {
     handlePanelUpdate,
     handleRegenerate,
@@ -272,6 +312,7 @@ export function useTaskActions(
     handleRegenerateScript,
     handleChangeStyle,
     handleReorder,
+    handleVlmRetry,
     generatingAll,
     actionError,
     clearActionError,

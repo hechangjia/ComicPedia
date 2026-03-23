@@ -130,6 +130,45 @@ export const IMAGE_PRESETS: ImagePreset[] = [
   },
 ];
 
+/** VLM（视觉语言模型）预设 — 仅包含支持 vision 的模型 */
+export const VLM_PRESETS: LLMPreset[] = [
+  {
+    id: "openai",
+    name: "OpenAI GPT-4o",
+    apiUrl: "https://api.openai.com/v1",
+    defaultModel: "gpt-4o",
+    protocolType: "openai-compatible",
+  },
+  {
+    id: "claude",
+    name: "Claude",
+    apiUrl: "https://api.anthropic.com/v1/messages",
+    defaultModel: "claude-sonnet-4-20250514",
+    protocolType: "anthropic",
+  },
+  {
+    id: "gemini",
+    name: "Gemini",
+    apiUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    defaultModel: "gemini-2.0-flash",
+    protocolType: "openai-compatible",
+  },
+  {
+    id: "ollama",
+    name: "Ollama (本地)",
+    apiUrl: "http://localhost:11434/v1",
+    defaultModel: "llava:7b",
+    protocolType: "openai-compatible",
+  },
+  {
+    id: "custom",
+    name: "自定义",
+    apiUrl: "",
+    defaultModel: "",
+    protocolType: "openai-compatible",
+  },
+];
+
 /** 根据 ID 获取 LLM 预设 */
 export function getLLMPreset(id: APIProvider): LLMPreset | undefined {
   return LLM_PRESETS.find((p) => p.id === id);
@@ -138,6 +177,11 @@ export function getLLMPreset(id: APIProvider): LLMPreset | undefined {
 /** 根据 ID 获取文生图预设 */
 export function getImagePreset(id: APIProvider): ImagePreset | undefined {
   return IMAGE_PRESETS.find((p) => p.id === id);
+}
+
+/** 根据 ID 获取 VLM 预设 */
+export function getVLMPreset(id: APIProvider): LLMPreset | undefined {
+  return VLM_PRESETS.find((p) => p.id === id);
 }
 
 /** 从预设创建 LLM 配置 */

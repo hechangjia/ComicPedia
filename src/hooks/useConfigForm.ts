@@ -1,37 +1,36 @@
 import { useState, useCallback } from "react";
 import { APIProvider, UserLLMConfig, UserImageConfig, ImageEndpointType } from "@/lib/types";
-import { getLLMPreset, getImagePreset } from "@/lib/config/presets";
+import { getLLMPreset, getImagePreset, type LLMPreset } from "@/lib/config/presets";
 import { LLMFormFields } from "@/components/settings/LLMForm";
 import { ImageFormFields } from "@/components/settings/ImageForm";
 
 // ============================================================
-// LLM 表单状态管理
+// LLM/VLM 表单状态管理（通过 options 参数区分）
 // ============================================================
-
-const DEFAULT_LLM_FIELDS: LLMFormFields = {
-  name: "",
-  provider: "deepseek",
-  apiUrl: "",
-  apiKey: "",
-  model: "",
-  protocolType: "openai-compatible",
-};
-
-function getDefaultLLMFields(): LLMFormFields {
-  const preset = getLLMPreset("deepseek");
-  return {
-    ...DEFAULT_LLM_FIELDS,
-    apiUrl: preset?.apiUrl || "",
-    model: preset?.defaultModel || "",
-    protocolType: preset?.protocolType || "openai-compatible",
-  };
-}
 
 export function useLLMForm(actions: {
   addLLM: (data: Omit<UserLLMConfig, "id">) => void;
   updateLLMById: (id: string, data: Partial<Omit<UserLLMConfig, "id">>) => void;
+}, options?: {
+  getPreset?: (id: APIProvider) => LLMPreset | undefined;
+  defaultProvider?: APIProvider;
 }) {
-  const [fields, setFields] = useState<LLMFormFields>(getDefaultLLMFields);
+  const resolvePreset = options?.getPreset ?? getLLMPreset;
+  const defaultProvider = options?.defaultProvider ?? "deepseek";
+
+  const getDefaults = useCallback((): LLMFormFields => {
+    const preset = resolvePreset(defaultProvider);
+    return {
+      name: "",
+      provider: defaultProvider,
+      apiUrl: preset?.apiUrl || "",
+      apiKey: "",
+      model: preset?.defaultModel || "",
+      protocolType: preset?.protocolType || "openai-compatible",
+    };
+  }, [resolvePreset, defaultProvider]);
+
+  const [fields, setFields] = useState<LLMFormFields>(getDefaults);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
 
@@ -40,11 +39,11 @@ export function useLLMForm(actions: {
   }, []);
 
   const reset = useCallback(() => {
-    setFields(getDefaultLLMFields());
-  }, []);
+    setFields(getDefaults());
+  }, [getDefaults]);
 
   const handleProviderChange = useCallback((provider: APIProvider) => {
-    const preset = getLLMPreset(provider);
+    const preset = resolvePreset(provider);
     setFields((prev) => {
       const next = { ...prev, provider };
       if (preset && provider !== "custom") {
@@ -55,7 +54,7 @@ export function useLLMForm(actions: {
       }
       return next;
     });
-  }, []);
+  }, [resolvePreset]);
 
   const populate = useCallback((c: UserLLMConfig) => {
     setFields({

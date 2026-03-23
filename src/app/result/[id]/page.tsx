@@ -19,6 +19,7 @@ import { ScriptValidationPanel } from "@/components/result/ScriptValidationPanel
 import { CompletedActions } from "@/components/result/CompletedActions";
 import { PanelGrid } from "@/components/result/PanelGrid";
 import { QualityScorePanel } from "@/components/result/QualityScorePanel";
+import { PipelineSummary } from "@/components/result/PipelineSummary";
 import "@/app/result/print.css";
 
 const QuizPanel = dynamic(() =>
@@ -70,6 +71,7 @@ export default function ResultPage() {
     handleRegenerateScript,
     handleChangeStyle,
     handleReorder,
+    handleVlmRetry,
     generatingAll,
     actionError,
     clearActionError,
@@ -216,17 +218,25 @@ export default function ResultPage() {
             )}
             {task.generationConfig.quality && (
               <span className="px-2 py-0.5 rounded-full bg-muted/60">
-                质量: {task.generationConfig.quality}
+                质量: {task.generationConfig.quality === "fast" ? "快速" : task.generationConfig.quality === "fine" ? "精细" : "标准"}
               </span>
             )}
           </div>
         )}
+
+        {/* Agent Pipeline Summary */}
+        {(isCompleted || isScriptReady) && <PipelineSummary task={task} />}
 
         {/* Topic research result */}
         {task.topicResearch && (
           <details className="text-left mx-auto max-w-lg no-print">
             <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors">
               AI Topic Research
+              {task.topicResearch.knowledgeMap && (
+                <span className="ml-1 opacity-60">
+                  ({task.topicResearch.knowledgeMap.core.length} core + {task.topicResearch.knowledgeMap.sub.length} sub)
+                </span>
+              )}
             </summary>
             <div className="mt-2 p-3 rounded-lg bg-muted/50 text-xs space-y-2">
               <p className="text-foreground/80">{task.topicResearch.expandedDescription}</p>
@@ -237,10 +247,98 @@ export default function ResultPage() {
                   ))}
                 </ul>
               )}
-              {task.topicResearch.narrativeAngle && (
+              {/* P2: Knowledge Map */}
+              {task.topicResearch.knowledgeMap && (
+                <div className="space-y-1 pt-1 border-t border-border/50">
+                  <p className="font-medium text-foreground/70">Knowledge Map:</p>
+                  <div className="flex flex-wrap gap-1">
+                    {task.topicResearch.knowledgeMap.core.map((c, i) => (
+                      <span key={`c-${i}`} className="px-1.5 py-0.5 rounded bg-primary/15 text-primary text-[10px] font-medium">{c}</span>
+                    ))}
+                    {task.topicResearch.knowledgeMap.sub.map((s, i) => (
+                      <span key={`s-${i}`} className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-[10px]">{s}</span>
+                    ))}
+                    {task.topicResearch.knowledgeMap.related.map((r, i) => (
+                      <span key={`r-${i}`} className="px-1.5 py-0.5 rounded border border-border text-muted-foreground/60 text-[10px]">{r}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/* P2: Multi-angle narrative candidates */}
+              {task.topicResearch.narrativeAngles && task.topicResearch.narrativeAngles.length > 0 ? (
+                <div className="space-y-1 pt-1 border-t border-border/50">
+                  <p className="font-medium text-foreground/70">Narrative Angles:</p>
+                  {task.topicResearch.narrativeAngles.map((a, i) => (
+                    <div key={i} className="flex items-start gap-2">
+                      <span className={`shrink-0 px-1 py-0.5 rounded text-[10px] font-medium ${
+                        i === 0 ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
+                      }`}>
+                        {a.relevance}/10
+                      </span>
+                      <div className="flex-1">
+                        <span className="text-foreground/80">{a.angle}</span>
+                        {a.rationale && <span className="text-muted-foreground/60 ml-1">({a.rationale})</span>}
+                      </div>
+                      {i === 0 && (
+                        <span className="shrink-0 px-1 py-0.5 rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-[10px]">
+                          已采用
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                  {isScriptReady && task.topicResearch.narrativeAngles.length > 1 && (
+                    <p className="text-[10px] text-muted-foreground/50 italic">
+                      点击「重新生成脚本」可自动使用最高相关度角度
+                    </p>
+                  )}
+                </div>
+              ) : task.topicResearch.narrativeAngle && (
                 <p className="text-muted-foreground italic">
                   Narrative: {task.topicResearch.narrativeAngle}
                 </p>
+              )}
+            </div>
+          </details>
+        )}
+
+        {/* Director outline */}
+        {task.narrativeOutline && (
+          <details className="text-left mx-auto max-w-lg no-print">
+            <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors">
+              Director Outline ({task.narrativeOutline.totalPanels} panels)
+            </summary>
+            <div className="mt-2 p-3 rounded-lg bg-muted/50 text-xs space-y-2">
+              {task.narrativeOutline.narrativeArc && (
+                <p className="text-foreground/80 italic">{task.narrativeOutline.narrativeArc}</p>
+              )}
+              <p className="text-muted-foreground">
+                Info distribution: {task.narrativeOutline.infoDistribution}
+              </p>
+              {task.narrativeOutline.characterList.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {task.narrativeOutline.characterList.map((c, i) => (
+                    <span key={i} className="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px]">
+                      {c.name} ({c.role})
+                    </span>
+                  ))}
+                </div>
+              )}
+              <ol className="list-decimal pl-4 text-muted-foreground space-y-0.5">
+                {task.narrativeOutline.panels.map((p, i) => (
+                  <li key={i}>
+                    <span className="font-medium">[{p.narrativeFunction}]</span>{" "}
+                    {p.keyInfo}{" "}
+                    <span className="text-[10px] opacity-60">({p.suggestedComposition}, {p.infoDensity})</span>
+                  </li>
+                ))}
+              </ol>
+              {isScriptReady && (
+                <button
+                  onClick={handleRegenerateScript}
+                  className="text-[10px] text-primary hover:underline"
+                >
+                  重新生成大纲和脚本
+                </button>
               )}
             </div>
           </details>
@@ -301,6 +399,7 @@ export default function ResultPage() {
             taskId={taskId}
             totalPanels={totalPanels}
             completedPanels={completedPanels}
+            qualityLevel={(task.generationConfig?.quality as "fast" | "standard" | "fine") || "standard"}
           />
           {isGenerating && (
             <div className="flex justify-center">
@@ -430,9 +529,20 @@ export default function ResultPage() {
         />
       )}
 
+      {/* VLM 评审进行中提示 */}
+      {isCompleted && task.generationConfig?.quality === "fine" && !task.visualQualityScore && task.script && (
+        <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground animate-pulse no-print">
+          <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+          </svg>
+          AI 视觉评审中...
+        </div>
+      )}
+
       {/* AI 质量评分 */}
       {isCompleted && task.script && (
-        <QualityScorePanel script={task.script} cachedScore={task.qualityScore} />
+        <QualityScorePanel script={task.script} cachedScore={task.qualityScore} cachedVisualScore={task.visualQualityScore} onRetryPanels={handleVlmRetry} />
       )}
 
       {/* 知识测验 */}

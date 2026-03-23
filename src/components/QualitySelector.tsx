@@ -33,13 +33,19 @@ export function QualitySelector({ value, onChange, disabled }: QualitySelectorPr
               <span className="text-base">{preset.icon}</span>
               <span className="font-medium text-sm ml-1.5">{preset.label}</span>
               <div className="text-[10px] text-muted-foreground mt-0.5">{preset.desc}</div>
+              <div className="text-[10px] text-muted-foreground/60">{preset.timeHint}</div>
             </button>
           );
         })}
       </div>
-      <p className="text-xs text-muted-foreground">
-        质量影响脚本详细度和图片精度，不影响分镜数量。
-      </p>
+      {/* 当前档位的 Agent 详情 */}
+      <div className="flex flex-wrap gap-1">
+        {QUALITY_PRESETS[value].agents.map((agent) => (
+          <span key={agent} className="px-1.5 py-0.5 rounded bg-muted text-[10px] text-muted-foreground">
+            {agent}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }

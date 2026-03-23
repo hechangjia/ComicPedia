@@ -1,5 +1,33 @@
 import { ReferenceImageEntry } from "./types";
 
+/** Clamp a VLM/quality score to [1, 10] with fallback to 5 */
+export function clampScore(v: number): number {
+  return Math.max(1, Math.min(10, v || 5));
+}
+
+/** Safely extract the first JSON object from LLM response text. Returns null if not found. */
+export function extractJsonObject(content: string): Record<string, unknown> | null {
+  const match = content.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    return JSON.parse(match[0]);
+  } catch {
+    return null;
+  }
+}
+
+/** Safely extract the first JSON array from LLM response text. Returns null if not found. */
+export function extractJsonArray(content: string): unknown[] | null {
+  const match = content.match(/\[[\s\S]*\]/);
+  if (!match) return null;
+  try {
+    const parsed = JSON.parse(match[0]);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Check if a URL is external (not same-origin, not data URI, not relative path).
  */

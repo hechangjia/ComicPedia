@@ -392,8 +392,20 @@ export interface TopicResearchResult {
   expandedDescription: string;
   /** Key facts and concepts identified */
   keyFacts: string[];
-  /** Suggested narrative angle */
+  /** Suggested narrative angle (primary, for backward compat) */
   narrativeAngle: string;
+  /** Multiple narrative angle candidates with relevance scores (P2 enhancement) */
+  narrativeAngles?: Array<{
+    angle: string;
+    relevance: number;  // 1-10
+    rationale: string;
+  }>;
+  /** Hierarchical knowledge map (P2 enhancement) */
+  knowledgeMap?: {
+    core: string[];      // 核心概念（必须覆盖）
+    sub: string[];       // 子概念（按面板数裁剪）
+    related: string[];   // 关联概念（延伸阅读）
+  };
 }
 
 /**
@@ -420,8 +432,17 @@ Core rules:
 JSON format:
 {
   "expandedDescription": "2-4 sentences: what this topic IS, its significance, and core mechanism/concept",
-  "keyFacts": ["fact1", "fact2", ...],  // 3-6 key facts/concepts that must be covered
-  "narrativeAngle": "Suggested angle for comic storytelling (e.g., historical origin, mechanism explanation, real-world analogy)"
+  "keyFacts": ["fact1", "fact2", ...],
+  "narrativeAngle": "Primary recommended angle (backward compat)",
+  "narrativeAngles": [
+    {"angle": "角度描述", "relevance": 8, "rationale": "为什么这个角度适合漫画叙事"},
+    {"angle": "备选角度", "relevance": 6, "rationale": "适合什么场景"}
+  ],
+  "knowledgeMap": {
+    "core": ["必须覆盖的核心概念1", "核心概念2"],
+    "sub": ["可选的子概念1", "子概念2"],
+    "related": ["延伸关联1", "关联2"]
+  }
 }`;
 
   const fewShotUser1 = `主题: Transformer 注意力机制`;
@@ -434,7 +455,17 @@ JSON format:
       "位置编码（Positional Encoding）补充序列顺序信息",
       "GPT、BERT、ChatGPT等模型的基础架构"
     ],
-    narrativeAngle: "历史人物引入：从Vaswani团队面临RNN瓶颈的困境讲起，逐步拆解Q/K/V机制"
+    narrativeAngle: "历史人物引入：从Vaswani团队面临RNN瓶颈的困境讲起，逐步拆解Q/K/V机制",
+    narrativeAngles: [
+      { angle: "历史人物引入：从Vaswani团队面临RNN瓶颈的困境讲起", relevance: 9, rationale: "有明确的发明者和历史背景，人物故事感强" },
+      { angle: "生活类比：把注意力机制比作课堂上老师点名提问", relevance: 7, rationale: "适合低龄受众，直觉理解" },
+      { angle: "技术演进：RNN→LSTM→Transformer的进化路径", relevance: 6, rationale: "适合有基础的受众，展示技术脉络" }
+    ],
+    knowledgeMap: {
+      core: ["自注意力机制（Q/K/V）", "Scaled Dot-Product Attention"],
+      sub: ["Multi-Head Attention", "位置编码", "Encoder-Decoder结构"],
+      related: ["GPT系列", "BERT", "Vision Transformer"]
+    }
   }, null, 2);
 
   const fewShotUser2 = `主题: OpenClaw`;
@@ -447,7 +478,16 @@ JSON format:
       "支持强化学习等AI方法进行抓取策略训练",
       "属于具身智能（Embodied AI）领域的重要工具"
     ],
-    narrativeAngle: "从\"机器人为什么笨手笨脚\"的生活观察引入，展示OpenClaw如何让机器人学会灵巧抓取"
+    narrativeAngle: "从\"机器人为什么笨手笨脚\"的生活观察引入，展示OpenClaw如何让机器人学会灵巧抓取",
+    narrativeAngles: [
+      { angle: "生活观察：为什么机器人笨手笨脚？", relevance: 8, rationale: "痛点引入，受众共鸣度高" },
+      { angle: "开源精神：如何用3D打印造一只机器手", relevance: 7, rationale: "Maker文化切入，适合科技爱好者" }
+    ],
+    knowledgeMap: {
+      core: ["灵巧手硬件设计", "开源低成本方案"],
+      sub: ["强化学习抓取策略", "仿真环境训练"],
+      related: ["具身智能", "触觉传感", "人形机器人"]
+    }
   }, null, 2);
 
   const userPrompt = `主题: ${topic}`;
@@ -481,6 +521,20 @@ JSON format:
       expandedDescription: String(parsed.expandedDescription || ""),
       keyFacts: Array.isArray(parsed.keyFacts) ? parsed.keyFacts.map(String) : [],
       narrativeAngle: String(parsed.narrativeAngle || ""),
+      narrativeAngles: Array.isArray(parsed.narrativeAngles)
+        ? parsed.narrativeAngles.map((a: Record<string, unknown>) => ({
+            angle: String(a.angle || ""),
+            relevance: Math.max(1, Math.min(10, Number(a.relevance) || 5)),
+            rationale: String(a.rationale || ""),
+          })).sort((a: { relevance: number }, b: { relevance: number }) => b.relevance - a.relevance)
+        : undefined,
+      knowledgeMap: parsed.knowledgeMap && typeof parsed.knowledgeMap === "object"
+        ? {
+            core: Array.isArray(parsed.knowledgeMap.core) ? parsed.knowledgeMap.core.map(String) : [],
+            sub: Array.isArray(parsed.knowledgeMap.sub) ? parsed.knowledgeMap.sub.map(String) : [],
+            related: Array.isArray(parsed.knowledgeMap.related) ? parsed.knowledgeMap.related.map(String) : [],
+          }
+        : undefined,
     };
   } catch (e) {
     console.error("[LLM] Failed to parse topic research JSON:", cleaned.substring(0, 300));
@@ -505,7 +559,22 @@ export function buildEnhancedTopicFromResearch(research: TopicResearchResult): s
     parts.push(`\n必须覆盖的关键知识点：\n${research.keyFacts.map((f, i) => `${i + 1}. ${f}`).join("\n")}`);
   }
 
-  if (research.narrativeAngle) {
+  // P2: 使用知识图谱提供分层指导
+  if (research.knowledgeMap) {
+    const { core, sub } = research.knowledgeMap;
+    if (core.length > 0) {
+      parts.push(`\n核心概念（每个必须至少用 1 格讲清楚）：${core.join("、")}`);
+    }
+    if (sub.length > 0) {
+      parts.push(`辅助概念（按面板数酌情覆盖）：${sub.join("、")}`);
+    }
+  }
+
+  // P2: 使用最高相关度的叙事角度
+  if (research.narrativeAngles && research.narrativeAngles.length > 0) {
+    const best = research.narrativeAngles[0]; // already sorted by relevance
+    parts.push(`\n建议叙事角度：${best.angle}（${best.rationale}）`);
+  } else if (research.narrativeAngle) {
     parts.push(`\n建议叙事角度：${research.narrativeAngle}`);
   }
 
