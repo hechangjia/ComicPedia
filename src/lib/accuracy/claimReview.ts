@@ -12,6 +12,9 @@ const AGE_REGEX = /(\d{1,3})\s*岁/g;
 const TERM_REGEX = /([^。！？；]{2,60}(?:是|指)[^。！？；]{2,80})/g;
 const PLACE_REGEX = /(?:出生于|位于|来自)\s*([^，。；！？]+)/g;
 const EVENT_REGEX = /([^，。；！？]{2,80}由[^，。；！？]{2,20}提出)/g;
+const PERSON_ROLE_REGEX = /([^，。；！？]{1,12})是[^，。；！？]{1,20}(?:家|者|学家)/g;
+const PERSON_BIRTH_REGEX = /([^，。；！？]{1,12})出生于/g;
+const PERSON_ATTRIBUTION_REGEX = /由([^，。；！？]{1,12})提出/g;
 
 function canonicalizeText(rawText: string): string {
   return rawText
@@ -19,6 +22,32 @@ function canonicalizeText(rawText: string): string {
     .toLowerCase()
     .replace(/[，。！？；：、“”"'（）()\[\]\s]/g, "")
     .replace(/[与及]/g, "和");
+}
+
+function buildPersonAliases(factPack: FactPack): string[] {
+  const aliases = new Set<string>();
+  factPack.hardFacts
+    .filter((fact) => fact.claimType === "person")
+    .forEach((fact) => {
+      [fact.subject, fact.object, fact.normalizedValue].forEach((value) => {
+        const normalized = canonicalizeText(value);
+        if (normalized) aliases.add(normalized);
+      });
+      const splitParts = fact.object.split(/[·•\s]+/).map(canonicalizeText).filter(Boolean);
+      splitParts.forEach((part) => aliases.add(part));
+      if (splitParts.length > 0) {
+        aliases.add(splitParts[splitParts.length - 1]);
+      }
+    });
+  return [...aliases].sort((a, b) => b.length - a.length);
+}
+
+function stripKnownPersonAliases(value: string, factPack: FactPack): string {
+  let normalized = value;
+  for (const alias of buildPersonAliases(factPack)) {
+    normalized = normalized.replaceAll(alias, "");
+  }
+  return normalized;
 }
 
 function normalizeValue(rawText: string, claimType: AccuracyPanelClaim["claimType"]): string {
@@ -39,9 +68,27 @@ function buildSourceCoverage(factPack: FactPack): AccuracyReviewResult["sourceCo
 
 function matchClaim(claim: AccuracyPanelClaim, factPack: FactPack): AccuracyPanelClaim {
   const sameTypeFacts = factPack.hardFacts.filter((fact) => fact.claimType === claim.claimType);
-  const exactMatch = sameTypeFacts.find((fact) =>
-    normalizeValue(fact.normalizedValue || fact.object, claim.claimType) === claim.normalizedValue,
-  );
+  const exactMatch = sameTypeFacts.find((fact) => {
+    if (claim.claimType === "person") {
+      const aliases = [
+        canonicalizeText(fact.subject),
+        canonicalizeText(fact.object),
+        canonicalizeText(fact.normalizedValue),
+        ...fact.object.split(/[·•\s]+/).map(canonicalizeText).filter(Boolean),
+      ];
+      return aliases.includes(claim.normalizedValue);
+    }
+
+    if (claim.claimType === "term") {
+      const factNormalized = stripKnownPersonAliases(normalizeValue(fact.normalizedValue || fact.object, "term"), factPack);
+      const claimNormalized = stripKnownPersonAliases(claim.normalizedValue, factPack);
+      return factNormalized === claimNormalized
+        || factNormalized.includes(claimNormalized)
+        || claimNormalized.includes(factNormalized);
+    }
+
+    return normalizeValue(fact.normalizedValue || fact.object, claim.claimType) === claim.normalizedValue;
+  });
   if (exactMatch) {
     return {
       ...claim,
@@ -122,10 +169,28 @@ function extractEventClaims(text: string): AccuracyPanelClaim[] {
   }));
 }
 
+function extractPersonClaims(text: string): AccuracyPanelClaim[] {
+  const rawMatches = [
+    ...Array.from(text.matchAll(PERSON_ROLE_REGEX)).map((match) => match[1]),
+    ...Array.from(text.matchAll(PERSON_BIRTH_REGEX)).map((match) => match[1]),
+    ...Array.from(text.matchAll(PERSON_ATTRIBUTION_REGEX)).map((match) => match[1]),
+  ];
+
+  return Array.from(new Set(rawMatches))
+    .filter((rawText) => rawText.length >= 2 && rawText.length <= 12 && !/\d/.test(rawText))
+    .map((rawText) => ({
+      claimType: "person" as const,
+      rawText,
+      normalizedValue: normalizeValue(rawText, "person"),
+      matchStatus: "missing" as const,
+    }));
+}
+
 export function extractPanelClaims(script: ComicScript): PanelClaimSet[] {
   return script.panels.map((panel, index) => ({
     panelIndex: index,
     hardClaims: [
+      ...extractPersonClaims(panel.dialogue),
       ...extractDateClaims(panel.dialogue),
       ...extractNumberClaims(panel.dialogue),
       ...extractTermClaims(panel.dialogue),

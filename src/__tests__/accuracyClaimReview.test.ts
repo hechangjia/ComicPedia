@@ -22,6 +22,17 @@ function makeFactPack(): FactPack {
         mustPreserve: true,
       },
       {
+        id: "fact-person",
+        claimType: "person",
+        subject: "牛顿",
+        predicate: "name",
+        object: "艾萨克·牛顿",
+        normalizedValue: "牛顿",
+        sourceIds: ["anchor-1"],
+        confidence: 0.95,
+        mustPreserve: true,
+      },
+      {
         id: "fact-term",
         claimType: "term",
         subject: "牛顿",
@@ -104,11 +115,15 @@ describe("accuracy claim review", () => {
     );
 
     expect(review.status).toBe("passed");
-    expect(review.panelClaims[0].hardClaims[0]).toMatchObject({
-      claimType: "date",
-      matchStatus: "matched",
-      matchedFactId: "fact-date",
-    });
+    expect(review.panelClaims[0].hardClaims).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "date",
+          matchStatus: "matched",
+          matchedFactId: "fact-date",
+        }),
+      ]),
+    );
   });
 
   it("blocks conflicting hard date claims", async () => {
@@ -121,11 +136,15 @@ describe("accuracy claim review", () => {
 
     expect(review.status).toBe("blocked");
     expect(review.blockingIssueCount).toBe(1);
-    expect(review.panelClaims[0].hardClaims[0]).toMatchObject({
-      claimType: "date",
-      matchStatus: "conflicting",
-      matchedFactId: "fact-date",
-    });
+    expect(review.panelClaims[0].hardClaims).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "date",
+          matchStatus: "conflicting",
+          matchedFactId: "fact-date",
+        }),
+      ]),
+    );
   });
 
   it("marks unsupported hard assertions as repair_required instead of silently passing", async () => {
@@ -150,11 +169,55 @@ describe("accuracy claim review", () => {
     );
 
     expect(review.status).toBe("passed");
-    expect(review.panelClaims[0].hardClaims[0]).toMatchObject({
-      claimType: "term",
-      matchStatus: "matched",
-      matchedFactId: "fact-term",
-    });
+    expect(review.panelClaims[0].hardClaims).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+          matchStatus: "matched",
+          matchedFactId: "fact-term",
+        }),
+      ]),
+    );
+  });
+
+  it("matches full-name person aliases against the canonical person fact", async () => {
+    const { reviewPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const review = reviewPanelClaims(
+      makeScript(["艾萨克·牛顿是英国物理学家。"]),
+      makeFactPack(),
+    );
+
+    expect(review.status).toBe("passed");
+    expect(review.panelClaims[0].hardClaims).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "person",
+          matchStatus: "matched",
+          matchedFactId: "fact-person",
+        }),
+      ]),
+    );
+  });
+
+  it("blocks conflicting person claims", async () => {
+    const { reviewPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const review = reviewPanelClaims(
+      makeScript(["伽利略是提出者。"]),
+      makeFactPack(),
+    );
+
+    expect(review.status).toBe("blocked");
+    expect(review.panelClaims[0].hardClaims).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "person",
+          matchStatus: "conflicting",
+          matchedFactId: "fact-person",
+        }),
+      ]),
+    );
   });
 
   it("blocks conflicting place claims", async () => {
