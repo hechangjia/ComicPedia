@@ -588,6 +588,51 @@ describe("accuracy research", () => {
     );
   });
 
+  it("compresses overly nested birthplace clauses to a shorter canonical place", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "牛顿",
+      extract: "艾萨克·牛顿出生于英国英格兰东米德兰林肯郡南凯斯蒂文科尔斯沃斯村畔伍尔索普的伍尔索普庄园。",
+      lang: "zh",
+      sections: ["生平"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E7%89%9B%E9%A1%BF",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "牛顿",
+      contentType: "wikipedia",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "place",
+          object: "伍尔索普庄园",
+        }),
+      ]),
+    );
+    expect(result.factPack.hardFacts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "place",
+          object: expect.stringMatching(/英国英格兰东米德兰/),
+        }),
+      ]),
+    );
+  });
+
   it("extracts origin-place hard facts for the 火药 golden topic", async () => {
     const { runAccuracyResearch } = await import("@/lib/accuracy/research");
 

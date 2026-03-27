@@ -126,6 +126,21 @@ function isLikelyNoisyPlace(value: string): boolean {
     || /(祭祀|国家级|享受历朝历代皇帝尊奉)/.test(value);
 }
 
+function canonicalizePlaceValue(value: string): string {
+  const trimmed = cleanCapturedText(value);
+  if (!trimmed.includes("的")) return trimmed;
+
+  const suffix = trimmed.slice(trimmed.lastIndexOf("的") + 1).trim();
+  const prefix = trimmed.slice(0, trimmed.lastIndexOf("的"));
+  const suffixBase = suffix.replace(/(庄园|陵|庙|宫|殿|阁|楼|村|镇|市|县|郡)$/u, "");
+
+  if (suffix.length >= 3 && suffix.length <= 12 && suffixBase && prefix.includes(suffixBase)) {
+    return suffix;
+  }
+
+  return trimmed;
+}
+
 function isLikelyWeakTermClause(value: string): boolean {
   return /(职业神|所祀奉|民间信仰中的神祇|形成的带电云层|形成的声波)/.test(value);
 }
@@ -314,7 +329,7 @@ function extractHardFacts(topic: string, sourceEntries: AccuracySourceEntry[]): 
 
     PLACE_PATTERNS.forEach(({ regex, predicate }) => {
       Array.from(entry.excerpt.matchAll(regex)).forEach((match) => {
-        const place = cleanCapturedText(match[1]);
+        const place = canonicalizePlaceValue(match[1]);
         if (!place || /\d/.test(place) || isLikelyNoisyPlace(place)) return;
         pushHardFact(facts, seen, {
           claimType: "place",
