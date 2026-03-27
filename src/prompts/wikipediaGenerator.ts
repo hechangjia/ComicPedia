@@ -50,6 +50,7 @@ export function buildWikipediaPrompt(
   content: WikipediaContent,
   style: ComicStyle,
   panelCount?: number,
+  allowGuideCharacter: boolean = true,
 ): string {
   const panelGuidance = panelCount && panelCount > 0
     ? `规划${panelCount}格分镜，如需微调可在±2格范围内调整。`
@@ -120,10 +121,15 @@ ${isInfoStyle
     ? `- 信息图风格可以不使用角色，characterDescription 设为空字符串 ""
 - 画面聚焦于图标、图示、流程图等可视化元素
 - 也可以使用简笔画小人(stick figure)作为引导元素`
-    : `- 可以使用"百科讲解员"或"知识探索者"作为引导角色
+    : allowGuideCharacter
+      ? `- 可以使用"百科讲解员"或"知识探索者"作为引导角色
 - 也可以用相关的历史人物、科学家作为叙事主角
 - characterDescription 使用英文描述外观特征（40-60词）
-- 每格 imagePrompt 以完整 characterDescription 开头`}
+- 每格 imagePrompt 以完整 characterDescription 开头`
+      : `- 禁止额外添加百科讲解员、知识探索者、旁白角色等泛化引导人物
+- 优先使用词条相关的真实人物、历史角色或题材原生人物
+- 如果词条更适合纯知识图解，则 characterDescription 设为空字符串 ""
+- 每格 imagePrompt 只允许出现题材相关角色，不能凭空新增 explorer / narrator / guide` }
 
 ${imageGuidance}
 

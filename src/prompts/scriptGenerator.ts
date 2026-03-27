@@ -6,7 +6,8 @@ export function buildScriptPrompt(
   topic: string,
   style: ComicStyle,
   panelCount?: number,
-  character?: Character
+  character?: Character,
+  allowGuideCharacter: boolean = true,
 ): string {
   const panelGuidance = panelCount && panelCount > 0
     ? `优先规划${panelCount}格，如为保证知识讲清可在±2格范围内微调。`
@@ -47,6 +48,17 @@ export function buildScriptPrompt(
 `;
   }
 
+  const guideCharacterPolicy = character || allowGuideCharacter
+    ? ""
+    : `
+## 引导角色限制（本次任务必须遵守）
+
+- 禁止额外添加讲解员、探索者、旁白角色、导览角色等泛化引导人物
+- 优先使用题材原生人物（如盘古、女娲、达尔文、爱因斯坦）
+- 如果主题不需要人物，请直接采用无角色的纯场景 / 图示表达
+- characterDescription 不能为空时，也只能描述题材原生人物或概念拟人角色，不能凭空新增 explorer / narrator / guide
+`;
+
   return `你是一位专业的科普漫画编剧，擅长把复杂概念拆解为可视化的分镜叙事。请根据以下科普主题创作分镜脚本。
 
 ## 主题
@@ -72,6 +84,7 @@ ${panelGuidance}
 5. **逻辑递进**：分镜之间必须有清晰的知识递进关系
 
 ${characterConstraint}
+${guideCharacterPolicy}
 
 ## 叙事策略选择（根据主题自动判断）
 

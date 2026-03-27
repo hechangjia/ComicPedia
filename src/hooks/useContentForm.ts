@@ -29,6 +29,10 @@ export interface ContentFormConfig {
   contentType: ContentType;
   /** 默认画风 */
   defaultStyle: ComicStyle;
+  /** 是否在当前表单中暴露“允许引导角色”开关 */
+  showGuideCharacterToggle?: boolean;
+  /** “允许引导角色”默认值 */
+  defaultAllowGuideCharacter?: boolean;
   /** 面板数上限（传给 PanelCountSelector） */
   maxPanelCount?: number;
   /** 主输入为空时的验证提示文案 */
@@ -59,6 +63,9 @@ export interface ContentFormState {
   setQuality: (q: GenerationQuality) => void;
   difficulty: DifficultyLevel;
   setDifficulty: (d: DifficultyLevel) => void;
+  showGuideCharacterToggle: boolean;
+  allowGuideCharacter: boolean;
+  setAllowGuideCharacter: (allow: boolean) => void;
 
   // 参考图状态
   referenceImage: string | undefined;
@@ -130,6 +137,7 @@ export function useContentForm(
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [quality, setQuality] = useState<GenerationQuality>("standard");
   const [difficulty, setDifficulty] = useState<DifficultyLevel>("medium");
+  const [allowGuideCharacter, setAllowGuideCharacter] = useState<boolean>(config.defaultAllowGuideCharacter ?? true);
 
   // 参考图状态
   const [referenceImage, setReferenceImage] = useState<string | undefined>();
@@ -159,6 +167,7 @@ export function useContentForm(
         if (draft.panelCount !== undefined) setPanelCount(draft.panelCount);
         if (draft.quality) setQuality(draft.quality);
         if (draft.difficulty) setDifficulty(draft.difficulty);
+        if (typeof draft.allowGuideCharacter === "boolean") setAllowGuideCharacter(draft.allowGuideCharacter);
       }, 0);
       return () => clearTimeout(timer);
     } catch {
@@ -174,7 +183,7 @@ export function useContentForm(
       try {
         const inputText = getInputText();
         const draft = {
-          style, panelCount, quality, difficulty,
+          style, panelCount, quality, difficulty, allowGuideCharacter,
           inputText: inputText.slice(0, 5000),
           savedAt: Date.now(),
         };
@@ -184,7 +193,7 @@ export function useContentForm(
       }
     }, 1000);
     return () => { if (draftTimer.current) clearTimeout(draftTimer.current); };
-  }, [DRAFT_KEY, difficulty, getInputText, panelCount, quality, style]);
+  }, [DRAFT_KEY, allowGuideCharacter, difficulty, getInputText, panelCount, quality, style]);
 
   /** 获取已保存的草稿输入文本（供 Form 组件恢复主输入） */
   const getDraftInputText = useCallback((): string => {
@@ -371,6 +380,7 @@ export function useContentForm(
         contentType: config.contentType,
         quality,
         difficulty,
+        allowGuideCharacter,
         ...extraPayload,
       };
 
@@ -406,6 +416,7 @@ export function useContentForm(
     config.emptyInputMessage,
     configStatus.hasLLM,
     controlMode,
+    allowGuideCharacter,
     customPanelCount,
     difficulty,
     panelCount,
@@ -430,6 +441,8 @@ export function useContentForm(
     selectedImageId, setSelectedImageId,
     quality, setQuality,
     difficulty, setDifficulty,
+    showGuideCharacterToggle: config.showGuideCharacterToggle ?? false,
+    allowGuideCharacter, setAllowGuideCharacter,
     referenceImage, setReferenceImage,
     referenceImages, setReferenceImages,
     referenceLabels, setReferenceLabels,
