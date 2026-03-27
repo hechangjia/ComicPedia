@@ -627,7 +627,10 @@ async function processScripting(taskId: string, request: GenerateRequest) {
     task.progress = 30;
 
     // ── 脚本后校验：纯规则，零 LLM 调用 ──
-    let validation = validateScript(script);
+    let validation = validateScript(script, {
+      contentType: request.contentType,
+      narrativeOutline: task.narrativeOutline,
+    });
 
     // ── P0: 脚本自修复 Agent — 将 warning 反馈给 LLM 自动修正，最多 2 轮 ──
     const actionableWarnings = validation.warnings.filter(w => w.severity === "critical" || w.severity === "warning");
@@ -646,7 +649,10 @@ async function processScripting(taskId: string, request: GenerateRequest) {
           if (!repaired) break;
 
           script = repaired;
-          validation = validateScript(script);
+          validation = validateScript(script, {
+            contentType: request.contentType,
+            narrativeOutline: task.narrativeOutline,
+          });
           currentWarnings = validation.warnings.filter(w => w.severity === "critical" || w.severity === "warning");
         } catch (repairErr) {
           console.warn("[ScriptRepair] Repair round failed, keeping current script:", repairErr);

@@ -4,7 +4,7 @@
  * 拦截角色漂移、构图重复、风格矛盾、语言混杂等质量问题。
  */
 
-import { ComicScript, ComicStyle } from "./types";
+import { ComicScript, ComicStyle, ContentType, NarrativeOutline } from "./types";
 import { STYLE_META } from "./config/styles";
 
 export type WarningSeverity = "critical" | "warning" | "info";
@@ -26,6 +26,11 @@ export interface ScriptValidation {
   warnings: ScriptWarning[];
 }
 
+export interface ScriptValidationContext {
+  contentType?: ContentType;
+  narrativeOutline?: NarrativeOutline;
+}
+
 // ── 构图关键词族 ──
 const COMPOSITION_FAMILIES: Record<string, string[]> = {
   "wide/establishing": ["wide shot", "establishing shot", "panoramic", "landscape", "full scene"],
@@ -40,11 +45,28 @@ const COMPOSITION_FAMILIES: Record<string, string[]> = {
 
 // ── CJK 字符检测正则 ──
 const CJK_REGEX = /[\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF]/;
+const STRONG_HOOK_SHOT_INTENTS = new Set(["hook-closeup", "contrast"]);
+const VALID_ENDING_SHOT_INTENTS = new Set(["reveal", "aftermath"]);
+const FLAT_EXPLANATION_PATTERNS = [
+  "是一种",
+  "是指",
+  "通常",
+  "主要",
+  "一般",
+  "解释",
+  "定义",
+  "介绍",
+];
+const HOOK_DIALOGUE_PATTERNS = ["为什么", "怎么会", "竟然", "突然", "却", "?", "？"];
+const EXPLANATION_IMAGE_PATTERNS = ["teacher explaining", "explaining at", "lecturer", "podium", "blackboard"];
 
 /**
  * 校验脚本质量，返回结构化校验结果。
  */
-export function validateScript(script: ComicScript): ScriptValidation {
+export function validateScript(
+  script: ComicScript,
+  context: ScriptValidationContext = {},
+): ScriptValidation {
   const warnings: ScriptWarning[] = [];
 
   // ── 1. 角色一致性检查 ──
@@ -62,6 +84,9 @@ export function validateScript(script: ComicScript): ScriptValidation {
   // ── 5. 叙事重复检查 ──
   checkNarrativeRepetition(script, warnings);
 
+  // ── 6. science / wikipedia 节奏兑现检查 ──
+  checkNarrativeBeatPlanAlignment(script, warnings, context);
+
   const hasCritical = warnings.some(w => w.severity === "critical");
 
   return {
@@ -72,6 +97,120 @@ export function validateScript(script: ComicScript): ScriptValidation {
     languagePurity,
     warnings,
   };
+}
+
+function checkNarrativeBeatPlanAlignment(
+  script: ComicScript,
+  warnings: ScriptWarning[],
+  context: ScriptValidationContext,
+): void {
+  const { contentType, narrativeOutline } = context;
+  if (!narrativeOutline) return;
+  if (contentType !== "science" && contentType !== "wikipedia") return;
+
+  const panels = script.panels;
+  const outlinePanels = narrativeOutline.panels;
+  if (panels.length === 0 || outlinePanels.length === 0) return;
+
+  const openingPanels = panels.slice(0, 2);
+  const openingOutline = outlinePanels.slice(0, 2);
+  const expectsHook = openingOutline.some((panel) => panel.beatRole === "hook");
+  const hasHookDialogue = openingPanels.some((panel) =>
+    HOOK_DIALOGUE_PATTERNS.some((token) => panel.dialogue.includes(token))
+  );
+  const hasStrongHookShot = openingPanels.some((panel) => {
+    const prompt = panel.imagePrompt.toLowerCase();
+    return prompt.includes("close-up") || prompt.includes("close up") || prompt.includes("contrast");
+  });
+  const looksLikeFlatExplanation = openingPanels.length > 0 && openingPanels.every((panel) =>
+    FLAT_EXPLANATION_PATTERNS.some((token) => panel.dialogue.includes(token)) ||
+    EXPLANATION_IMAGE_PATTERNS.some((token) => panel.imagePrompt.toLowerCase().includes(token))
+  );
+
+  if (expectsHook && !hasHookDialogue && !hasStrongHookShot && looksLikeFlatExplanation) {
+    warnings.push({
+      severity: "warning",
+      dimension: "narrative",
+      panelIndices: openingPanels.map((_, index) => index),
+      message: "开场缺少钩子，前两格更像平铺直叙讲解而不是漫画化引入",
+      suggestion: "第一格加入反常识现象、冲突问题或强特写镜头，让读者先产生继续看的冲动",
+    });
+  }
+
+  const repeatedBeatRoleIndices: number[] = [];
+  for (let i = 1; i < outlinePanels.length; i++) {
+    if (outlinePanels[i - 1].beatRole === outlinePanels[i].beatRole) {
+      repeatedBeatRoleIndices.push(i - 1, i);
+    }
+  }
+  if (repeatedBeatRoleIndices.length > 0) {
+    warnings.push({
+      severity: "warning",
+      dimension: "narrative",
+      panelIndices: [...new Set(repeatedBeatRoleIndices)],
+      message: "叙事职责重复，相邻面板没有形成推进关系",
+      suggestion: "相邻面板应分工不同：钩子、推进、揭示、收束要形成明确递进，而不是连续重复同一职责",
+    });
+  }
+
+  const repeatedShotIntentIndices: number[] = [];
+  for (let i = 1; i < outlinePanels.length; i++) {
+    if (outlinePanels[i - 1].shotIntent === outlinePanels[i].shotIntent) {
+      repeatedShotIntentIndices.push(i - 1, i);
+    }
+  }
+  if (repeatedShotIntentIndices.length > 0) {
+    warnings.push({
+      severity: "warning",
+      dimension: "composition",
+      panelIndices: [...new Set(repeatedShotIntentIndices)],
+      message: "镜头意图重复，连续面板缺少视觉节奏变化",
+      suggestion: "在相邻面板间切换 establish / contrast / reveal / aftermath 等不同镜头意图，避免连续同构图",
+    });
+  }
+
+  const hasRequiredStrongShot = outlinePanels.some((panel) =>
+    STRONG_HOOK_SHOT_INTENTS.has(panel.shotIntent)
+  );
+  if (!hasRequiredStrongShot) {
+    warnings.push({
+      severity: "warning",
+      dimension: "composition",
+      panelIndices: [],
+      message: "缺少强镜头变化，整组分镜里没有 hook-closeup 或 contrast",
+      suggestion: "至少保留一个强特写或强对照镜头，避免整组分镜都像平顺说明图",
+    });
+  }
+
+  const lastOutlinePanel = outlinePanels[Math.min(panels.length, outlinePanels.length) - 1];
+  if (lastOutlinePanel && !VALID_ENDING_SHOT_INTENTS.has(lastOutlinePanel.shotIntent)) {
+    warnings.push({
+      severity: "warning",
+      dimension: "narrative",
+      panelIndices: [Math.min(panels.length, outlinePanels.length) - 1],
+      message: "结尾缺少揭示或余波，最后一格仍停留在平铺解释",
+      suggestion: "最后一格优先做 reveal 或 aftermath，让结尾形成记忆点，而不是继续主持式讲解",
+    });
+  }
+
+  const overloadedPanels = panels
+    .map((panel, index) => ({
+      index,
+      dialogueParts: panel.dialogue.split(/[，,；;：:]/).filter(Boolean).length,
+      sceneLength: panel.scene.length,
+    }))
+    .filter(({ dialogueParts, sceneLength }) => dialogueParts >= 4 || sceneLength > 28)
+    .map(({ index }) => index);
+
+  if (overloadedPanels.length > 0) {
+    warnings.push({
+      severity: "warning",
+      dimension: "narrative",
+      panelIndices: overloadedPanels,
+      message: "单格信息堆积，部分面板同时承担了过多概念或结论",
+      suggestion: "把单格中过多的概念拆开，让一格只承担一个主要知识推进目标",
+    });
+  }
 }
 
 /**
@@ -415,4 +554,3 @@ export function applyCanonicalCharacterDesc(script: ComicScript): void {
   // 同步更新 script 级描述
   script.characterDescription = canonical;
 }
-
