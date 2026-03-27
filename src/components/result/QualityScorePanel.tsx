@@ -59,7 +59,7 @@ const VISUAL_DIMENSION_LABELS: Record<string, string> = {
 };
 
 type DiagnosisRepairViewStatus = {
-  panelIndex: number;
+  panelIndex?: number;
   mode: "patch" | "rewrite";
   status: "running" | "completed" | "failed";
   message: string;
@@ -182,6 +182,7 @@ function VisualScoreSection({
   diagnosisError,
   onRunDiagnosis,
   onExecuteDiagnosisRepair,
+  onExecuteBatchDiagnosisPatch,
 }: {
   score: VisualQualityScore | null;
   loading: boolean;
@@ -202,6 +203,9 @@ function VisualScoreSection({
     panel: VisualDiagnosisPanel,
     params: { mode: "patch" | "rewrite"; confirmedPrompt?: string; includeSuggestedNegativePrompt?: boolean },
   ) => Promise<{ outcome: VisualRepairExecutionOutcome }>;
+  onExecuteBatchDiagnosisPatch?: (
+    panels: VisualDiagnosisPanel[],
+  ) => Promise<{ outcome: VisualRepairExecutionOutcome; partialFailure?: boolean }>;
 }) {
   const [expandedPanel, setExpandedPanel] = useState<number | null>(null);
   const [retrying, setRetrying] = useState(false);
@@ -305,6 +309,38 @@ function VisualScoreSection({
     setRewriteDialogPanel(panel);
     setRewritePromptValue(panel.repair.suggestedPrompt ?? panel.promptSnapshot);
     setIncludeSuggestedNegativePrompt(Boolean(panel.repair.suggestedNegativePrompt));
+  };
+
+  const handleBatchPatch = async (panels: VisualDiagnosisPanel[]) => {
+    if (!onExecuteBatchDiagnosisPatch || panels.length === 0) return;
+
+    setRepairStatus({
+      mode: "patch",
+      status: "running",
+      message: `正在修复 ${panels.length} 个面板...`,
+    });
+    setRepairingDiagnosisPanel(true);
+
+    try {
+      const result = await onExecuteBatchDiagnosisPatch(panels);
+      setRepairStatus({
+        mode: "patch",
+        status: "completed",
+        message: result.partialFailure
+          ? "部分面板修复失败，请逐个检查"
+          : result.outcome === "improved"
+            ? "修复完成，视觉评分已更新"
+            : "修复完成，但当前评分未改善",
+      });
+    } catch {
+      setRepairStatus({
+        mode: "patch",
+        status: "failed",
+        message: "修复失败，请重试",
+      });
+    } finally {
+      setRepairingDiagnosisPanel(false);
+    }
   };
 
   return (
@@ -492,6 +528,11 @@ function VisualScoreSection({
               }
             : undefined}
           onApplyRewrite={onExecuteDiagnosisRepair ? handleOpenRewrite : undefined}
+          onApplyBatchPatch={onExecuteBatchDiagnosisPatch
+            ? (panels) => {
+                void handleBatchPatch(panels);
+              }
+            : undefined}
           repairStatus={repairStatus}
         />
       )}
@@ -752,6 +793,81 @@ export function QualityScorePanel({
     }
   };
 
+  const executeBatchDiagnosisPatch = async (
+    panels: VisualDiagnosisPanel[],
+  ): Promise<{ outcome: VisualRepairExecutionOutcome; partialFailure?: boolean }> => {
+    if (!visualScore) {
+      throw new Error("视觉评分尚未完成");
+    }
+    if (!onRunDiagnosisRepair || !onBeginVisualRepairExecution || !onCompleteVisualRepairExecution || !onFailVisualRepairExecution) {
+      throw new Error("诊断修复执行链路尚未配置");
+    }
+    if (panels.length === 0) {
+      throw new Error("没有可批量修复的面板");
+    }
+
+    const startedAt = new Date().toISOString();
+    const panelIndices = panels.map((panel) => panel.panelIndex);
+    await onBeginVisualRepairExecution({
+      panelIndices,
+      mode: "batch_patch",
+      startedAt,
+    });
+
+    let failedCount = 0;
+    let latestTask: GenerateTask | null = null;
+
+    try {
+      for (const panel of panels) {
+        const currentPanel = script.panels[panel.panelIndex];
+        if (!currentPanel) {
+          failedCount += 1;
+          continue;
+        }
+
+        const execution = buildDiagnosisRepairExecution({
+          panel,
+          currentPrompt: currentPanel.imagePrompt,
+          mode: "patch",
+        });
+
+        try {
+          latestTask = await onRunDiagnosisRepair(
+            [panel.panelIndex],
+            new Map<number, string>([[panel.panelIndex, execution.prompt]]),
+            execution.negativeTerms.length > 0
+              ? new Map<number, string[]>([[panel.panelIndex, execution.negativeTerms]])
+              : undefined,
+          );
+        } catch {
+          failedCount += 1;
+        }
+      }
+
+      if (!latestTask?.script) {
+        throw new Error("批量修复后未能获取最新任务");
+      }
+
+      const vlm = resolveSelectedVLM();
+      const reevaluatedScore = await evaluateVisualQuality(latestTask.script, vlm);
+      const outcome = classifyRepairOutcome(visualScore.overall, reevaluatedScore.overall);
+
+      await onCompleteVisualRepairExecution(reevaluatedScore, outcome, new Date().toISOString());
+      setVisualScore(reevaluatedScore);
+      setVisualDiagnosisStale(true);
+
+      return {
+        outcome,
+        partialFailure: failedCount > 0,
+      };
+    } catch (err) {
+      try {
+        await Promise.resolve(onFailVisualRepairExecution(new Date().toISOString()));
+      } catch {}
+      throw err;
+    }
+  };
+
   const hasAnyScore = score || visualScore;
   const vlmOptions = getVLMOptions();
 
@@ -783,7 +899,7 @@ export function QualityScorePanel({
         <TextScoreSection score={score} loading={loadingText} error={errorText} onEvaluate={handleTextEvaluate} />
 
         {/* VLM 视觉评分 */}
-        <VisualScoreSection score={visualScore} loading={loadingVisual} error={errorVisual} onEvaluate={handleVisualEvaluate} onRetryLowPanels={onRetryPanels} script={script} vlmOptions={vlmOptions} selectedVLMOption={selectedVLMOption} onVLMOptionChange={setSelectedVLMOption} diagnosisReport={visualDiagnosisReport} diagnosisState={visualDiagnosisState} diagnosisStale={visualDiagnosisStale} diagnosisLoading={loadingDiagnosis} diagnosisError={errorDiagnosis} onRunDiagnosis={handleRunDiagnosis} onExecuteDiagnosisRepair={executeDiagnosisRepair} />
+        <VisualScoreSection score={visualScore} loading={loadingVisual} error={errorVisual} onEvaluate={handleVisualEvaluate} onRetryLowPanels={onRetryPanels} script={script} vlmOptions={vlmOptions} selectedVLMOption={selectedVLMOption} onVLMOptionChange={setSelectedVLMOption} diagnosisReport={visualDiagnosisReport} diagnosisState={visualDiagnosisState} diagnosisStale={visualDiagnosisStale} diagnosisLoading={loadingDiagnosis} diagnosisError={errorDiagnosis} onRunDiagnosis={handleRunDiagnosis} onExecuteDiagnosisRepair={executeDiagnosisRepair} onExecuteBatchDiagnosisPatch={executeBatchDiagnosisPatch} />
       </div>
     </div>
   );

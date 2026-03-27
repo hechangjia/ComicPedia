@@ -5,7 +5,7 @@ import type { VisualDiagnosisPanel, VisualRepairExecutionMode, VisualRepairExecu
 import { VisualDiagnosisPromptDiff } from "./VisualDiagnosisPromptDiff";
 
 export interface VisualDiagnosisRepairStatusView {
-  panelIndex: number;
+  panelIndex?: number;
   mode: Extract<VisualRepairExecutionMode, "patch" | "rewrite">;
   status: VisualRepairExecutionStatus;
   message: string;
