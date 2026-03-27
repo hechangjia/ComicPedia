@@ -307,7 +307,7 @@ export default function ResultPage() {
         {task.narrativeOutline && (
           <details className="text-left mx-auto max-w-lg no-print">
             <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors">
-              Director Outline ({task.narrativeOutline.totalPanels} panels)
+              Director Outline ({task.narrativeOutline.totalPanels} panels / {task.narrativeOutline.templateType})
             </summary>
             <div className="mt-2 p-3 rounded-lg bg-muted/50 text-xs space-y-2">
               {task.narrativeOutline.narrativeArc && (
@@ -315,6 +315,9 @@ export default function ResultPage() {
               )}
               <p className="text-muted-foreground">
                 Info distribution: {task.narrativeOutline.infoDistribution}
+              </p>
+              <p className="text-muted-foreground">
+                Source: {task.narrativeOutline.source ?? "legacy"}
               </p>
               {task.narrativeOutline.characterList.length > 0 && (
                 <div className="flex flex-wrap gap-1">
@@ -328,9 +331,11 @@ export default function ResultPage() {
               <ol className="list-decimal pl-4 text-muted-foreground space-y-0.5">
                 {task.narrativeOutline.panels.map((p, i) => (
                   <li key={i}>
-                    <span className="font-medium">[{p.narrativeFunction}]</span>{" "}
+                    <span className="font-medium">[{p.narrativeFunction} / {p.beatRole}]</span>{" "}
                     {p.keyInfo}{" "}
-                    <span className="text-[10px] opacity-60">({p.suggestedComposition}, {p.infoDensity})</span>
+                    <span className="text-[10px] opacity-60">
+                      ({p.shotIntent}, {p.suggestedComposition}, {p.infoDensity}, goal: {p.knowledgeGoal})
+                    </span>
                   </li>
                 ))}
               </ol>
