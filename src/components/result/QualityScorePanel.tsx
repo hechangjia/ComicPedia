@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { ComicScript, VisualDiagnosisReport, VisualDiagnosisState, VisualQualityScore, PartialLLMConfig, UserLLMConfig } from "@/lib/types";
 import { evaluateQuality, type QualityScore } from "@/lib/qualityScore";
 import { evaluateVisualQuality } from "@/lib/vlmScorer";
+import { runVisualDiagnosisFlow } from "@/lib/vlmDiagnosis";
 import { getStoredConfigs } from "@/hooks/useAPIConfig";
 import { generatePromptPatch, applyPromptPatch, shouldAutoRetry, type PromptPatch } from "@/lib/vlmRetry";
 import { VisualDiagnosisWorkbench } from "./VisualDiagnosisWorkbench";
@@ -18,6 +19,7 @@ interface QualityScorePanelProps {
   onSaveQualityScore?: (score: QualityScore) => Promise<void> | void;
   onSaveVisualQualityScore?: (score: VisualQualityScore) => Promise<void> | void;
   onSaveVisualDiagnosisReport?: (report: VisualDiagnosisReport) => Promise<void> | void;
+  onSaveVisualDiagnosisFailure?: () => Promise<void> | void;
   /** Callback to trigger targeted regeneration of specific panels */
   onRetryPanels?: (panelIndices: number[], patchedPrompts: Map<number, string>, patches?: Map<number, PromptPatch>) => Promise<void> | void;
 }
@@ -149,6 +151,9 @@ function VisualScoreSection({
   diagnosisReport,
   diagnosisState,
   diagnosisStale,
+  diagnosisLoading,
+  diagnosisError,
+  onRunDiagnosis,
 }: {
   score: VisualQualityScore | null;
   loading: boolean;
@@ -162,6 +167,9 @@ function VisualScoreSection({
   diagnosisReport?: VisualDiagnosisReport | null;
   diagnosisState?: VisualDiagnosisState;
   diagnosisStale?: boolean;
+  diagnosisLoading?: boolean;
+  diagnosisError?: string;
+  onRunDiagnosis?: () => void;
 }) {
   const [expandedPanel, setExpandedPanel] = useState<number | null>(null);
   const [retrying, setRetrying] = useState(false);
@@ -241,14 +249,17 @@ function VisualScoreSection({
           <p className="text-xs font-medium text-muted-foreground">深入诊断</p>
           <button
             type="button"
-            disabled
-            className="px-2 py-1 text-[10px] rounded border opacity-50 cursor-not-allowed"
+            disabled={!onRunDiagnosis || diagnosisLoading}
+            onClick={() => onRunDiagnosis?.()}
+            className="px-2 py-1 text-[10px] rounded border hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            运行深入诊断
+            {diagnosisLoading ? "诊断中..." : "运行深入诊断"}
           </button>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          {diagnosisState === "failed"
+          {diagnosisState === "running"
+            ? "正在生成问题格审计卡..."
+            : diagnosisState === "failed"
             ? "深入诊断失败，可稍后重试"
             : diagnosisStale
               ? "当前诊断已过期，建议重新运行"
@@ -256,6 +267,7 @@ function VisualScoreSection({
                 ? "已生成结构化审计卡"
                 : "可针对低分格生成结构化审计卡"}
         </p>
+        {diagnosisError && <p className="text-xs text-red-500">{diagnosisError}</p>}
       </div>
 
       {/* 每面板评分（可折叠） */}
@@ -423,6 +435,7 @@ export function QualityScorePanel({
   onSaveQualityScore,
   onSaveVisualQualityScore,
   onSaveVisualDiagnosisReport,
+  onSaveVisualDiagnosisFailure,
   onRetryPanels,
 }: QualityScorePanelProps) {
   const [score, setScore] = useState<QualityScore | null>(cachedScore ?? null);
@@ -432,8 +445,10 @@ export function QualityScorePanel({
   const [visualDiagnosisStale, setVisualDiagnosisStale] = useState(Boolean(cachedVisualDiagnosisStale));
   const [loadingText, setLoadingText] = useState(false);
   const [loadingVisual, setLoadingVisual] = useState(false);
+  const [loadingDiagnosis, setLoadingDiagnosis] = useState(false);
   const [errorText, setErrorText] = useState("");
   const [errorVisual, setErrorVisual] = useState("");
+  const [errorDiagnosis, setErrorDiagnosis] = useState("");
   const [selectedVLMOption, setSelectedVLMOption] = useState("");
 
   useEffect(() => {
@@ -490,6 +505,22 @@ export function QualityScorePanel({
     return options;
   };
 
+  const resolveSelectedVLM = (): PartialLLMConfig => {
+    if (selectedVLMOption) {
+      const configs = getStoredConfigs();
+      const [type, id] = selectedVLMOption.split(":");
+      let found: UserLLMConfig | undefined;
+      if (type === "vlm") {
+        found = (configs.vlmConfigs || []).find((c) => c.id === id);
+      } else {
+        found = configs.llmConfigs.find((c) => c.id === id);
+      }
+      if (!found) throw new Error("所选配置不存在");
+      return { apiUrl: found.apiUrl, apiKey: found.apiKey, model: found.model, provider: found.protocolType };
+    }
+    return getActiveVLM();
+  };
+
   const handleTextEvaluate = async () => {
     setLoadingText(true);
     setErrorText("");
@@ -509,22 +540,7 @@ export function QualityScorePanel({
     setLoadingVisual(true);
     setErrorVisual("");
     try {
-      let vlm: PartialLLMConfig;
-      if (selectedVLMOption) {
-        // Resolve from selected option
-        const configs = getStoredConfigs();
-        const [type, id] = selectedVLMOption.split(":");
-        let found: UserLLMConfig | undefined;
-        if (type === "vlm") {
-          found = (configs.vlmConfigs || []).find((c) => c.id === id);
-        } else {
-          found = configs.llmConfigs.find((c) => c.id === id);
-        }
-        if (!found) throw new Error("所选配置不存在");
-        vlm = { apiUrl: found.apiUrl, apiKey: found.apiKey, model: found.model, provider: found.protocolType };
-      } else {
-        vlm = getActiveVLM();
-      }
+      const vlm = resolveSelectedVLM();
       const result = await evaluateVisualQuality(script, vlm);
       setVisualScore(result);
       await onSaveVisualQualityScore?.(result);
@@ -535,6 +551,33 @@ export function QualityScorePanel({
     }
   };
 
+  const handleRunDiagnosis = async () => {
+    if (!visualScore || !onSaveVisualDiagnosisReport) return;
+
+    setLoadingDiagnosis(true);
+    setErrorDiagnosis("");
+    setVisualDiagnosisState("running");
+
+    try {
+      const vlm = resolveSelectedVLM();
+      const report = await runVisualDiagnosisFlow({
+        script,
+        visualScore,
+        vlmConfig: vlm,
+        saveReport: onSaveVisualDiagnosisReport,
+        saveFailure: onSaveVisualDiagnosisFailure,
+      });
+      setVisualDiagnosisReport(report);
+      setVisualDiagnosisState("succeeded");
+      setVisualDiagnosisStale(false);
+    } catch (err) {
+      setVisualDiagnosisState("failed");
+      setErrorDiagnosis(err instanceof Error ? err.message : "深入诊断失败");
+    } finally {
+      setLoadingDiagnosis(false);
+    }
+  };
+
   const hasAnyScore = score || visualScore;
   const vlmOptions = getVLMOptions();
 
@@ -542,7 +585,7 @@ export function QualityScorePanel({
     return (
       <div className="flex flex-wrap justify-center gap-2 no-print">
         <TextScoreSection score={null} loading={loadingText} error={errorText} onEvaluate={handleTextEvaluate} />
-        <VisualScoreSection score={null} loading={loadingVisual} error={errorVisual} onEvaluate={handleVisualEvaluate} onRetryLowPanels={onRetryPanels} script={script} vlmOptions={vlmOptions} selectedVLMOption={selectedVLMOption} onVLMOptionChange={setSelectedVLMOption} diagnosisReport={visualDiagnosisReport} diagnosisState={visualDiagnosisState} diagnosisStale={visualDiagnosisStale} />
+        <VisualScoreSection score={null} loading={loadingVisual} error={errorVisual} onEvaluate={handleVisualEvaluate} onRetryLowPanels={onRetryPanels} script={script} vlmOptions={vlmOptions} selectedVLMOption={selectedVLMOption} onVLMOptionChange={setSelectedVLMOption} diagnosisReport={visualDiagnosisReport} diagnosisState={visualDiagnosisState} diagnosisStale={visualDiagnosisStale} diagnosisLoading={loadingDiagnosis} diagnosisError={errorDiagnosis} onRunDiagnosis={handleRunDiagnosis} />
       </div>
     );
   }
@@ -566,7 +609,7 @@ export function QualityScorePanel({
         <TextScoreSection score={score} loading={loadingText} error={errorText} onEvaluate={handleTextEvaluate} />
 
         {/* VLM 视觉评分 */}
-        <VisualScoreSection score={visualScore} loading={loadingVisual} error={errorVisual} onEvaluate={handleVisualEvaluate} onRetryLowPanels={onRetryPanels} script={script} vlmOptions={vlmOptions} selectedVLMOption={selectedVLMOption} onVLMOptionChange={setSelectedVLMOption} diagnosisReport={visualDiagnosisReport} diagnosisState={visualDiagnosisState} diagnosisStale={visualDiagnosisStale} />
+        <VisualScoreSection score={visualScore} loading={loadingVisual} error={errorVisual} onEvaluate={handleVisualEvaluate} onRetryLowPanels={onRetryPanels} script={script} vlmOptions={vlmOptions} selectedVLMOption={selectedVLMOption} onVLMOptionChange={setSelectedVLMOption} diagnosisReport={visualDiagnosisReport} diagnosisState={visualDiagnosisState} diagnosisStale={visualDiagnosisStale} diagnosisLoading={loadingDiagnosis} diagnosisError={errorDiagnosis} onRunDiagnosis={handleRunDiagnosis} />
       </div>
     </div>
   );

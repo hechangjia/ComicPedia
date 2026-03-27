@@ -139,13 +139,13 @@ export function pickDiagnosisCandidates(
 
 export function buildDiagnosisPrompt(input: DiagnosisPromptInput): string {
   const weakDimensions = [
-    ["textImageAlignment", input.panelScore.textImageAlignment],
-    ["styleAdherence", input.panelScore.styleAdherence],
-    ["artifactScore", input.panelScore.artifactScore],
-    ["compositionQuality", input.panelScore.compositionQuality],
+    { dimension: "textImageAlignment", score: input.panelScore.textImageAlignment },
+    { dimension: "styleAdherence", score: input.panelScore.styleAdherence },
+    { dimension: "artifactScore", score: input.panelScore.artifactScore },
+    { dimension: "compositionQuality", score: input.panelScore.compositionQuality },
   ]
-    .filter(([, score]) => score < 6)
-    .map(([dimension]) => dimension);
+    .filter((item) => item.score < 6)
+    .map((item) => item.dimension);
 
   return `You are a visual diagnosis expert for AI-generated comic panels.
 
@@ -305,4 +305,29 @@ export async function evaluateVisualDiagnosis(
     summary: summarizeDiagnosisReport(diagnosedPanels),
     panels: diagnosedPanels,
   };
+}
+
+export async function runVisualDiagnosisFlow({
+  script,
+  visualScore,
+  vlmConfig,
+  targetPanels,
+  saveReport,
+  saveFailure,
+}: {
+  script: ComicScript;
+  visualScore: VisualQualityScore;
+  vlmConfig: PartialLLMConfig;
+  targetPanels?: number[];
+  saveReport: (report: VisualDiagnosisReport) => Promise<void> | void;
+  saveFailure?: () => Promise<void> | void;
+}): Promise<VisualDiagnosisReport> {
+  try {
+    const report = await evaluateVisualDiagnosis(script, visualScore, vlmConfig, targetPanels);
+    await saveReport(report);
+    return report;
+  } catch (error) {
+    await saveFailure?.();
+    throw error;
+  }
 }

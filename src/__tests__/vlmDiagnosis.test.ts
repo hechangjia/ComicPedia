@@ -7,6 +7,7 @@ import {
   evaluateVisualDiagnosis,
   parseDiagnosisResponse,
   pickDiagnosisCandidates,
+  runVisualDiagnosisFlow,
   summarizeDiagnosisReport,
 } from "@/lib/vlmDiagnosis";
 
@@ -346,5 +347,68 @@ describe("evaluateVisualDiagnosis", () => {
 
     expect(report.panels.map((panel) => panel.panelIndex)).toEqual([2]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("runVisualDiagnosisFlow", () => {
+  it("persists the generated diagnosis report on success", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              issues: [
+                {
+                  issueType: "composition_mismatch",
+                  severity: "high",
+                  affectedDimensions: ["compositionQuality"],
+                  evidence: "Main subject is cropped out of frame",
+                  modelConfidence: "high",
+                  ambiguityPenalty: "low",
+                },
+              ],
+              repair: {
+                suggestedPrompt: "A wider shot that keeps the main subject fully visible.",
+                expectedImprovement: ["Keeps the main subject in frame"],
+              },
+            }),
+          },
+        }],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const saveReport = vi.fn();
+
+    const report = await runVisualDiagnosisFlow({
+      script: makeScript(),
+      visualScore: makeVisualScore(),
+      vlmConfig: { apiUrl: "https://example.com/v1", model: "gpt-4o", provider: "openai-compatible", apiKey: "test" },
+      saveReport,
+    });
+
+    expect(report.panels).toHaveLength(2);
+    expect(saveReport).toHaveBeenCalledTimes(1);
+    expect(saveReport).toHaveBeenCalledWith(report);
+  });
+
+  it("marks failure when diagnosis execution throws", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({}),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const saveFailure = vi.fn();
+
+    await expect(runVisualDiagnosisFlow({
+      script: makeScript(),
+      visualScore: makeVisualScore(),
+      vlmConfig: { apiUrl: "https://example.com/v1", model: "gpt-4o", provider: "openai-compatible", apiKey: "test" },
+      saveReport: vi.fn(),
+      saveFailure,
+    })).rejects.toThrow("VLM evaluation failed: 500");
+
+    expect(saveFailure).toHaveBeenCalledTimes(1);
   });
 });

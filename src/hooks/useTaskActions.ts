@@ -22,7 +22,7 @@ import { getTask, saveTask } from "@/lib/client/db";
 import { notifyListeners } from "@/lib/client/eventBus";
 import { getStoredRequestConfigs } from "@/hooks/useAPIConfig";
 import { buildPanelReview, buildTaskReviewStatus, type PromptPatch } from "@/lib/vlmRetry";
-import { invalidateDiagnosis, markDiagnosisSucceeded } from "@/lib/vlmDiagnosisState";
+import { invalidateDiagnosis, markDiagnosisFailed, markDiagnosisSucceeded } from "@/lib/vlmDiagnosisState";
 
 export function applyVisualQualityScoreUpdate(task: GenerateTask, visualQualityScore: VisualQualityScore): GenerateTask {
   task.visualQualityScore = visualQualityScore;
@@ -39,6 +39,11 @@ export function applyVisualDiagnosisReportUpdate(task: GenerateTask, report: Vis
 
 export function applyDiagnosisInvalidation(task: GenerateTask): GenerateTask {
   invalidateDiagnosis(task);
+  return task;
+}
+
+export function applyVisualDiagnosisFailureUpdate(task: GenerateTask): GenerateTask {
+  markDiagnosisFailed(task);
   return task;
 }
 
@@ -144,6 +149,20 @@ export function useTaskActions(
       }
     },
     [persistTaskUpdate, showError],
+  );
+
+  const handleSaveVisualDiagnosisFailure = useCallback(
+    async () => {
+      try {
+        await persistTaskUpdate((task) => {
+          applyVisualDiagnosisFailureUpdate(task);
+        });
+      } catch (err) {
+        console.error("Visual diagnosis failure persistence failed:", err);
+        throw err;
+      }
+    },
+    [persistTaskUpdate],
   );
 
   const persistDiagnosisInvalidation = useCallback(async () => {
@@ -407,6 +426,7 @@ export function useTaskActions(
     handleSaveQualityScore,
     handleSaveVisualQualityScore,
     handleSaveVisualDiagnosisReport,
+    handleSaveVisualDiagnosisFailure,
     handlePanelUpdate,
     handleRegenerate,
     handleCancel,

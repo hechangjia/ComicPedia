@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { GenerateTask, VisualDiagnosisReport } from "@/lib/types";
 import {
   applyDiagnosisInvalidation,
+  applyVisualDiagnosisFailureUpdate,
   applyVisualDiagnosisReportUpdate,
   applyVisualQualityScoreUpdate,
 } from "@/hooks/useTaskActions";
@@ -136,6 +137,18 @@ describe("applyDiagnosisInvalidation", () => {
     applyDiagnosisInvalidation(task);
 
     expect(task.visualDiagnosisStale).toBe(true);
+  });
+});
+
+describe("applyVisualDiagnosisFailureUpdate", () => {
+  it("marks diagnosis state as failed without deleting the last report", () => {
+    const task = makeTask();
+    applyVisualDiagnosisReportUpdate(task, makeDiagnosisReport());
+
+    applyVisualDiagnosisFailureUpdate(task);
+
+    expect(task.visualDiagnosisState).toBe("failed");
+    expect(task.visualDiagnosisReport).toBeDefined();
   });
 });
 
