@@ -9,6 +9,7 @@ import {
   PartialLLMConfig,
   PartialImageGenConfig,
 } from "@/lib/types";
+import { createEmptyAccuracyConfig, normalizeAccuracyConfig } from "@/lib/accuracy/providerConfig";
 
 const STORAGE_KEY = "comicpedia_api_config";
 const CONFIG_VERSION = 2;
@@ -41,6 +42,7 @@ function createEmptyConfig(): UserAPIConfigV2 {
     llmConfigs: [],
     imageConfigs: [],
     vlmConfigs: [],
+    accuracyConfig: createEmptyAccuracyConfig(),
     activeLLMId: null,
     activeImageId: null,
     activeVLMId: null,
@@ -111,6 +113,7 @@ function loadConfig(): UserAPIConfigV2 {
       // Ensure vlmConfigs exists (backward compat with pre-VLM configs)
       if (!cfg.vlmConfigs) cfg.vlmConfigs = [];
       if (cfg.activeVLMId === undefined) cfg.activeVLMId = null;
+      cfg.accuracyConfig = normalizeAccuracyConfig(cfg.accuracyConfig);
       return cfg;
     }
 
@@ -128,6 +131,7 @@ function saveConfig(config: UserAPIConfigV2): void {
 
   const nextConfig: UserAPIConfigV2 = {
     ...config,
+    accuracyConfig: normalizeAccuracyConfig(config.accuracyConfig),
     updatedAt: new Date().toISOString(),
   };
 

@@ -502,6 +502,40 @@ export interface PartialImageGenConfig {
 /** API 提供商 */
 export type APIProvider = "deepseek" | "openai" | "claude" | "gemini" | "nano-banana" | "z-image" | "ollama" | "comfyui" | "custom";
 
+export type AccuracyProviderKind = "search" | "fetch";
+export type AccuracyProviderVendor = "firecrawl" | "tavily" | "custom";
+export type AccuracyProviderHealthStatus = "idle" | "success" | "error";
+
+export interface AccuracyProviderConfig {
+  id: string;
+  name: string;
+  kind: AccuracyProviderKind;
+  vendor: AccuracyProviderVendor;
+  baseUrl: string;
+  apiKey?: string;
+  hasApiKey?: boolean;
+  maskedApiKey?: string;
+  capabilities: string[];
+  enabled: boolean;
+  priority: number;
+  healthStatus?: AccuracyProviderHealthStatus;
+  lastCheckedAt?: string;
+  lastError?: string;
+}
+
+export interface AccuracyProviderSlots {
+  primarySearch: string | null;
+  fallbackSearch: string | null;
+  primaryFetch: string | null;
+  fallbackFetch: string | null;
+}
+
+export interface AccuracySettings {
+  providers: AccuracyProviderConfig[];
+  slots: AccuracyProviderSlots;
+  whitelistDomains: string[];
+}
+
 /** 用户 LLM 配置 */
 export interface UserLLMConfig {
   id: string;
@@ -541,6 +575,8 @@ export interface UserAPIConfigV2 {
   imageConfigs: UserImageConfig[];
   /** VLM（视觉语言模型）配置，复用 LLM 配置格式 */
   vlmConfigs?: UserLLMConfig[];
+  /** Accuracy research provider registry and retrieval settings */
+  accuracyConfig: AccuracySettings;
   activeLLMId: string | null;
   activeImageId: string | null;
   activeVLMId?: string | null;
