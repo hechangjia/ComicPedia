@@ -808,6 +808,7 @@ describe("taskLifecycle scripting director beat plan", () => {
     vi.mocked(validateScript).mockReset();
 
     vi.mocked(generateTopicResearch).mockResolvedValue({
+      originalTopic: "为什么会打雷",
       expandedDescription: "expanded topic",
       keyFacts: ["fact 1"],
       narrativeAngle: "angle 1",

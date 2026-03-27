@@ -1,5 +1,86 @@
 # Handoff
 
+## 最新进展（2026-03-27 Narrative Beat Plan）
+
+### 当前目标
+- `science` / `wikipedia` 的脚本生成已升级为带有 director beat plan 的叙事基线。
+- 当前这轮实现已经覆盖：director 数据结构、prompt 注入、validator、repair、以及最小调试观测面。
+- 这轮**没有**扩到 provider 配置体系、事实准确性闭环、导出升级或用户可见的节奏选择器。
+
+### 本次已完成内容
+- 扩展 `NarrativeOutline` / `PanelBlueprint`，加入：
+  - `templateType`
+  - `source`
+  - `beatRole`
+  - `shotIntent`
+  - `knowledgeGoal`
+  - `intensity`
+  - `carryForward`
+- 升级 `src/lib/director.ts`：
+  - 生成更丰富的 beat-plan 结构
+  - 解析并容错新字段
+  - `buildOutlineGuidance()` 输出 beat-plan 级指导文本
+- `science` / `wikipedia` prompt 现在直接接收 `narrativeOutline`，不再只依赖把 outline 文本拼进 topic。
+- `validateScript()` 新增 `science` / `wikipedia` 专属 rhythm 校验：
+  - 开场缺少钩子
+  - 叙事职责重复
+  - 镜头意图重复
+  - 缺少强镜头变化（无 `hook-closeup` / `contrast`）
+  - 结尾缺少 `reveal` / `aftermath`
+  - 单格信息堆积
+- `repairScript()` 现在接收 rhythm context，并在 prompt 中明确：
+  - validator 结论优先
+  - 局部修复优先
+  - 尽量保留未受影响面板
+- 结果页和 `PipelineSummary` 已能展示 richer outline metadata：
+  - `templateType`
+  - `beatRole`
+  - `shotIntent`
+  - `knowledgeGoal`
+
+### 关键文件
+- `src/lib/types.ts`
+- `src/lib/director.ts`
+- `src/lib/llm.ts`
+- `src/lib/contentRegistry.ts`
+- `src/lib/client/taskLifecycle.ts`
+- `src/lib/scriptValidator.ts`
+- `src/lib/scriptRepair.ts`
+- `src/lib/pipelineSummary.ts`
+- `src/prompts/scriptGenerator.ts`
+- `src/prompts/wikipediaGenerator.ts`
+- `src/components/result/PipelineSummary.tsx`
+- `src/app/result/[id]/page.tsx`
+- `src/__tests__/director.test.ts`
+- `src/__tests__/contentRegistry.test.ts`
+- `src/__tests__/taskLifecycle.test.ts`
+- `src/__tests__/scriptValidator.test.ts`
+- `src/__tests__/scriptRepair.test.ts`
+- `src/__tests__/pipelineSummary.test.ts`
+
+### 已完成验证
+- `pnpm vitest run src/__tests__/director.test.ts src/__tests__/contentRegistry.test.ts src/__tests__/taskLifecycle.test.ts src/__tests__/scriptValidator.test.ts src/__tests__/scriptRepair.test.ts src/__tests__/pipelineSummary.test.ts`
+- `pnpm exec tsc --noEmit`
+- `pnpm build`
+
+### 尚未完成 / 明确延后
+- `science` / `wikipedia` 的事实准确性闭环还没做
+- 用户可见的“叙事节奏”选择器还没做
+- VLM 按节奏评审图片还没做
+- provider / model 配置体系没有重构
+- 导出、分享、角色工作流没有跟着升级
+
+### 当前风险
+- rhythm 规则目前主要依赖 outline + 轻规则判断，仍有可能出现“结构合格但观感一般”的情况
+- 开场钩子 / 平结尾判断还是启发式规则，后续可能需要更多 golden samples 调校
+- 本轮没有跑浏览器级手工 smoke；当前验证主要是单测、类型检查、构建
+
+### 下次启动后优先动作
+1. 决定是否把当前实现从 worktree 分支合并回 `dev`
+2. 用 2-4 个代表性主题做真实脚本生成比对（如：打雷、彩虹、女娲、DNA）
+3. 如果观感明显提升，再决定是否继续做用户可见的 pacing selector
+4. 下一独立子课题优先建议做“科普准确性闭环”，而不是继续扩展更多模板
+
 ## 当前目标
 - `comic-review-loop` 变更的代码、验证和文档已经收尾，当前仅剩是否归档 change 的流程性动作。
 - “允许引导角色”开关已落地，神话/历史题材默认不会再被额外塞进 `explorer / guide / narrator` 这类泛化引导角色。
