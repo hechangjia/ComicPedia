@@ -9,6 +9,16 @@ function toListItem(task: GenerateTask) {
     id: task.id,
     status: task.status,
     progress: task.progress,
+    reviewStatus: task.reviewStatus,
+    lastReviewAt: task.lastReviewAt,
+    visualQualityScore: task.visualQualityScore ? {
+      overall: task.visualQualityScore.overall,
+      retryRecommendations: task.visualQualityScore.retryRecommendations,
+    } : undefined,
+    visualRetrySummary: task.visualRetrySummary ? {
+      status: task.visualRetrySummary.status,
+      finalOverallScore: task.visualRetrySummary.finalOverallScore,
+    } : undefined,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
     script: task.script ? {
