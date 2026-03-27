@@ -125,6 +125,15 @@ describe("applyPromptPatch", () => {
     expect(result).toContain("best quality");
   });
 
+  it("appends to blank prompt without leading comma", () => {
+    const result = applyPromptPatch("   ", {
+      positive: ["heroic silhouette"],
+      negative: [],
+    });
+
+    expect(result).toBe("heroic silhouette");
+  });
+
   it("returns original when all terms already exist", () => {
     const result = applyPromptPatch("a cat, sharp focus, best quality", {
       positive: ["sharp focus", "best quality"],

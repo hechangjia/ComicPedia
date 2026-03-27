@@ -80,6 +80,17 @@ describe("visual diagnosis repair helpers", () => {
     expect(rewrite.negativePrompt).toBe("dusty");
   });
 
+  test("applyDiagnosisRewrite collapses whitespace-negative prompt to undefined", () => {
+    const rewrite = applyDiagnosisRewrite({
+      prompt: "old prompt",
+      negativePrompt: "   ",
+      suggestedPrompt: "wide shots",
+      includeSuggestedNegativePrompt: false,
+    });
+
+    expect(rewrite.negativePrompt).toBeUndefined();
+  });
+
   test("applyDiagnosisRewrite deduplicates comma-delimited suggested negative prompt", () => {
     const rewrite = applyDiagnosisRewrite({
       prompt: "old prompt",

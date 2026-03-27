@@ -13,6 +13,7 @@ import type {
   VisualRepairMode,
 } from "./types";
 import { extractJsonObject } from "./utils";
+import { applyPromptPatch } from "./vlmRetry";
 import { callVisionModel, resolveImageToBase64 } from "./vlmScorer";
 
 type TrustInput = {
@@ -259,29 +260,6 @@ function normalizeTerms(list: string[] | undefined): string[] {
   return (list ?? []).map((term) => term.trim()).filter(Boolean);
 }
 
-function appendPositiveTerms(currentPrompt: string, additions: string[]): string {
-  const normalizedPrompt = currentPrompt.toLowerCase();
-  const seen = new Set<string>();
-  const newTerms: string[] = [];
-
-  for (const term of additions) {
-    const normalized = term.toLowerCase();
-    if (seen.has(normalized)) continue;
-    seen.add(normalized);
-    if (normalized && !normalizedPrompt.includes(normalized)) {
-      newTerms.push(term);
-    }
-  }
-
-  if (newTerms.length === 0) return currentPrompt;
-
-  const base = currentPrompt.replace(/,?\s*$/, "");
-  if (!base.trim()) {
-    return newTerms.join(", ");
-  }
-  return `${base}, ${newTerms.join(", ")}`;
-}
-
 export function mergeNegativePrompt(existing?: string, additions?: string[]): string | undefined {
   const seen = new Set<string>();
   const ordered: string[] = [];
@@ -314,7 +292,7 @@ export function applyDiagnosisPatch(input: DiagnosisPatchInput): {
 } {
   const positiveTerms = normalizeTerms(input.patchPositive);
   const patchedPrompt = positiveTerms.length > 0
-    ? appendPositiveTerms(input.prompt, positiveTerms)
+    ? applyPromptPatch(input.prompt, { positive: positiveTerms, negative: [] })
     : input.prompt;
   const negativePrompt = mergeNegativePrompt(input.negativePrompt, input.patchNegative);
   return {
@@ -332,6 +310,10 @@ export function applyDiagnosisRewrite(input: DiagnosisRewriteInput): {
   if (input.includeSuggestedNegativePrompt && input.suggestedNegativePrompt) {
     const suggestedNegativeTerms = input.suggestedNegativePrompt.split(",").map((term) => term.trim()).filter(Boolean);
     negativePrompt = mergeNegativePrompt(negativePrompt, suggestedNegativeTerms);
+  }
+  negativePrompt = negativePrompt?.trim();
+  if (!negativePrompt) {
+    negativePrompt = undefined;
   }
   return {
     prompt: prompt || input.prompt,
