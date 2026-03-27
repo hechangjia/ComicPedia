@@ -132,6 +132,15 @@ describe("applyPromptPatch", () => {
     });
     expect(result).toBe("a cat, sharp focus, best quality");
   });
+
+  it("appends to blank prompt without leading comma", () => {
+    const result = applyPromptPatch("   ", {
+      positive: ["heroic silhouette"],
+      negative: [],
+    });
+
+    expect(result).toBe("heroic silhouette");
+  });
 });
 
 describe("shouldAutoRetry", () => {

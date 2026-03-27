@@ -13,6 +13,7 @@ import type {
   VisualRepairMode,
 } from "./types";
 import { extractJsonObject } from "./utils";
+import { applyPromptPatch } from "./vlmRetry";
 import { callVisionModel, resolveImageToBase64 } from "./vlmScorer";
 
 type TrustInput = {
@@ -238,6 +239,92 @@ export function parseDiagnosisResponse(
         : [],
     },
   };
+}
+
+interface DiagnosisPatchInput {
+  prompt: string;
+  negativePrompt?: string;
+  patchPositive?: string[];
+  patchNegative?: string[];
+}
+
+interface DiagnosisRewriteInput {
+  prompt: string;
+  negativePrompt?: string;
+  suggestedPrompt?: string;
+  suggestedNegativePrompt?: string;
+  includeSuggestedNegativePrompt?: boolean;
+}
+
+function normalizeTerms(list: string[] | undefined): string[] {
+  return (list ?? []).map((term) => term.trim()).filter(Boolean);
+}
+
+export function mergeNegativePrompt(existing?: string, additions?: string[]): string | undefined {
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+
+  const addTerm = (term: string) => {
+    const trimmed = term.trim();
+    if (!trimmed) return;
+    const normalized = trimmed.toLowerCase();
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    ordered.push(trimmed);
+  };
+
+  if (existing) {
+    for (const part of existing.split(",")) {
+      addTerm(part);
+    }
+  }
+
+  for (const addition of normalizeTerms(additions)) {
+    addTerm(addition);
+  }
+
+  return ordered.length > 0 ? ordered.join(", ") : undefined;
+}
+
+export function applyDiagnosisPatch(input: DiagnosisPatchInput): {
+  prompt: string;
+  negativePrompt?: string;
+} {
+  const positiveTerms = normalizeTerms(input.patchPositive);
+  const patchedPrompt = positiveTerms.length > 0
+    ? applyPromptPatch(input.prompt, { positive: positiveTerms, negative: [] })
+    : input.prompt;
+  const negativePrompt = mergeNegativePrompt(input.negativePrompt, input.patchNegative);
+  return {
+    prompt: patchedPrompt,
+    negativePrompt,
+  };
+}
+
+export function applyDiagnosisRewrite(input: DiagnosisRewriteInput): {
+  prompt: string;
+  negativePrompt?: string;
+} {
+  const prompt = (input.suggestedPrompt?.trim() ?? input.prompt).trim();
+  let negativePrompt = input.negativePrompt?.trim();
+  if (input.includeSuggestedNegativePrompt && input.suggestedNegativePrompt) {
+    const suggestedNegativeTerms = input.suggestedNegativePrompt.split(",").map((term) => term.trim()).filter(Boolean);
+    negativePrompt = mergeNegativePrompt(negativePrompt, suggestedNegativeTerms);
+  }
+  negativePrompt = negativePrompt?.trim();
+  if (!negativePrompt) {
+    negativePrompt = undefined;
+  }
+  return {
+    prompt: prompt || input.prompt,
+    negativePrompt,
+  };
+}
+
+export function classifyRepairOutcome(before: number, after: number): "improved" | "unchanged" | "regressed" {
+  if (after > before) return "improved";
+  if (after < before) return "regressed";
+  return "unchanged";
 }
 
 export function summarizeDiagnosisReport(
