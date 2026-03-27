@@ -351,6 +351,8 @@ export interface GenerateTask {
   };
   factPack?: FactPack;
   researchBrief?: ResearchBrief;
+  accuracyReview?: AccuracyReviewResult;
+  accuracyErrorSummary?: AccuracyErrorSummary;
   /** Narrative outline from Director Agent (guides script generation) */
   narrativeOutline?: NarrativeOutline;
   /** Script quality validation (auto-run after scripting, before script_ready) */
@@ -607,6 +609,52 @@ export interface ResearchBrief {
   sourceTiersUsed: AccuracySourceTier[];
   majorRisks: string[];
   safeToGenerate: boolean;
+}
+
+export interface AccuracyPanelClaim {
+  claimType: "person" | "date" | "number" | "term" | "place" | "event";
+  rawText: string;
+  normalizedValue: string;
+  matchedFactId?: string;
+  matchStatus: "matched" | "conflicting" | "missing" | "ambiguous";
+}
+
+export interface PanelClaimSet {
+  panelIndex: number;
+  hardClaims: AccuracyPanelClaim[];
+  unsupportedClaims: AccuracyPanelClaim[];
+  riskLevel: "low" | "medium" | "high";
+}
+
+export interface AccuracyIssuePanel {
+  panelIndex: number;
+  claimType: AccuracyPanelClaim["claimType"];
+  rawText: string;
+  reason: string;
+  matchedFactId?: string;
+}
+
+export interface AccuracySourceCoverage {
+  anchor: boolean;
+  whitelist: boolean;
+  open_web: boolean;
+}
+
+export interface AccuracyReviewResult {
+  status: "passed" | "repair_required" | "blocked";
+  blockingIssueCount: number;
+  repairableIssueCount: number;
+  panelClaims: PanelClaimSet[];
+  panels: AccuracyIssuePanel[];
+  sourceCoverage: AccuracySourceCoverage;
+}
+
+export interface AccuracyErrorSummary {
+  status: "blocked";
+  blockingIssueCount: number;
+  panels: AccuracyIssuePanel[];
+  generatedAt: string;
+  sourceCoverage: AccuracySourceCoverage;
 }
 
 /** 用户 LLM 配置 */

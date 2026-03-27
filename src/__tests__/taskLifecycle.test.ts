@@ -26,6 +26,8 @@ const {
   withRetryMock,
   mergeReferenceImageMock,
   fetchMock,
+  reviewPanelClaimsMock,
+  repairAccuracyIssuesMock,
 } = vi.hoisted(() => ({
   getTaskMock: vi.fn(),
   saveTaskMock: vi.fn(),
@@ -42,6 +44,8 @@ const {
   withRetryMock: vi.fn(),
   mergeReferenceImageMock: vi.fn(),
   fetchMock: vi.fn(),
+  reviewPanelClaimsMock: vi.fn(),
+  repairAccuracyIssuesMock: vi.fn(),
 }));
 
 vi.mock("@/lib/client/db", () => ({
@@ -96,6 +100,14 @@ vi.mock("@/lib/scriptRepair", () => ({
 vi.mock("@/lib/director", () => ({
   generateNarrativeOutline: vi.fn(),
   buildOutlineGuidance: vi.fn(),
+}));
+
+vi.mock("@/lib/accuracy/claimReview", () => ({
+  reviewPanelClaims: reviewPanelClaimsMock,
+}));
+
+vi.mock("@/lib/accuracy/repair", () => ({
+  repairAccuracyIssues: repairAccuracyIssuesMock,
 }));
 
 vi.mock("@/lib/utils", () => ({
@@ -869,6 +881,8 @@ describe("taskLifecycle scripting director beat plan", () => {
     vi.mocked(generateNarrativeOutline).mockReset();
     vi.mocked(buildOutlineGuidance).mockReset();
     vi.mocked(validateScript).mockReset();
+    reviewPanelClaimsMock.mockReset();
+    repairAccuracyIssuesMock.mockReset();
 
     vi.mocked(generateTopicResearch).mockResolvedValue({
       originalTopic: "为什么会打雷",
@@ -890,6 +904,15 @@ describe("taskLifecycle scripting director beat plan", () => {
       languagePurity: true,
       warnings: [],
     });
+    reviewPanelClaimsMock.mockReturnValue({
+      status: "passed",
+      blockingIssueCount: 0,
+      repairableIssueCount: 0,
+      panelClaims: [],
+      panels: [],
+      sourceCoverage: { anchor: true, whitelist: false, open_web: false },
+    });
+    repairAccuracyIssuesMock.mockResolvedValue(null);
 
     fetchMock.mockReset();
     vi.stubGlobal("fetch", fetchMock);
@@ -1013,6 +1036,103 @@ describe("taskLifecycle scripting director beat plan", () => {
       expect(storedTask?.factPack).toBeDefined();
       const fallbackCall = vi.mocked(generateScript).mock.calls.at(-1);
       expect(fallbackCall?.at(-1)).toEqual(storedTask?.factPack);
+    });
+  });
+
+  it("fails the task when high-risk factual conflicts remain after claim review", async () => {
+    let storedTask: GenerateTask | undefined;
+    saveTaskMock.mockImplementation(async (task: GenerateTask) => {
+      storedTask = task;
+    });
+    getTaskMock.mockImplementation(async () => storedTask);
+    vi.mocked(generateNarrativeOutline).mockResolvedValue(makeBeatPlan());
+    reviewPanelClaimsMock.mockReturnValue({
+      status: "blocked",
+      blockingIssueCount: 1,
+      repairableIssueCount: 0,
+      panelClaims: [
+        {
+          panelIndex: 0,
+          hardClaims: [
+            {
+              claimType: "date",
+              rawText: "1642年",
+              normalizedValue: "1642",
+              matchedFactId: "fact-1",
+              matchStatus: "conflicting",
+            },
+          ],
+          unsupportedClaims: [],
+          riskLevel: "high",
+        },
+      ],
+      panels: [
+        { panelIndex: 0, claimType: "date", rawText: "1642年", reason: "conflicts with fact pack", matchedFactId: "fact-1" },
+      ],
+      sourceCoverage: { anchor: true, whitelist: false, open_web: false },
+    });
+
+    await startGeneration({
+      topic: "为什么会打雷",
+      style: "flat",
+      contentType: "science",
+      quality: "standard",
+      llmConfig: { model: "gpt-4o", provider: "openai-compatible" },
+    });
+
+    await vi.waitFor(() => {
+      expect(storedTask?.status).toBe("failed");
+      expect(storedTask?.error).toBe("高风险事实冲突，脚本未通过准确性校验");
+    });
+  });
+
+  it("runs factual repair for repair_required reviews before entering script_ready", async () => {
+    let storedTask: GenerateTask | undefined;
+    saveTaskMock.mockImplementation(async (task: GenerateTask) => {
+      storedTask = task;
+    });
+    getTaskMock.mockImplementation(async () => storedTask);
+    vi.mocked(generateNarrativeOutline).mockResolvedValue(makeBeatPlan());
+    reviewPanelClaimsMock
+      .mockReturnValueOnce({
+        status: "repair_required",
+        blockingIssueCount: 0,
+        repairableIssueCount: 1,
+        panelClaims: [],
+        panels: [],
+        sourceCoverage: { anchor: true, whitelist: false, open_web: false },
+      })
+      .mockReturnValueOnce({
+        status: "passed",
+        blockingIssueCount: 0,
+        repairableIssueCount: 0,
+        panelClaims: [],
+        panels: [],
+        sourceCoverage: { anchor: true, whitelist: false, open_web: false },
+      });
+    repairAccuracyIssuesMock.mockResolvedValue({
+      ...makeGeneratedScript(),
+      panels: [
+        {
+          ...makeGeneratedScript().panels[0],
+          dialogue: "修复后的事实表达",
+        },
+        makeGeneratedScript().panels[1],
+      ],
+    });
+
+    await startGeneration({
+      topic: "为什么会打雷",
+      style: "flat",
+      contentType: "science",
+      quality: "standard",
+      llmConfig: { model: "gpt-4o", provider: "openai-compatible" },
+    });
+
+    await vi.waitFor(() => {
+      expect(repairAccuracyIssuesMock).toHaveBeenCalledTimes(1);
+      expect(storedTask?.status).toBe("script_ready");
+      expect(storedTask?.script?.panels[0].dialogue).toBe("修复后的事实表达");
     });
   });
 

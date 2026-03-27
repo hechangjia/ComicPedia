@@ -6,6 +6,8 @@ import { repairScript } from "@/lib/scriptRepair";
 import { evaluateQuality } from "@/lib/qualityScore";
 import { evaluateVisualQuality } from "@/lib/vlmScorer";
 import { generateNarrativeOutline } from "@/lib/director";
+import { reviewPanelClaims } from "@/lib/accuracy/claimReview";
+import { repairAccuracyIssues } from "@/lib/accuracy/repair";
 import { shouldAutoRetry, generatePromptPatch, applyPromptPatch, buildPanelReview, buildTaskReviewStatus } from "@/lib/vlmRetry";
 import { getStyleModifier, getStyleNegativePrompt, STYLE_META } from "@/lib/config/styles";
 import { stripDisallowedGuideCharacterFromScript } from "@/lib/guideCharacterPolicy";
@@ -705,6 +707,38 @@ async function processScripting(taskId: string, request: GenerateRequest) {
 
     // ── 角色描述标准化：统一各面板中的角色标签为最详细版本 ──
     applyCanonicalCharacterDesc(script);
+
+    if (task.factPack && (request.contentType === "science" || request.contentType === "wikipedia")) {
+      let accuracyReview = reviewPanelClaims(script, task.factPack);
+
+      if (accuracyReview.status === "repair_required") {
+        const repaired = await repairAccuracyIssues(script, accuracyReview, task.factPack, request.llmConfig);
+        if (repaired) {
+          script = repaired;
+          task.script = script;
+          accuracyReview = reviewPanelClaims(script, task.factPack);
+        }
+      }
+
+      task.accuracyReview = accuracyReview;
+
+      if (accuracyReview.status === "blocked") {
+        task.script = script;
+        task.status = "failed";
+        task.error = "高风险事实冲突，脚本未通过准确性校验";
+        task.accuracyErrorSummary = {
+          status: "blocked",
+          blockingIssueCount: accuracyReview.blockingIssueCount,
+          panels: accuracyReview.panels,
+          generatedAt: new Date().toISOString(),
+          sourceCoverage: accuracyReview.sourceCoverage,
+        };
+        task.updatedAt = new Date();
+        await saveTask(task);
+        notifyListeners(task);
+        return;
+      }
+    }
 
     task.status = "script_ready";
     task.updatedAt = new Date();
