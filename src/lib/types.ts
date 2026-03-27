@@ -34,6 +34,72 @@ export interface VisualQualityScore {
   evaluatedAt: string;
 }
 
+/** Diagnosis lifecycle state for the second-pass VLM audit */
+export type VisualDiagnosisState = "idle" | "running" | "succeeded" | "failed" | "skipped";
+
+/** Diagnosis confidence / trust labels */
+export type VisualDiagnosisConfidence = "low" | "medium" | "high";
+export type VisualDiagnosisSeverity = "low" | "medium" | "high";
+export type VisualDiagnosisEvidenceStrength = "weak" | "medium" | "strong";
+export type VisualDiagnosisActionability = "apply_directly" | "confirm_first" | "manual_only";
+export type VisualRepairMode = "patch" | "rewrite" | "manual";
+
+/** Detailed diagnosis issue for a suspicious panel */
+export interface VisualDiagnosisIssue {
+  issueType: string;
+  severity: VisualDiagnosisSeverity;
+  affectedDimensions: Array<"textImageAlignment" | "styleAdherence" | "artifactScore" | "compositionQuality" | "crossPanelConsistency">;
+  evidence: string;
+  confidence: VisualDiagnosisConfidence;
+  evidenceStrength: VisualDiagnosisEvidenceStrength;
+  falsePositiveRisk: VisualDiagnosisConfidence;
+  actionability: VisualDiagnosisActionability;
+}
+
+/** Recommended repair payload for a diagnosed panel */
+export interface VisualRepairSuggestion {
+  recommendedMode: VisualRepairMode;
+  rationale: string;
+  suggestedPrompt?: string;
+  suggestedNegativePrompt?: string;
+  patchPositive?: string[];
+  patchNegative?: string[];
+  expectedImprovement: string[];
+}
+
+/** Per-panel structured diagnosis card */
+export interface VisualDiagnosisPanel {
+  panelIndex: number;
+  imageUrl: string;
+  promptSnapshot: string;
+  status: "clean" | "issues_found" | "uncertain";
+  topIssueType: string;
+  severity: VisualDiagnosisSeverity;
+  issues: VisualDiagnosisIssue[];
+  repair: VisualRepairSuggestion;
+}
+
+/** Task-level summary used by the diagnosis workbench */
+export interface VisualDiagnosisSummary {
+  problemPanelCount: number;
+  highSeverityCount: number;
+  actionableCount: number;
+  crossPanelIssueCount: number;
+}
+
+/** Persisted result of the VLM diagnosis pass */
+export interface VisualDiagnosisReport {
+  schemaVersion: number;
+  generatedAt: string;
+  sourceEvaluatedAt: string;
+  model: {
+    provider?: string;
+    model?: string;
+  };
+  summary: VisualDiagnosisSummary;
+  panels: VisualDiagnosisPanel[];
+}
+
 /** Review 终态（任务/角色共用） */
 export type ReviewStatus = "unreviewed" | "reviewed" | "needs_repair";
 
@@ -391,6 +457,14 @@ export interface GenerateTask {
   visualRetrySummary?: VisualRetrySummary;
   /** Latest time task visual review state was updated */
   lastReviewAt?: string;
+  /** Structured diagnosis report for suspicious panels */
+  visualDiagnosisReport?: VisualDiagnosisReport;
+  /** Diagnosis-pass lifecycle state */
+  visualDiagnosisState?: VisualDiagnosisState;
+  /** Whether the stored diagnosis report is stale relative to current content */
+  visualDiagnosisStale?: boolean;
+  /** Latest time diagnosis state was updated */
+  lastDiagnosisAt?: string;
   /** Generation config snapshot — records which models were used */
   generationConfig?: {
     llmModel?: string;

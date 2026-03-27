@@ -131,6 +131,10 @@ function taskToRow(task: GenerateTask) {
   if (task.panelReview !== undefined) metadata.panelReview = task.panelReview;
   if (task.visualRetrySummary !== undefined) metadata.visualRetrySummary = task.visualRetrySummary;
   if (task.lastReviewAt !== undefined) metadata.lastReviewAt = task.lastReviewAt;
+  if (task.visualDiagnosisReport !== undefined) metadata.visualDiagnosisReport = task.visualDiagnosisReport;
+  if (task.visualDiagnosisState !== undefined) metadata.visualDiagnosisState = task.visualDiagnosisState;
+  if (task.visualDiagnosisStale !== undefined) metadata.visualDiagnosisStale = task.visualDiagnosisStale;
+  if (task.lastDiagnosisAt !== undefined) metadata.lastDiagnosisAt = task.lastDiagnosisAt;
   if (task.scriptValidation) metadata.scriptValidation = task.scriptValidation;
   if (task.scriptRepairRounds) metadata.scriptRepairRounds = task.scriptRepairRounds;
   if (task.topicResearch) metadata.topicResearch = task.topicResearch;
@@ -169,10 +173,30 @@ const REVIEW_STATUS_VALUES = new Set<GenerateTask["reviewStatus"]>(["unreviewed"
 const PANEL_REVIEW_STATUS_VALUES = new Set<NonNullable<GenerateTask["panelReview"]>[number]["status"]>(["reviewed", "needs_repair", "retrying", "failed"]);
 const VISUAL_RETRY_CYCLE_STATUS_VALUES = new Set<NonNullable<GenerateTask["visualRetrySummary"]>["status"]>(["running", "completed", "failed", "skipped"]);
 const VISUAL_RETRY_OUTCOME_STATUS_VALUES = new Set<NonNullable<NonNullable<GenerateTask["visualRetrySummary"]>["outcomes"]>[number]["status"]>(["retrying", "completed", "failed"]);
+const VISUAL_DIAGNOSIS_STATE_VALUES = new Set<NonNullable<GenerateTask["visualDiagnosisState"]>>(["idle", "running", "succeeded", "failed", "skipped"]);
+const VISUAL_DIAGNOSIS_SEVERITY_VALUES = new Set<NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["severity"]>>(["low", "medium", "high"]);
+const VISUAL_DIAGNOSIS_CONFIDENCE_VALUES = new Set<NonNullable<NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["issues"][number]["confidence"]>>>(["low", "medium", "high"]);
+const VISUAL_DIAGNOSIS_EVIDENCE_STRENGTH_VALUES = new Set<NonNullable<NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["issues"][number]["evidenceStrength"]>>>(["weak", "medium", "strong"]);
+const VISUAL_DIAGNOSIS_ACTIONABILITY_VALUES = new Set<NonNullable<NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["issues"][number]["actionability"]>>>(["apply_directly", "confirm_first", "manual_only"]);
+const VISUAL_REPAIR_MODE_VALUES = new Set<NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["repair"]["recommendedMode"]>>(["patch", "rewrite", "manual"]);
+const VISUAL_DIAGNOSIS_PANEL_STATUS_VALUES = new Set<NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["status"]>>(["clean", "issues_found", "uncertain"]);
+const VISUAL_DIAGNOSIS_DIMENSION_VALUES = new Set<NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["issues"][number]["affectedDimensions"]>[number]>([
+  "textImageAlignment",
+  "styleAdherence",
+  "artifactScore",
+  "compositionQuality",
+  "crossPanelConsistency",
+]);
 
 function parseReviewStatus(value: unknown): GenerateTask["reviewStatus"] {
   return typeof value === "string" && REVIEW_STATUS_VALUES.has(value as GenerateTask["reviewStatus"])
     ? value as GenerateTask["reviewStatus"]
+    : undefined;
+}
+
+function parseVisualDiagnosisState(value: unknown): GenerateTask["visualDiagnosisState"] {
+  return typeof value === "string" && VISUAL_DIAGNOSIS_STATE_VALUES.has(value as NonNullable<GenerateTask["visualDiagnosisState"]>)
+    ? value as GenerateTask["visualDiagnosisState"]
     : undefined;
 }
 
@@ -233,6 +257,139 @@ function parseVisualRetrySummary(value: unknown): GenerateTask["visualRetrySumma
   };
 }
 
+function parseAffectedDimensions(value: unknown): NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["issues"][number]["affectedDimensions"]> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  if (value.some((dimension) => typeof dimension !== "string" || !VISUAL_DIAGNOSIS_DIMENSION_VALUES.has(dimension as NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["issues"][number]["affectedDimensions"]>[number]))) {
+    return undefined;
+  }
+  return value as NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["issues"][number]["affectedDimensions"]>;
+}
+
+function parseVisualDiagnosisIssue(value: unknown): NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["issues"]>[number] | undefined {
+  if (!value || typeof value !== "object") return undefined;
+
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate.issueType !== "string" || !candidate.issueType.trim()) return undefined;
+  if (typeof candidate.severity !== "string" || !VISUAL_DIAGNOSIS_SEVERITY_VALUES.has(candidate.severity as NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["severity"]>)) return undefined;
+  const affectedDimensions = parseAffectedDimensions(candidate.affectedDimensions);
+  if (!affectedDimensions) return undefined;
+  if (typeof candidate.evidence !== "string" || !candidate.evidence.trim()) return undefined;
+  if (typeof candidate.confidence !== "string" || !VISUAL_DIAGNOSIS_CONFIDENCE_VALUES.has(candidate.confidence as NonNullable<NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["issues"][number]["confidence"]>>)) return undefined;
+  if (typeof candidate.evidenceStrength !== "string" || !VISUAL_DIAGNOSIS_EVIDENCE_STRENGTH_VALUES.has(candidate.evidenceStrength as NonNullable<NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["issues"][number]["evidenceStrength"]>>)) return undefined;
+  if (typeof candidate.falsePositiveRisk !== "string" || !VISUAL_DIAGNOSIS_CONFIDENCE_VALUES.has(candidate.falsePositiveRisk as NonNullable<NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["issues"][number]["falsePositiveRisk"]>>)) return undefined;
+  if (typeof candidate.actionability !== "string" || !VISUAL_DIAGNOSIS_ACTIONABILITY_VALUES.has(candidate.actionability as NonNullable<NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["issues"][number]["actionability"]>>)) return undefined;
+
+  return {
+    issueType: candidate.issueType,
+    severity: candidate.severity as NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["severity"]>,
+    affectedDimensions,
+    evidence: candidate.evidence,
+    confidence: candidate.confidence as NonNullable<NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["issues"][number]["confidence"]>>,
+    evidenceStrength: candidate.evidenceStrength as NonNullable<NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["issues"][number]["evidenceStrength"]>>,
+    falsePositiveRisk: candidate.falsePositiveRisk as NonNullable<NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["issues"][number]["falsePositiveRisk"]>>,
+    actionability: candidate.actionability as NonNullable<NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["issues"][number]["actionability"]>>,
+  };
+}
+
+function parseVisualRepairSuggestion(value: unknown): NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["repair"]> | undefined {
+  if (!value || typeof value !== "object") return undefined;
+
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate.recommendedMode !== "string" || !VISUAL_REPAIR_MODE_VALUES.has(candidate.recommendedMode as NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["repair"]["recommendedMode"]>)) return undefined;
+  if (typeof candidate.rationale !== "string" || !candidate.rationale.trim()) return undefined;
+  if (candidate.suggestedPrompt !== undefined && typeof candidate.suggestedPrompt !== "string") return undefined;
+  if (candidate.suggestedNegativePrompt !== undefined && typeof candidate.suggestedNegativePrompt !== "string") return undefined;
+  if (candidate.patchPositive !== undefined && (!Array.isArray(candidate.patchPositive) || candidate.patchPositive.some((item) => typeof item !== "string"))) return undefined;
+  if (candidate.patchNegative !== undefined && (!Array.isArray(candidate.patchNegative) || candidate.patchNegative.some((item) => typeof item !== "string"))) return undefined;
+  if (!Array.isArray(candidate.expectedImprovement) || candidate.expectedImprovement.some((item) => typeof item !== "string")) return undefined;
+
+  return {
+    recommendedMode: candidate.recommendedMode as NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["repair"]["recommendedMode"]>,
+    rationale: candidate.rationale,
+    suggestedPrompt: candidate.suggestedPrompt as string | undefined,
+    suggestedNegativePrompt: candidate.suggestedNegativePrompt as string | undefined,
+    patchPositive: candidate.patchPositive as string[] | undefined,
+    patchNegative: candidate.patchNegative as string[] | undefined,
+    expectedImprovement: candidate.expectedImprovement,
+  };
+}
+
+function parseVisualDiagnosisPanel(value: unknown): NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"]>[number] | undefined {
+  if (!value || typeof value !== "object") return undefined;
+
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate.panelIndex !== "number") return undefined;
+  if (typeof candidate.imageUrl !== "string" || !candidate.imageUrl.trim()) return undefined;
+  if (typeof candidate.promptSnapshot !== "string") return undefined;
+  if (typeof candidate.status !== "string" || !VISUAL_DIAGNOSIS_PANEL_STATUS_VALUES.has(candidate.status as NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["status"]>)) return undefined;
+  if (typeof candidate.topIssueType !== "string" || !candidate.topIssueType.trim()) return undefined;
+  if (typeof candidate.severity !== "string" || !VISUAL_DIAGNOSIS_SEVERITY_VALUES.has(candidate.severity as NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["severity"]>)) return undefined;
+  if (!Array.isArray(candidate.issues)) return undefined;
+
+  const issues = candidate.issues.flatMap((issue) => {
+    const parsed = parseVisualDiagnosisIssue(issue);
+    return parsed ? [parsed] : [];
+  });
+  if (issues.length !== candidate.issues.length) return undefined;
+
+  const repair = parseVisualRepairSuggestion(candidate.repair);
+  if (!repair) return undefined;
+
+  return {
+    panelIndex: candidate.panelIndex,
+    imageUrl: candidate.imageUrl,
+    promptSnapshot: candidate.promptSnapshot,
+    status: candidate.status as NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["status"]>,
+    topIssueType: candidate.topIssueType,
+    severity: candidate.severity as NonNullable<NonNullable<GenerateTask["visualDiagnosisReport"]>["panels"][number]["severity"]>,
+    issues,
+    repair,
+  };
+}
+
+function parseVisualDiagnosisReport(value: unknown): GenerateTask["visualDiagnosisReport"] {
+  if (!value || typeof value !== "object") return undefined;
+
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate.schemaVersion !== "number") return undefined;
+  if (typeof candidate.generatedAt !== "string") return undefined;
+  if (typeof candidate.sourceEvaluatedAt !== "string") return undefined;
+  if (!candidate.model || typeof candidate.model !== "object") return undefined;
+  const model = candidate.model as Record<string, unknown>;
+  if (model.provider !== undefined && typeof model.provider !== "string") return undefined;
+  if (model.model !== undefined && typeof model.model !== "string") return undefined;
+  if (!candidate.summary || typeof candidate.summary !== "object") return undefined;
+  const summary = candidate.summary as Record<string, unknown>;
+  if (typeof summary.problemPanelCount !== "number") return undefined;
+  if (typeof summary.highSeverityCount !== "number") return undefined;
+  if (typeof summary.actionableCount !== "number") return undefined;
+  if (typeof summary.crossPanelIssueCount !== "number") return undefined;
+  if (!Array.isArray(candidate.panels)) return undefined;
+
+  const panels = candidate.panels.flatMap((panel) => {
+    const parsed = parseVisualDiagnosisPanel(panel);
+    return parsed ? [parsed] : [];
+  });
+  if (panels.length !== candidate.panels.length) return undefined;
+
+  return {
+    schemaVersion: candidate.schemaVersion,
+    generatedAt: candidate.generatedAt,
+    sourceEvaluatedAt: candidate.sourceEvaluatedAt,
+    model: {
+      provider: model.provider as string | undefined,
+      model: model.model as string | undefined,
+    },
+    summary: {
+      problemPanelCount: summary.problemPanelCount,
+      highSeverityCount: summary.highSeverityCount,
+      actionableCount: summary.actionableCount,
+      crossPanelIssueCount: summary.crossPanelIssueCount,
+    },
+    panels,
+  };
+}
+
 function rowToTask(row: Record<string, unknown>): GenerateTask {
   const meta = safeJsonParse<Record<string, unknown>>(row.metadata as string | null) ?? {};
 
@@ -249,6 +406,10 @@ function rowToTask(row: Record<string, unknown>): GenerateTask {
     panelReview: parsePanelReview(meta.panelReview),
     visualRetrySummary: parseVisualRetrySummary(meta.visualRetrySummary),
     lastReviewAt: typeof meta.lastReviewAt === "string" ? meta.lastReviewAt : undefined,
+    visualDiagnosisReport: parseVisualDiagnosisReport(meta.visualDiagnosisReport),
+    visualDiagnosisState: parseVisualDiagnosisState(meta.visualDiagnosisState),
+    visualDiagnosisStale: typeof meta.visualDiagnosisStale === "boolean" ? meta.visualDiagnosisStale : undefined,
+    lastDiagnosisAt: typeof meta.lastDiagnosisAt === "string" ? meta.lastDiagnosisAt : undefined,
     scriptValidation: meta.scriptValidation as GenerateTask["scriptValidation"],
     scriptRepairRounds: meta.scriptRepairRounds as number | undefined,
     topicResearch: meta.topicResearch as GenerateTask["topicResearch"],
