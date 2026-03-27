@@ -23,10 +23,12 @@ const PERSON_DEFINITION_REGEX = /^([^，。；！？（(]{1,24})(?:[（(][^）)]
 const PLACE_PATTERNS: Array<{ regex: RegExp; predicate: string }> = [
   { regex: /出生于\s*([^，。；！？]+)/g, predicate: "birth_place" },
   { regex: /(?:起源于|源于)\s*([^，。；！？]+)/g, predicate: "origin_place" },
+  { regex: /发明于[^，。；！？]*?的([^，。；！？、]+)/g, predicate: "origin_place" },
   { regex: /位于\s*([^，。；！？]+)/g, predicate: "location" },
   { regex: /来自\s*([^，。；！？]+)/g, predicate: "origin_place" },
 ];
 const EVENT_ATTRIBUTION_REGEX = /([^，。；！？]{2,40})由([^，。；！？]{1,24})提出/g;
+const CENTURY_REGEX = /\b(\d{1,2})(?:st|nd|rd|th)\s+century\b|(\d{1,2})世纪/g;
 
 export interface AccuracyResearchInput {
   topic: string;
@@ -296,6 +298,20 @@ function extractHardFacts(topic: string, sourceEntries: AccuracySourceEntry[]): 
         normalizedValue: year,
         sourceIds: [entry.id],
         confidence: entry.sourceTier === "anchor" ? 0.9 : 0.65,
+        mustPreserve: true,
+      });
+    });
+
+    Array.from(entry.excerpt.matchAll(CENTURY_REGEX)).forEach((match) => {
+      const century = match[2] ? `${match[2]}世纪` : `${match[1]} century`;
+      pushHardFact(facts, seen, {
+        claimType: "date",
+        subject: topic,
+        predicate: "century",
+        object: century,
+        normalizedValue: normalizeValue(century),
+        sourceIds: [entry.id],
+        confidence: entry.sourceTier === "anchor" ? 0.82 : 0.6,
         mustPreserve: true,
       });
     });

@@ -451,4 +451,46 @@ describe("accuracy research", () => {
       ]),
     );
   });
+
+  it("extracts century-level date and origin place facts for invention topics like 火药", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "火药",
+      extract: "学术界一般认为火药发明于7世纪的中国，为当时中国术士炼制长生不老药时意外得到的副产品。",
+      lang: "zh",
+      sections: ["历史"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E7%81%AB%E8%8D%AF",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "火药",
+      contentType: "wikipedia",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "place",
+          object: "中国",
+        }),
+        expect.objectContaining({
+          claimType: "date",
+          object: "7世纪",
+        }),
+      ]),
+    );
+    expect(result.researchBrief.safeToGenerate).toBe(true);
+  });
 });
