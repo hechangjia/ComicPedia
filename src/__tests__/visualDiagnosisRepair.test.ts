@@ -33,6 +33,17 @@ describe("visual diagnosis repair helpers", () => {
     expect(result.negativePrompt).toContain("overexposed");
   });
 
+  test("applyDiagnosisPatch handles empty prompt without leading comma", () => {
+    const result = applyDiagnosisPatch({
+      prompt: "   ",
+      negativePrompt: undefined,
+      patchPositive: ["heroic silhouette"],
+      patchNegative: [],
+    });
+
+    expect(result.prompt).toBe("heroic silhouette");
+  });
+
   test("applyDiagnosisRewrite replaces the prompt text fully", () => {
     const rewrite = applyDiagnosisRewrite({
       prompt: "old prompt",
@@ -67,6 +78,18 @@ describe("visual diagnosis repair helpers", () => {
     });
 
     expect(rewrite.negativePrompt).toBe("dusty");
+  });
+
+  test("applyDiagnosisRewrite deduplicates comma-delimited suggested negative prompt", () => {
+    const rewrite = applyDiagnosisRewrite({
+      prompt: "old prompt",
+      negativePrompt: "cropped subject, low detail",
+      suggestedPrompt: "wide shots",
+      suggestedNegativePrompt: "cropped subject, low detail, noisy background",
+      includeSuggestedNegativePrompt: true,
+    });
+
+    expect(rewrite.negativePrompt).toBe("cropped subject, low detail, noisy background");
   });
 
   test("classifyRepairOutcome reports improved, unchanged, and regressed", () => {

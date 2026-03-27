@@ -276,6 +276,9 @@ function appendPositiveTerms(currentPrompt: string, additions: string[]): string
   if (newTerms.length === 0) return currentPrompt;
 
   const base = currentPrompt.replace(/,?\s*$/, "");
+  if (!base.trim()) {
+    return newTerms.join(", ");
+  }
   return `${base}, ${newTerms.join(", ")}`;
 }
 
@@ -327,7 +330,8 @@ export function applyDiagnosisRewrite(input: DiagnosisRewriteInput): {
   const prompt = (input.suggestedPrompt?.trim() ?? input.prompt).trim();
   let negativePrompt = input.negativePrompt?.trim();
   if (input.includeSuggestedNegativePrompt && input.suggestedNegativePrompt) {
-    negativePrompt = mergeNegativePrompt(negativePrompt, [input.suggestedNegativePrompt]);
+    const suggestedNegativeTerms = input.suggestedNegativePrompt.split(",").map((term) => term.trim()).filter(Boolean);
+    negativePrompt = mergeNegativePrompt(negativePrompt, suggestedNegativeTerms);
   }
   return {
     prompt: prompt || input.prompt,
