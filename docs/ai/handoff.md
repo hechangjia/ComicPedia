@@ -1,73 +1,65 @@
 # Handoff
 
-## 最新进展（2026-03-27 Accuracy Closed Loop）
+## 当前目标
+- 稳定并评估 `science` / `wikipedia` 的第一版“科普准确性闭环”。
+- 下一次会话优先做真实 golden topics 冒烟，不再先扩新功能。
 
-### 当前目标
-- `science` / `wikipedia` 现在不只是有 narrative beat plan，而是已经接入第一版“科普准确性闭环”。
-- 本轮实现覆盖：
-  - accuracy provider 配置与 health check
-  - layered research（Wikipedia anchor -> whitelist -> open web fallback）
-  - `FactPack` / `ResearchBrief`
-  - prompt 事实约束注入
-  - panel-level deterministic claim review
-  - factual repair + blocked gate
-  - 结果页轻量准确性可见性
+## 今天已完成内容
+- 落地 accuracy provider 配置与服务端 health check：
+  - settings 页新增 provider registry、search/fetch slots、whitelist domains
+  - `/api/config` 已支持 provider secret redaction / preserve-on-edit
+- 落地 layered research：
+  - Wikipedia anchor
+  - whitelist expansion
+  - open-web fallback
+  - 输出 `FactPack` / `ResearchBrief`
+- 落地 scripting 事实约束：
+  - `science` / `wikipedia` prompt 接入 `FactPack`
+  - `taskLifecycle` 在 scripting 阶段调用 accuracy research
+  - `factPack` / `researchBrief` 持久化到 task metadata
+- 落地 factual safety gate：
+  - deterministic claim review
+  - factual repair
+  - `blocked` 时直接 `failed`，不进入 `script_ready`
+- 落地结果页轻量可见性：
+  - `AccuracySummary`
+  - `PipelineSummary` 新增 `准确性研究` / `事实校验`
+- 更新 handoff 文档到当前状态。
 
-### 本次已完成内容
-- settings 页新增 Accuracy Research Providers 区块：
-  - provider registry
-  - `primary/fallback search`
-  - `primary/fallback fetch`
-  - whitelist domains
-  - provider health test
-- provider secret 处理已经落地：
-  - raw `apiKey` 不会从 `/api/config` 回显到前端
-  - 编辑 provider 时，空 `apiKey` 表示保留原密钥
-  - UI 用 `hasApiKey` / `maskedApiKey` 表示“已有密钥”
-- 新增 provider 平台后端：
-  - `src/lib/accuracy/providerRegistry.ts`
-  - `src/lib/accuracy/providerClients.ts`
-  - `src/app/api/accuracy/providers/test/route.ts`
-  - 当前支持 `firecrawl` / `tavily` / `custom`
-- 抽出共享 Wikipedia server helper：
-  - `src/lib/server/wikipedia.ts`
-  - `src/app/api/wikipedia/route.ts` 已改为复用它
-- 新增 accuracy research agent：
-  - `src/lib/accuracy/research.ts`
-  - `src/app/api/accuracy/research/route.ts`
-  - research 输出：
-    - `FactPack`
-    - `ResearchBrief`
-- `science` / `wikipedia` prompt 已接入 `FactPack`：
-  - `hardFacts` 作为强约束
-  - `softFacts` 作为解释素材
-  - `coverageGaps` 明确为“不要编造 unsupported hard detail”
-- `taskLifecycle` 已改为：
-  1. 原 topic research / beat plan 继续保留
-  2. 在 scripting 阶段加入 accuracy research
-  3. 将 `factPack` / `researchBrief` 存入 task
-  4. 脚本生成后做 deterministic claim review
-  5. `repair_required` 时自动调用 factual repair
-  6. `blocked` 时直接终止，不进入 `script_ready`
-- 新增 factual safety gate：
-  - `src/lib/accuracy/claimReview.ts`
-  - `src/lib/accuracy/repair.ts`
-  - 当前确定性抽取/匹配已覆盖最小 MVP：
-    - 年份 / 日期
-    - 数字类（当前测试夹具主要覆盖年龄/数值）
-- 结果页新增轻量准确性展示：
-  - `src/components/result/AccuracySummary.tsx`
-  - `src/lib/pipelineSummary.ts` 新增：
-    - `准确性研究`
-    - `事实校验`
-  - blocked 任务会在 result 页显示明确的高风险事实冲突提示
-- SQLite metadata 已 round-trip：
-  - `factPack`
-  - `researchBrief`
-  - `accuracyReview`
-  - `accuracyErrorSummary`
+## 当前进行中的内容
+- 无进行中的代码改动。
+- 当前停在“已实现、已自动化验证、待真实主题冒烟”的状态。
 
-### 关键文件
+## 剩余工作
+- 手工 golden topics 冒烟：
+  - `女娲`
+  - `DNA`
+  - `牛顿`
+  - `火药`
+  - `为什么会打雷`
+- 补强 deterministic claim extraction / normalization：
+  - 人名
+  - 地点
+  - 事件归因
+  - 术语定义
+- 根据 golden topics 结果决定下一优先级：
+  - VLM “看对路”
+  - 导出质量升级
+  - 角色工作流增强
+
+## 关键决策和约束
+- phase 1 仅 `science` / `wikipedia` 使用 accuracy provider 平台。
+- provider 调用和 health check 都在服务端执行；前端不回显 raw `apiKey`。
+- whitelist domains 完全由用户配置决定；未配置时直接跳过 whitelist 层。
+- `blocked` 语义已经固定：
+  - task `failed`
+  - 不进入 `script_ready`
+  - 写入 `accuracyErrorSummary`
+  - phase 1 没有 override 按钮
+- 当前 claim review 是“确定性最小集”，不是完整事实语义理解器。
+- `pnpm exec tsc --noEmit` 需在 `pnpm build` 之后串行运行；并发时可能因为 `.next/types` 尚未生成而报 `TS6053`。
+
+## 重要文件路径
 - `src/lib/types.ts`
 - `src/lib/accuracy/providerConfig.ts`
 - `src/lib/accuracy/providerRegistry.ts`
@@ -77,9 +69,9 @@
 - `src/lib/accuracy/repair.ts`
 - `src/lib/server/wikipedia.ts`
 - `src/lib/server/db.ts`
+- `src/lib/client/taskLifecycle.ts`
 - `src/lib/contentRegistry.ts`
 - `src/lib/llm.ts`
-- `src/lib/client/taskLifecycle.ts`
 - `src/lib/pipelineSummary.ts`
 - `src/app/api/config/route.ts`
 - `src/app/api/wikipedia/route.ts`
@@ -92,72 +84,27 @@
 - `src/components/result/AccuracySummary.tsx`
 - `src/prompts/scriptGenerator.ts`
 - `src/prompts/wikipediaGenerator.ts`
+- `docs/superpowers/specs/2026-03-27-science-wikipedia-accuracy-closed-loop-design.md`
+- `docs/superpowers/plans/2026-03-27-science-wikipedia-accuracy-closed-loop.md`
 
-### 新增测试
-- `src/__tests__/accuracyProviderConfig.test.ts`
-- `src/__tests__/configRoute.test.ts`
-- `src/__tests__/accuracyProviderRegistry.test.ts`
-- `src/__tests__/accuracyResearch.test.ts`
-- `src/__tests__/accuracyClaimReview.test.ts`
-- `src/__tests__/accuracyRepair.test.ts`
+## 当前阻塞和风险
+- 无硬阻塞。
+- 当前 deterministic matcher 主要对日期/数字更稳；复杂事实类型覆盖不足。
+- `FactPack` 事实抽取仍是启发式，复杂长文本主题可能 coverage 不足。
+- provider clients 目前是 MVP 接法，还没做细粒度 provider-specific error taxonomy。
+- 尚未做浏览器级真实主题冒烟，现阶段结论主要来自自动化验证。
 
-### 已完成验证
+## 下次启动后优先执行的 3 个步骤
+1. 跑 5 个 golden topics 的真实生成回归，重点看 blocked / repair_required / passed 是否符合预期。
+2. 针对冒烟中暴露的问题补强 claim extraction / normalization，优先人名、地点、事件归因、术语定义。
+3. 如果 golden topics 表现稳定，再决定是否进入下一优先级模块，而不是继续打磨当前闭环细节。
+
+## 当前验证状态
 - accuracy 目标测试矩阵：
-  - `pnpm vitest run src/__tests__/accuracyProviderConfig.test.ts src/__tests__/configRoute.test.ts src/__tests__/accuracyProviderRegistry.test.ts src/__tests__/accuracyResearch.test.ts src/__tests__/accuracyClaimReview.test.ts src/__tests__/accuracyRepair.test.ts src/__tests__/contentRegistry.test.ts src/__tests__/taskLifecycle.test.ts src/__tests__/serverDbReviewPersistence.test.ts src/__tests__/pipelineSummary.test.ts`
+  - `10 files / 52 tests passed`
 - 全量测试：
-  - `pnpm test`
-- 构建：
-  - `pnpm build`
-- 类型检查：
-  - `pnpm exec tsc --noEmit`
-  - 注意：这个仓库的 `tsconfig` 依赖 `.next/types`，所以 `tsc` 最稳妥的跑法是放在 `pnpm build` 之后串行执行；并发时可能因为 `.next/types` 尚未生成而报 `TS6053`
-
-### 关键行为与约束
-- phase 1 仅 `science` / `wikipedia` 使用 accuracy provider 平台。
-- whitelist domains 完全由用户配置决定；未配置时直接跳过 whitelist 层。
-- provider health test 和 actual provider usage 都在服务端执行。
-- `blocked` 语义已落地：
-  - task 不进入 `script_ready`
-  - task 进入 `failed`
-  - 写入 `accuracyErrorSummary`
-  - result 页展示明确错误提示
-  - phase 1 没有 override 按钮
-- 当前 MVP 的 claim extraction / matching 仍是“确定性最小集”，还不是完整事实语义理解器。
-
-### 当前风险
-- 当前 deterministic claim review 还偏保守，主要覆盖日期/数字类强事实；人名、地点、事件归因、术语定义还需要更完整的 extraction / normalization 规则。
-- `FactPack` 的事实抽取仍是启发式，不是高置信结构化知识抽取器；对长文本或复杂历史主题的 coverage 还不够稳。
-- provider client 现阶段是最小 smoke / MVP 接法，Firecrawl / Tavily 已按官方文档路径接入，但还没做更细的 provider-specific error taxonomy。
-- 没有做浏览器级手工 golden topic 冒烟；目前结论主要来自单测、构建、类型检查。
-
-### 明确延后 / 还没做
-- VLM 从“看清楚”升级到“看对路”
-- 导出质量升级（把 fact metadata 带入导出）
-- 角色创作工作流增强
-- 重型 panel-by-panel fact review workbench
-- 更强的人名/地点/术语定义抽取与 alias normalization
-
-### 最近提交
-- `b442c23 feat: add accuracy provider config model`
-- `d4b9deb feat: add accuracy provider management`
-- `232a619 feat: add layered accuracy research agent`
-- `bf6b067 feat: thread fact packs through scripting`
-- `d7d3794 feat: add factual review gate for science scripts`
-- `b4f33c6 feat: surface accuracy status on result page`
-
-### 下次启动后优先动作
-1. 用真实 golden topics 做手工冒烟：
-   - `女娲`
-   - `DNA`
-   - `牛顿`
-   - `火药`
-   - `为什么会打雷`
-2. 补强 claim extraction / normalization：
-   - 人名
-   - 地点
-   - 事件归因
-   - 术语定义
-3. 如果 golden topics 表现稳定，再继续下一优先级：
-   - VLM “看对路”
-   - 导出质量升级
-   - 角色工作流增强
+  - `23 files / 197 tests passed`
+- `pnpm build`：
+  - passed
+- `pnpm exec tsc --noEmit`：
+  - passed（在 `build` 之后串行执行）
