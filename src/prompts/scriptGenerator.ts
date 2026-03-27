@@ -1,5 +1,6 @@
-import { Character, ComicScript, ComicStyle } from "../lib/types";
+import { Character, ComicScript, ComicStyle, NarrativeOutline } from "../lib/types";
 import { getStyleGuidanceForLLM } from "../lib/config/styles";
+import { buildOutlineGuidance } from "../lib/director";
 
 /** 分镜脚本生成 Prompt 模板 */
 export function buildScriptPrompt(
@@ -8,6 +9,7 @@ export function buildScriptPrompt(
   panelCount?: number,
   character?: Character,
   allowGuideCharacter: boolean = true,
+  narrativeOutline?: NarrativeOutline,
 ): string {
   const panelGuidance = panelCount && panelCount > 0
     ? `优先规划${panelCount}格，如为保证知识讲清可在±2格范围内微调。`
@@ -59,6 +61,19 @@ export function buildScriptPrompt(
 - characterDescription 不能为空时，也只能描述题材原生人物或概念拟人角色，不能凭空新增 explorer / narrator / guide
 `;
 
+  const narrativeBeatPlanSection = narrativeOutline
+    ? `
+## Narrative Beat Plan（必须遵守）
+${buildOutlineGuidance(narrativeOutline)}
+
+额外要求：
+- 必须遵守上述 templateType、beatRole、knowledgeGoal、shotIntent、intensity、carryForward
+- 开头两格不能重新退化成平铺直叙讲解
+- 至少保留一次 hook-closeup 或 contrast 作为强镜头变化
+- 最后一格优先做 reveal 或 aftermath，不要再次做主持式解释
+`
+    : "";
+
   return `你是一位专业的科普漫画编剧，擅长把复杂概念拆解为可视化的分镜叙事。请根据以下科普主题创作分镜脚本。
 
 ## 主题
@@ -85,6 +100,7 @@ ${panelGuidance}
 
 ${characterConstraint}
 ${guideCharacterPolicy}
+${narrativeBeatPlanSection}
 
 ## 叙事策略选择（根据主题自动判断）
 

@@ -5,7 +5,7 @@ import { validateScript, applyCanonicalCharacterDesc } from "@/lib/scriptValidat
 import { repairScript } from "@/lib/scriptRepair";
 import { evaluateQuality } from "@/lib/qualityScore";
 import { evaluateVisualQuality } from "@/lib/vlmScorer";
-import { generateNarrativeOutline, buildOutlineGuidance } from "@/lib/director";
+import { generateNarrativeOutline } from "@/lib/director";
 import { shouldAutoRetry, generatePromptPatch, applyPromptPatch, buildPanelReview, buildTaskReviewStatus } from "@/lib/vlmRetry";
 import { getStyleModifier, getStyleNegativePrompt, STYLE_META } from "@/lib/config/styles";
 import { stripDisallowedGuideCharacterFromScript } from "@/lib/guideCharacterPolicy";
@@ -518,8 +518,6 @@ async function processScripting(taskId: string, request: GenerateRequest) {
 
         if (outline) {
           task.narrativeOutline = outline;
-          // 将大纲注入到 topic 中，让脚本生成器遵循
-          enhancedTopic = enhancedTopic + buildOutlineGuidance(outline);
           console.log(`[Director] Outline generated: ${outline.totalPanels} panels, arc: ${outline.narrativeArc}`);
         }
       } catch (dirErr) {
@@ -584,6 +582,7 @@ async function processScripting(taskId: string, request: GenerateRequest) {
         request.novelMeta,
         request.wikipediaContent,
         request.allowGuideCharacter,
+        task.narrativeOutline,
       );
     } catch (streamErr) {
       if (controller.signal.aborted) throw streamErr;
@@ -604,6 +603,7 @@ async function processScripting(taskId: string, request: GenerateRequest) {
         request.novelMeta,
         request.wikipediaContent,
         request.allowGuideCharacter,
+        task.narrativeOutline,
       );
     }
 

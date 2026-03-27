@@ -1,6 +1,7 @@
-import { ComicScript, ComicStyle, WikipediaContent } from "../lib/types";
+import { ComicScript, ComicStyle, NarrativeOutline, WikipediaContent } from "../lib/types";
 import { getStyleGuidanceForLLM } from "../lib/config/styles";
 import { parseScriptResponse } from "./scriptGenerator";
+import { buildOutlineGuidance } from "../lib/director";
 
 /** 信息图类风格（适合图示化、布局化表达） */
 const INFOGRAPHIC_STYLES = new Set<ComicStyle>(["flat", "infographic", "banana"]);
@@ -51,6 +52,7 @@ export function buildWikipediaPrompt(
   style: ComicStyle,
   panelCount?: number,
   allowGuideCharacter: boolean = true,
+  narrativeOutline?: NarrativeOutline,
 ): string {
   const panelGuidance = panelCount && panelCount > 0
     ? `规划${panelCount}格分镜，如需微调可在±2格范围内调整。`
@@ -62,6 +64,18 @@ export function buildWikipediaPrompt(
 
   const imageGuidance = getImagePromptGuidance(style);
   const isInfoStyle = INFOGRAPHIC_STYLES.has(style);
+  const narrativeBeatPlanSection = narrativeOutline
+    ? `
+## Narrative Beat Plan（必须遵守）
+${buildOutlineGuidance(narrativeOutline)}
+
+额外要求：
+- 必须遵守 templateType、beatRole、knowledgeGoal、shotIntent、intensity、carryForward
+- 开场应体现钩子，而不是直接退回词条式定义
+- 至少保留一次 hook-closeup 或 contrast 作为强镜头变化
+- 最后一格优先做 reveal 或 aftermath，避免平铺式收尾
+`
+    : "";
 
   return `你是一位专业的百科科普漫画编剧，擅长将 Wikipedia 百科知识转化为生动有趣的漫画分镜。
 
@@ -78,6 +92,7 @@ ${getStyleGuidanceForLLM(style)}
 
 ## 分镜数量
 ${panelGuidance}
+${narrativeBeatPlanSection}
 
 ## ⚠️ 语言限制（必须严格遵守）
 
