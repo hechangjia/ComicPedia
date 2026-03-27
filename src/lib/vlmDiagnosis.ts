@@ -1,5 +1,7 @@
 import type {
+  ComicScript,
   PanelVisualScore,
+  PartialLLMConfig,
   VisualDiagnosisActionability,
   VisualDiagnosisConfidence,
   VisualDiagnosisEvidenceStrength,
@@ -11,6 +13,7 @@ import type {
   VisualRepairMode,
 } from "./types";
 import { extractJsonObject } from "./utils";
+import { callVisionModel, resolveImageToBase64 } from "./vlmScorer";
 
 type TrustInput = {
   modelConfidence?: string;
@@ -245,5 +248,61 @@ export function summarizeDiagnosisReport(
     highSeverityCount: panels.filter((panel) => panel.severity === "high").length,
     actionableCount: panels.filter((panel) => panel.issues.some((issue) => issue.actionability !== "manual_only")).length,
     crossPanelIssueCount: panels.reduce((count, panel) => count + panel.issues.filter((issue) => issue.affectedDimensions.includes("crossPanelConsistency")).length, 0),
+  };
+}
+
+export async function evaluateVisualDiagnosis(
+  script: ComicScript,
+  visualScore: VisualQualityScore,
+  vlmConfig: PartialLLMConfig,
+  targetPanels?: number[],
+): Promise<VisualDiagnosisReport> {
+  const candidateIndices = pickDiagnosisCandidates(visualScore, targetPanels);
+  const crossPanelIssuesByIndex = new Map<number, string[]>();
+
+  for (const issue of visualScore.crossPanelDetail?.issues ?? []) {
+    for (const panelIndex of issue.panelIndices) {
+      const existing = crossPanelIssuesByIndex.get(panelIndex) ?? [];
+      existing.push(issue.description);
+      crossPanelIssuesByIndex.set(panelIndex, existing);
+    }
+  }
+
+  const diagnosedPanels: VisualDiagnosisPanel[] = [];
+  for (const panelIndex of candidateIndices) {
+    const panel = script.panels[panelIndex];
+    const panelScore = visualScore.panels.find((item) => item.panelIndex === panelIndex);
+    if (!panel?.imageUrl || !panelScore) continue;
+
+    const imageBase64 = await resolveImageToBase64(panel.imageUrl);
+    if (!imageBase64) continue;
+
+    const prompt = buildDiagnosisPrompt({
+      panelIndex,
+      imagePrompt: panel.imagePrompt,
+      style: panel.styleOverride ?? script.style,
+      totalPanels: script.panels.length,
+      panelScore,
+      crossPanelIssues: crossPanelIssuesByIndex.get(panelIndex),
+    });
+    const content = await callVisionModel(prompt, imageBase64, vlmConfig);
+    diagnosedPanels.push(parseDiagnosisResponse(panelIndex, content, {
+      imageUrl: panel.imageUrl,
+      promptSnapshot: panel.imagePrompt,
+      alignsWithScoreWeakness: panelScore.overall < 6
+        || visualScore.retryRecommendations.some((recommendation) => recommendation.panelIndex === panelIndex),
+    }));
+  }
+
+  return {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    sourceEvaluatedAt: visualScore.evaluatedAt,
+    model: {
+      provider: vlmConfig.provider,
+      model: vlmConfig.model,
+    },
+    summary: summarizeDiagnosisReport(diagnosedPanels),
+    panels: diagnosedPanels,
   };
 }

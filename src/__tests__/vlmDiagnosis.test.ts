@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
-import type { VisualDiagnosisPanel, VisualQualityScore } from "@/lib/types";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ComicScript, VisualDiagnosisPanel, VisualQualityScore } from "@/lib/types";
 import {
   buildDiagnosisPrompt,
   deriveIssueTrust,
   deriveRepairMode,
+  evaluateVisualDiagnosis,
   parseDiagnosisResponse,
   pickDiagnosisCandidates,
   summarizeDiagnosisReport,
@@ -64,6 +65,44 @@ function makeVisualScore(overrides: Partial<VisualQualityScore> = {}): VisualQua
     ...overrides,
   };
 }
+
+function makeScript(): ComicScript {
+  return {
+    title: "Diagnosis Comic",
+    topic: "Diagnosis Topic",
+    style: "anime",
+    panels: [
+      {
+        id: 1,
+        scene: "Scene 1",
+        dialogue: "Dialogue 1",
+        imagePrompt: "Prompt 1",
+        imageUrl: "data:image/png;base64,panel-1",
+        status: "completed",
+      },
+      {
+        id: 2,
+        scene: "Scene 2",
+        dialogue: "Dialogue 2",
+        imagePrompt: "Prompt 2",
+        imageUrl: "data:image/png;base64,panel-2",
+        status: "completed",
+      },
+      {
+        id: 3,
+        scene: "Scene 3",
+        dialogue: "Dialogue 3",
+        imagePrompt: "Prompt 3",
+        imageUrl: "data:image/png;base64,panel-3",
+        status: "completed",
+      },
+    ],
+  };
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("pickDiagnosisCandidates", () => {
   it("selects retry panels and cross-panel flagged panels without duplicates", () => {
@@ -223,5 +262,89 @@ describe("summarizeDiagnosisReport", () => {
       actionableCount: 2,
       crossPanelIssueCount: 1,
     });
+  });
+});
+
+describe("evaluateVisualDiagnosis", () => {
+  it("diagnoses only retry or cross-panel candidates and returns a structured report", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              issues: [
+                {
+                  issueType: "composition_mismatch",
+                  severity: "high",
+                  affectedDimensions: ["compositionQuality", "textImageAlignment"],
+                  evidence: "Main subject is cropped out of frame",
+                  modelConfidence: "high",
+                  ambiguityPenalty: "low",
+                },
+              ],
+              repair: {
+                suggestedPrompt: "A wider shot that keeps the full subject visible.",
+                expectedImprovement: ["Keeps the main subject in frame"],
+              },
+            }),
+          },
+        }],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const report = await evaluateVisualDiagnosis(
+      makeScript(),
+      makeVisualScore(),
+      { apiUrl: "https://example.com/v1", model: "gpt-4o", provider: "openai-compatible", apiKey: "test" },
+    );
+
+    expect(report.schemaVersion).toBe(1);
+    expect(report.sourceEvaluatedAt).toBe("2026-03-27T01:00:00.000Z");
+    expect(report.panels.map((panel) => panel.panelIndex)).toEqual([1, 2]);
+    expect(report.summary.problemPanelCount).toBe(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("skips candidates whose images cannot be resolved", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              issues: [
+                {
+                  issueType: "composition_mismatch",
+                  severity: "high",
+                  affectedDimensions: ["compositionQuality"],
+                  evidence: "Main subject is cropped out of frame",
+                  modelConfidence: "high",
+                  ambiguityPenalty: "low",
+                },
+              ],
+              repair: {
+                suggestedPrompt: "A wider shot that keeps the full subject visible.",
+                expectedImprovement: ["Keeps the main subject in frame"],
+              },
+            }),
+          },
+        }],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const script = makeScript();
+    script.panels[1].imageUrl = "";
+    const report = await evaluateVisualDiagnosis(
+      script,
+      makeVisualScore(),
+      { apiUrl: "https://example.com/v1", model: "gpt-4o", provider: "openai-compatible", apiKey: "test" },
+      [1, 2],
+    );
+
+    expect(report.panels.map((panel) => panel.panelIndex)).toEqual([2]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

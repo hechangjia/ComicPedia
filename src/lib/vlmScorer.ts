@@ -113,14 +113,14 @@ function getStyleCheckpoints(style: string): string {
 // ============================================================
 
 /** 提取 base64 图片的 data 部分和 MIME 类型 */
-function parseBase64Image(dataUri: string): { data: string; mimeType: string } | null {
+export function parseBase64Image(dataUri: string): { data: string; mimeType: string } | null {
   const match = dataUri.match(/^data:(image\/\w+);base64,(.+)$/);
   if (!match) return null;
   return { mimeType: match[1], data: match[2] };
 }
 
 /** 构建多模态消息体 (兼容 OpenAI/Anthropic) */
-function buildMultimodalPayload(
+export function buildMultimodalPayload(
   prompt: string,
   imageBase64: string,
   config: { model: string; provider?: string },
@@ -166,15 +166,11 @@ function buildMultimodalPayload(
   };
 }
 
-/** 调用 VLM 评估单个面板 */
-export async function evaluatePanel(
-  panelIndex: number,
+export async function callVisionModel(
+  prompt: string,
   imageBase64: string,
-  imagePrompt: string,
-  style: string,
-  totalPanels: number,
   vlmConfig: PartialLLMConfig,
-): Promise<PanelVisualScore> {
+): Promise<string> {
   const apiUrl = vlmConfig.apiUrl;
   const apiKey = vlmConfig.apiKey || "";
   if (!apiUrl) throw new Error("未配置 VLM API");
@@ -184,13 +180,10 @@ export async function evaluatePanel(
     : `${apiUrl.replace(/\/+$/, "")}/chat/completions`;
 
   const isAnthropic = vlmConfig.provider === "anthropic";
-
-  const prompt = buildPanelEvalPrompt(panelIndex, imagePrompt, style, totalPanels);
   const payload = buildMultimodalPayload(prompt, imageBase64, {
     model: vlmConfig.model || "gpt-4o",
     provider: vlmConfig.provider,
   });
-
   const headers: Record<string, string> = isAnthropic
     ? { "x-api-key": apiKey, "anthropic-version": "2023-06-01" }
     : apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
@@ -210,10 +203,22 @@ export async function evaluatePanel(
   }
 
   const data = await response.json();
-  const content = data.choices?.[0]?.message?.content
+  return data.choices?.[0]?.message?.content
     || data.content?.[0]?.text
     || "";
+}
 
+/** 调用 VLM 评估单个面板 */
+export async function evaluatePanel(
+  panelIndex: number,
+  imageBase64: string,
+  imagePrompt: string,
+  style: string,
+  totalPanels: number,
+  vlmConfig: PartialLLMConfig,
+): Promise<PanelVisualScore> {
+  const prompt = buildPanelEvalPrompt(panelIndex, imagePrompt, style, totalPanels);
+  const content = await callVisionModel(prompt, imageBase64, vlmConfig);
   return parsePanelScore(panelIndex, content);
 }
 
