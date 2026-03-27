@@ -51,6 +51,10 @@ function normalizeValue(value: string): string {
   return value.trim().toLowerCase();
 }
 
+function isQuestionLikeTopic(topic: string): boolean {
+  return /^(为什么会|为什么|为何会|为何|怎么会|怎么|什么是|什么叫)/.test(topic.trim());
+}
+
 function normalizeAnchorSearchQuery(topic: string): string {
   const trimmed = topic.trim();
   const stripped = trimmed
@@ -61,6 +65,12 @@ function normalizeAnchorSearchQuery(topic: string): string {
   if (stripped === "打雷") return "雷";
   if (stripped === "下雨") return "雨";
   return stripped || trimmed;
+}
+
+function resolveCanonicalFactSubject(topic: string, sourceEntries: AccuracySourceEntry[]): string {
+  if (!isQuestionLikeTopic(topic)) return topic;
+  const anchorTitle = sourceEntries.find((entry) => entry.sourceTier === "anchor")?.title?.trim();
+  return anchorTitle || normalizeAnchorSearchQuery(topic);
 }
 
 function chooseBestWikipediaSearchTitle(topic: string, titles: string[]): string | null {
@@ -98,9 +108,22 @@ function cleanCapturedText(value: string): string {
   return value
     .trim()
     .replace(/^[“"'《〈（(]+/, "")
-    .replace(/[”"'》〉）)。！？；，]+$/g, "")
+    .replace(/[”"'》〉。！？；，]+$/g, "")
     .replace(/^(?:并|又|也)/, "")
     .trim();
+}
+
+function splitEvidenceSentences(text: string): string[] {
+  return (text.match(/[^。！？.!?]+[。！？.!?]?/g) || [text])
+    .map((chunk) => chunk.trim())
+    .filter(Boolean);
+}
+
+function isLikelyNoisyPlace(value: string): boolean {
+  return value.includes("、")
+    || /的家$/.test(value)
+    || /庙外$/.test(value)
+    || /(祭祀|国家级|享受历朝历代皇帝尊奉)/.test(value);
 }
 
 function extractAdditionalTermClauses(topic: string, excerpt: string): string[] {
@@ -139,6 +162,14 @@ function extractAdditionalTermClauses(topic: string, excerpt: string): string[] 
       build: (match) => `${normalizedTopic}${cleanCapturedText(match[0])}`,
     },
     {
+      regex: /成为([^，。；]+)/g,
+      build: (match) => `${normalizedTopic}成为${cleanCapturedText(match[1])}`,
+    },
+    {
+      regex: /(人首蛇身(?:（[^）]+）)?)/g,
+      build: (match) => `${normalizedTopic}${cleanCapturedText(match[1])}`,
+    },
+    {
       regex: /携带([^，。；]+)/g,
       build: (match) => `${normalizedTopic}携带${cleanCapturedText(match[1])}`,
     },
@@ -160,6 +191,11 @@ function extractAdditionalTermClauses(topic: string, excerpt: string): string[] 
 function firstSentence(text: string): string {
   const sentence = text.match(/^[\s\S]*?[.!?。！？]/)?.[0] || text;
   return sentence.trim().slice(0, 240);
+}
+
+function collectDateEvidenceChunks(excerpt: string): string[] {
+  const DATE_CONTEXT_REGEX = /(出生|生于|卒于|逝世|发表|发明|提出|记载|记录|首次|发现|实验|描述|出版|阐述)/;
+  return splitEvidenceSentences(excerpt).filter((chunk, index) => index === 0 || DATE_CONTEXT_REGEX.test(chunk));
 }
 
 function trimExcerpt(excerpt: string): string {
@@ -203,13 +239,14 @@ function pushHardFact(
 function extractHardFacts(topic: string, sourceEntries: AccuracySourceEntry[]): AccuracyHardFact[] {
   const facts: AccuracyHardFact[] = [];
   const seen = new Set<string>();
+  const factSubject = resolveCanonicalFactSubject(topic, sourceEntries);
 
   sourceEntries.forEach((entry) => {
     const definition = firstSentence(entry.excerpt);
     if (definition.length > 12) {
       pushHardFact(facts, seen, {
         claimType: "term",
-        subject: topic,
+        subject: factSubject,
         predicate: "definition",
         object: definition,
         normalizedValue: normalizeValue(definition),
@@ -219,10 +256,10 @@ function extractHardFacts(topic: string, sourceEntries: AccuracySourceEntry[]): 
       });
     }
 
-    extractAdditionalTermClauses(topic, entry.excerpt).forEach((clause) => {
+    extractAdditionalTermClauses(factSubject, entry.excerpt).forEach((clause) => {
       pushHardFact(facts, seen, {
         claimType: "term",
-        subject: topic,
+        subject: factSubject,
         predicate: "property",
         object: clause,
         normalizedValue: normalizeValue(clause),
@@ -232,7 +269,7 @@ function extractHardFacts(topic: string, sourceEntries: AccuracySourceEntry[]): 
       });
     });
 
-    const normalizedTopic = normalizeValue(topic);
+    const normalizedTopic = normalizeValue(factSubject);
     const personMatch = definition.match(PERSON_DEFINITION_REGEX);
     if (personMatch) {
       const canonicalPerson = cleanCapturedText(personMatch[1]);
@@ -243,7 +280,7 @@ function extractHardFacts(topic: string, sourceEntries: AccuracySourceEntry[]): 
       ) {
         pushHardFact(facts, seen, {
           claimType: "person",
-          subject: topic,
+          subject: factSubject,
           predicate: "name",
           object: canonicalPerson,
           normalizedValue: normalizedPerson,
@@ -257,10 +294,10 @@ function extractHardFacts(topic: string, sourceEntries: AccuracySourceEntry[]): 
     PLACE_PATTERNS.forEach(({ regex, predicate }) => {
       Array.from(entry.excerpt.matchAll(regex)).forEach((match) => {
         const place = cleanCapturedText(match[1]);
-        if (!place || /\d/.test(place)) return;
+        if (!place || /\d/.test(place) || isLikelyNoisyPlace(place)) return;
         pushHardFact(facts, seen, {
           claimType: "place",
-          subject: topic,
+          subject: factSubject,
           predicate,
           object: place,
           normalizedValue: normalizeValue(place),
@@ -288,11 +325,12 @@ function extractHardFacts(topic: string, sourceEntries: AccuracySourceEntry[]): 
       });
     });
 
-    const years = Array.from(new Set(entry.excerpt.match(/\b(1[0-9]{3}|20[0-9]{2})\b/g) || []));
+    const dateEvidenceText = collectDateEvidenceChunks(entry.excerpt).join(" ");
+    const years = Array.from(new Set(dateEvidenceText.match(/\b(1[0-9]{3}|20[0-9]{2})\b/g) || []));
     years.forEach((year) => {
       pushHardFact(facts, seen, {
         claimType: "date",
-        subject: topic,
+        subject: factSubject,
         predicate: "year",
         object: year,
         normalizedValue: year,
@@ -302,11 +340,11 @@ function extractHardFacts(topic: string, sourceEntries: AccuracySourceEntry[]): 
       });
     });
 
-    Array.from(entry.excerpt.matchAll(CENTURY_REGEX)).forEach((match) => {
+    Array.from(dateEvidenceText.matchAll(CENTURY_REGEX)).forEach((match) => {
       const century = match[2] ? `${match[2]}世纪` : `${match[1]} century`;
       pushHardFact(facts, seen, {
         claimType: "date",
-        subject: topic,
+        subject: factSubject,
         predicate: "century",
         object: century,
         normalizedValue: normalizeValue(century),

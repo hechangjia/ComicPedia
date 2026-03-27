@@ -57,6 +57,8 @@
   - science 问句主题会先做 Wikipedia 搜索归一，再选更合理的 anchor 词条
   - 中文句首句切分与 `可...` 假事实抽取已修正
   - invention 主题支持 `发明于...中国` 与 `7世纪` 这类 origin-place / century date 抽取
+  - myth 主题支持 `成为…人类始祖` / `人首蛇身` 这类 identity term 抽取
+  - 问句 topic 的 term facts 已改为使用 canonical subject（例如 `雷`，不再保留 `为什么会打雷`）
 - 更新 handoff 文档到当前状态。
 
 ## 当前进行中的内容
@@ -65,11 +67,10 @@
 
 ## 剩余工作
 - 根据真实冒烟结果继续补强 deterministic extraction / normalization：
-  - 问句 topic 的 canonical subject 归一（例如 `为什么会打雷` -> `雷`）
   - 长词条里的噪声日期 / 噪声地点过滤（`牛顿` / `女娲` 仍有脏 `date/place`）
   - 地点层级与别名归一
   - 非 `由…提出` 句式的事件归因
-  - myth / mechanism 主题的 canonical subject 归一
+  - myth / mechanism 主题的 term 去噪（例如职业神/后世神祇这类弱相关扩展）
 - 根据 golden topics 结果决定下一优先级：
   - VLM “看对路”
   - 导出质量升级
@@ -124,14 +125,14 @@
 - 当前 deterministic matcher 已覆盖日期/数字/基础术语/基础地点/基础归因，但仍不是完整语义匹配器。
 - `FactPack` 事实抽取仍是启发式；复杂长文本、跨句推理、别名层级仍可能 coverage 不足。
 - live smoke 依赖外部 LLM 与 Wikipedia；Wikipedia 在当前环境偶发慢响应，因此 harness 对 wiki 主题做了“先 live fetch，失败再 snapshot fallback”的降级。
-- `牛顿` / `女娲` smoke 仍暴露长词条中的噪声 `date/place`；`为什么会打雷` 虽已可过 smoke，但 hard facts 仍带问题句主体痕迹。
+- `牛顿` / `女娲` smoke 仍暴露长词条中的噪声 `date/place`；`女娲` 仍有部分弱相关 myth term 被抽进 hard facts。
 - provider clients 目前是 MVP 接法，还没做细粒度 provider-specific error taxonomy。
 - 尚未做浏览器级端到端生成冒烟；当前真实回归是“服务端脚本阶段 live smoke”，不含图片生成。
 - 5 题虽已全部 `script_ready`，但目前都落在 `reviewStatus=repair_required`，还没有达到“高置信 passed”。
 
 ## 下次启动后优先执行的 3 个步骤
 1. 针对 `牛顿` / `女娲` 的真实结果继续清理噪声 facts，优先长词条脏 `date/place` 过滤。
-2. 针对 `为什么会打雷` 的真实结果继续做 question-subject 归一，避免 hard facts 保留问题句主体痕迹。
+2. 针对 `女娲` / `雷` 的真实结果继续做 myth / mechanism term 去噪，减少弱相关 hard facts。
 3. 如果 golden topics 表现稳定，再决定是否进入下一优先级模块，而不是继续打磨当前闭环细节。
 
 ## 当前验证状态

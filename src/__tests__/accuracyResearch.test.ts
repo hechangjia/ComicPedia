@@ -364,6 +364,13 @@ describe("accuracy research", () => {
         }),
       ]),
     );
+    expect(result.factPack.hardFacts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          object: expect.stringMatching(/为什么会打雷/),
+        }),
+      ]),
+    );
     expect(result.factPack.hardFacts.length).toBeGreaterThanOrEqual(2);
     expect(result.researchBrief.safeToGenerate).toBe(true);
   });
@@ -410,6 +417,83 @@ describe("accuracy research", () => {
         expect.objectContaining({
           sourceTier: "anchor",
           title: "雷",
+        }),
+      ]),
+    );
+  });
+
+  it("ignores noisy late years outside core factual context for biography topics", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "牛顿",
+      extract: "牛顿出生于1643年。1687年他发表《自然哲学的数学原理》。2005年有一次纪念活动重新统计了他的手稿。",
+      lang: "zh",
+      sections: ["生平"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E7%89%9B%E9%A1%BF",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "牛顿",
+      contentType: "wikipedia",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ claimType: "date", object: "1643" }),
+        expect.objectContaining({ claimType: "date", object: "1687" }),
+      ]),
+    );
+    expect(result.factPack.hardFacts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ claimType: "date", object: "2005" }),
+      ]),
+    );
+  });
+
+  it("ignores noisy place phrases such as shrine lists or generic home references", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "女娲",
+      extract: "女娲是中国上古神话中的创世女神。除了位于山西省临汾市洪洞县的娲皇陵、数千年来一直享受历朝历代皇帝尊奉、祭祀的国家级神庙娲皇庙外，各地也均见女娲信仰文化。牛顿后来住进了位于北威特姆的家。",
+      lang: "zh",
+      sections: ["信仰"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E5%A5%B3%E5%A8%B2",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "女娲",
+      contentType: "wikipedia",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "place",
+          object: expect.stringMatching(/娲皇陵|庙外|北威特姆的家/),
         }),
       ]),
     );
@@ -488,6 +572,48 @@ describe("accuracy research", () => {
         expect.objectContaining({
           claimType: "date",
           object: "7世纪",
+        }),
+      ]),
+    );
+    expect(result.researchBrief.safeToGenerate).toBe(true);
+  });
+
+  it("extracts myth identity facts such as 人类始祖 and 人首蛇身 for 女娲", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "女娲",
+      extract: "女娲（wā）又称女娲氏，另称娲皇、女希氏，俗称女娲娘娘。原为中国传说时代中的上古氏族首领，后成为中国神话中的人类始祖。根据东汉文献记载，女娲人首蛇身（龙身）。",
+      lang: "zh",
+      sections: ["神话形象"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E5%A5%B3%E5%A8%B2",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "女娲",
+      contentType: "wikipedia",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+          object: expect.stringMatching(/人类始祖/),
+        }),
+        expect.objectContaining({
+          claimType: "term",
+          object: "女娲人首蛇身（龙身）",
         }),
       ]),
     );
