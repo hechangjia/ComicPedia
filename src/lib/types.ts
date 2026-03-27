@@ -505,6 +505,7 @@ export type APIProvider = "deepseek" | "openai" | "claude" | "gemini" | "nano-ba
 export type AccuracyProviderKind = "search" | "fetch";
 export type AccuracyProviderVendor = "firecrawl" | "tavily" | "custom";
 export type AccuracyProviderHealthStatus = "idle" | "success" | "error";
+export type AccuracySourceTier = "anchor" | "whitelist" | "open_web";
 
 export interface AccuracyProviderConfig {
   id: string;
@@ -534,6 +535,76 @@ export interface AccuracySettings {
   providers: AccuracyProviderConfig[];
   slots: AccuracyProviderSlots;
   whitelistDomains: string[];
+}
+
+export interface AccuracyHardFact {
+  id: string;
+  claimType: "person" | "date" | "number" | "term" | "place" | "event";
+  subject: string;
+  predicate: string;
+  object: string;
+  normalizedValue: string;
+  sourceIds: string[];
+  confidence: number;
+  mustPreserve: boolean;
+}
+
+export interface AccuracySoftFact {
+  id: string;
+  summary: string;
+  evidenceLevel: "strong" | "medium" | "weak";
+  sourceIds: string[];
+  rewriteFlexibility: "low" | "medium" | "high";
+}
+
+export interface AccuracySourceEntry {
+  id: string;
+  url: string;
+  domain: string;
+  title: string;
+  sourceTier: AccuracySourceTier;
+  retrievalMethod: "wikipedia" | "search" | "fetch";
+  providerId?: string;
+  excerpt: string;
+  retrievedAt: string;
+  trustScore: number;
+}
+
+export interface AccuracyCoverageGap {
+  question: string;
+  missingType: "hard_fact" | "soft_context" | "source" | "budget";
+  severity: "info" | "warning" | "critical";
+  reason: string;
+}
+
+export interface AccuracyConfidenceSummary {
+  hardFactCoverage: number;
+  softFactCoverage: number;
+  overallRisk: "low" | "medium" | "high";
+}
+
+export interface AccuracyQueryPlan {
+  hardFactQueries: string[];
+  softFactQueries: string[];
+  fallbackUsed: boolean;
+}
+
+export interface FactPack {
+  topic: string;
+  queryPlan: AccuracyQueryPlan;
+  hardFacts: AccuracyHardFact[];
+  softFacts: AccuracySoftFact[];
+  sourceEntries: AccuracySourceEntry[];
+  coverageGaps: AccuracyCoverageGap[];
+  confidenceSummary: AccuracyConfidenceSummary;
+  recommendedNarrativeAngles: string[];
+}
+
+export interface ResearchBrief {
+  verifiedHardFactCount: number;
+  sourceTiersUsed: AccuracySourceTier[];
+  majorRisks: string[];
+  safeToGenerate: boolean;
 }
 
 /** 用户 LLM 配置 */

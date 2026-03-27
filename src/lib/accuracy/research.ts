@@ -1,0 +1,297 @@
+import type {
+  AccuracyCoverageGap,
+  AccuracyHardFact,
+  AccuracySettings,
+  AccuracySoftFact,
+  AccuracySourceEntry,
+  AccuracySourceTier,
+  FactPack,
+  ResearchBrief,
+  WikipediaContent,
+} from "@/lib/types";
+import { getWikipediaSummary } from "@/lib/server/wikipedia";
+import { resolveAccuracyProviders, getWhitelistDomains } from "@/lib/accuracy/providerRegistry";
+import { searchWithProvider } from "@/lib/accuracy/providerClients";
+
+const MAX_ANCHOR_SOURCES = 3;
+const MAX_WHITELIST_SOURCES = 3;
+const MAX_OPEN_WEB_SOURCES = 2;
+const MAX_EXCERPT_CHARS = 800;
+const PROVIDER_TIMEOUT_MS = 8000;
+const RESEARCH_BUDGET_MS = 20000;
+
+export interface AccuracyResearchInput {
+  topic: string;
+  contentType?: string;
+  accuracyConfig: AccuracySettings;
+  wikipediaContent?: WikipediaContent;
+  budgetMs?: number;
+}
+
+function detectWikiLang(topic: string, wikipediaContent?: WikipediaContent): string {
+  if (wikipediaContent?.lang) return wikipediaContent.lang;
+  return /^[\x00-\x7F]+$/.test(topic.trim()) ? "en" : "zh";
+}
+
+function buildSourceId(prefix: string, index: number): string {
+  return `${prefix}-${index + 1}`;
+}
+
+function normalizeValue(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function firstSentence(text: string): string {
+  const sentence = text.split(/(?<=[.!?。！？])\s+/)[0] || text;
+  return sentence.trim().slice(0, 240);
+}
+
+function trimExcerpt(excerpt: string): string {
+  return excerpt.trim().slice(0, MAX_EXCERPT_CHARS);
+}
+
+function pushSourceEntry(
+  sourceEntries: AccuracySourceEntry[],
+  entry: Omit<AccuracySourceEntry, "id" | "excerpt" | "retrievedAt"> & { excerpt: string },
+): void {
+  const cap = entry.sourceTier === "anchor"
+    ? MAX_ANCHOR_SOURCES
+    : entry.sourceTier === "whitelist"
+      ? MAX_WHITELIST_SOURCES
+      : MAX_OPEN_WEB_SOURCES;
+  const currentCount = sourceEntries.filter((item) => item.sourceTier === entry.sourceTier).length;
+  if (currentCount >= cap) return;
+
+  sourceEntries.push({
+    ...entry,
+    id: buildSourceId(entry.sourceTier, currentCount),
+    excerpt: trimExcerpt(entry.excerpt),
+    retrievedAt: new Date().toISOString(),
+  });
+}
+
+function extractHardFacts(topic: string, sourceEntries: AccuracySourceEntry[]): AccuracyHardFact[] {
+  const facts: AccuracyHardFact[] = [];
+  const seen = new Set<string>();
+
+  sourceEntries.forEach((entry) => {
+    const definition = firstSentence(entry.excerpt);
+    if (definition.length > 12) {
+      const key = `term:${normalizeValue(definition)}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        facts.push({
+          id: `fact-term-${facts.length + 1}`,
+          claimType: "term",
+          subject: topic,
+          predicate: "definition",
+          object: definition,
+          normalizedValue: normalizeValue(definition),
+          sourceIds: [entry.id],
+          confidence: entry.sourceTier === "anchor" ? 0.92 : 0.7,
+          mustPreserve: true,
+        });
+      }
+    }
+
+    const years = Array.from(new Set(entry.excerpt.match(/\b(1[0-9]{3}|20[0-9]{2})\b/g) || []));
+    years.forEach((year) => {
+      const key = `date:${year}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      facts.push({
+        id: `fact-date-${facts.length + 1}`,
+        claimType: "date",
+        subject: topic,
+        predicate: "year",
+        object: year,
+        normalizedValue: year,
+        sourceIds: [entry.id],
+        confidence: entry.sourceTier === "anchor" ? 0.9 : 0.65,
+        mustPreserve: true,
+      });
+    });
+  });
+
+  return facts;
+}
+
+function extractSoftFacts(sourceEntries: AccuracySourceEntry[]): AccuracySoftFact[] {
+  return sourceEntries.slice(0, 3).map((entry, index) => ({
+    id: `soft-${index + 1}`,
+    summary: firstSentence(entry.excerpt),
+    evidenceLevel: entry.sourceTier === "anchor" ? "strong" : entry.sourceTier === "whitelist" ? "medium" : "weak",
+    sourceIds: [entry.id],
+    rewriteFlexibility: entry.sourceTier === "anchor" ? "low" : "medium",
+  }));
+}
+
+function deriveResearchBrief(factPack: FactPack): ResearchBrief {
+  const sourceTiersUsed = Array.from(new Set(factPack.sourceEntries.map((entry) => entry.sourceTier))) as AccuracySourceTier[];
+  const majorRisks = factPack.coverageGaps.map((gap) => gap.reason).slice(0, 3);
+  const safeToGenerate = factPack.hardFacts.length > 0 && !factPack.coverageGaps.some((gap) => gap.severity !== "info");
+
+  return {
+    verifiedHardFactCount: factPack.hardFacts.length,
+    sourceTiersUsed,
+    majorRisks,
+    safeToGenerate,
+  };
+}
+
+function buildCoverageGap(question: string, reason: string, severity: AccuracyCoverageGap["severity"], missingType: AccuracyCoverageGap["missingType"]): AccuracyCoverageGap {
+  return {
+    question,
+    reason,
+    severity,
+    missingType,
+  };
+}
+
+function hasSufficientCoverage(hardFacts: AccuracyHardFact[]): boolean {
+  return hardFacts.length >= 2;
+}
+
+export async function runAccuracyResearch(input: AccuracyResearchInput): Promise<{ factPack: FactPack; researchBrief: ResearchBrief }> {
+  const startedAt = Date.now();
+  const budgetMs = input.budgetMs ?? RESEARCH_BUDGET_MS;
+  const sourceEntries: AccuracySourceEntry[] = [];
+  const coverageGaps: AccuracyCoverageGap[] = [];
+
+  const queryPlan = {
+    hardFactQueries: [input.topic],
+    softFactQueries: [`${input.topic} overview`],
+    fallbackUsed: false,
+  };
+
+  const wikiLang = detectWikiLang(input.topic, input.wikipediaContent);
+
+  if (input.wikipediaContent?.extract) {
+    pushSourceEntry(sourceEntries, {
+      url: `https://${wikiLang}.wikipedia.org/wiki/${encodeURIComponent(input.wikipediaContent.title.replace(/ /g, "_"))}`,
+      domain: `${wikiLang}.wikipedia.org`,
+      title: input.wikipediaContent.title,
+      sourceTier: "anchor",
+      retrievalMethod: "wikipedia",
+      excerpt: input.wikipediaContent.extract,
+      trustScore: 0.95,
+    });
+  } else {
+    const summary = await getWikipediaSummary(input.topic, wikiLang);
+    if (summary) {
+      pushSourceEntry(sourceEntries, {
+        url: summary.pageUrl,
+        domain: new URL(summary.pageUrl).hostname,
+        title: summary.title,
+        sourceTier: "anchor",
+        retrievalMethod: "wikipedia",
+        excerpt: summary.extract,
+        trustScore: 0.95,
+      });
+    } else {
+      coverageGaps.push(buildCoverageGap(input.topic, "missing anchor summary", "warning", "source"));
+    }
+  }
+
+  let hardFacts = extractHardFacts(input.topic, sourceEntries);
+
+  const whitelistDomains = getWhitelistDomains(input.accuracyConfig);
+  if (!hasSufficientCoverage(hardFacts) && whitelistDomains.length > 0) {
+    if (Date.now() - startedAt >= budgetMs) {
+      coverageGaps.push(buildCoverageGap(input.topic, "research budget exhausted before whitelist search", "warning", "budget"));
+    } else {
+      const searchProviders = resolveAccuracyProviders(input.accuracyConfig, "search");
+      if (searchProviders.length === 0) {
+        coverageGaps.push(buildCoverageGap(input.topic, "no search provider configured for whitelist expansion", "warning", "source"));
+      } else {
+        queryPlan.fallbackUsed = true;
+        for (const provider of searchProviders) {
+          const results = await searchWithProvider(provider, input.topic, {
+            limit: MAX_WHITELIST_SOURCES + 2,
+            timeoutMs: PROVIDER_TIMEOUT_MS,
+          });
+
+          results
+            .filter((result) => whitelistDomains.some((domain) => result.domain === domain || result.domain.endsWith(`.${domain}`)))
+            .forEach((result) => {
+              pushSourceEntry(sourceEntries, {
+                url: result.url,
+                domain: result.domain,
+                title: result.title,
+                sourceTier: "whitelist",
+                retrievalMethod: "search",
+                providerId: provider.id,
+                excerpt: result.excerpt,
+                trustScore: 0.75,
+              });
+            });
+
+          if (sourceEntries.filter((entry) => entry.sourceTier === "whitelist").length >= MAX_WHITELIST_SOURCES) {
+            break;
+          }
+        }
+
+        hardFacts = extractHardFacts(input.topic, sourceEntries);
+      }
+    }
+  }
+
+  if (!hasSufficientCoverage(hardFacts) && whitelistDomains.length === 0) {
+    coverageGaps.push(buildCoverageGap(input.topic, "no whitelist domains configured", "info", "source"));
+  }
+
+  if (!hasSufficientCoverage(hardFacts) && Date.now() - startedAt < budgetMs) {
+    const searchProviders = resolveAccuracyProviders(input.accuracyConfig, "search");
+    if (searchProviders.length > 0) {
+      queryPlan.fallbackUsed = true;
+      const results = await searchWithProvider(searchProviders[0], input.topic, {
+        limit: MAX_OPEN_WEB_SOURCES,
+        timeoutMs: PROVIDER_TIMEOUT_MS,
+      });
+      results.slice(0, MAX_OPEN_WEB_SOURCES).forEach((result) => {
+        pushSourceEntry(sourceEntries, {
+          url: result.url,
+          domain: result.domain,
+          title: result.title,
+          sourceTier: "open_web",
+          retrievalMethod: "search",
+          providerId: searchProviders[0].id,
+          excerpt: result.excerpt,
+          trustScore: 0.4,
+        });
+      });
+      hardFacts = extractHardFacts(input.topic, sourceEntries);
+    }
+  } else if (!hasSufficientCoverage(hardFacts) && !coverageGaps.some((gap) => gap.missingType === "budget")) {
+    coverageGaps.push(buildCoverageGap(input.topic, "research budget exhausted before open-web fallback", "warning", "budget"));
+  }
+
+  if (!hasSufficientCoverage(hardFacts)) {
+    coverageGaps.push(buildCoverageGap(input.topic, "hard fact coverage is still thin after bounded retrieval", "warning", "hard_fact"));
+  }
+
+  const softFacts = extractSoftFacts(sourceEntries);
+  const factPack: FactPack = {
+    topic: input.topic,
+    queryPlan,
+    hardFacts,
+    softFacts,
+    sourceEntries,
+    coverageGaps,
+    confidenceSummary: {
+      hardFactCoverage: hardFacts.length,
+      softFactCoverage: softFacts.length,
+      overallRisk: coverageGaps.some((gap) => gap.severity === "critical")
+        ? "high"
+        : coverageGaps.some((gap) => gap.severity === "warning")
+          ? "medium"
+          : "low",
+    },
+    recommendedNarrativeAngles: softFacts.map((fact) => fact.summary).slice(0, 3),
+  };
+
+  return {
+    factPack,
+    researchBrief: deriveResearchBrief(factPack),
+  };
+}
