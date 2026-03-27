@@ -271,6 +271,23 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 >
 > Also clear the site's IndexedDB in your browser (DevTools → Application → IndexedDB → delete `comicpedia`) to prevent stale data from syncing back to the server.
 
+### Quality Checks and Shipping
+
+```bash
+# Local quality gates
+pnpm lint
+pnpm test
+pnpm build
+
+# One-shot pre-ship check
+pnpm ship:check
+```
+
+- `pnpm ship:check` runs `lint -> test -> build` in order and blocks shipping directly from the default base branch
+- GitHub Actions CI runs the same checks on every push and pull request
+- Recommended flow: work on a feature branch or `dev` -> run `pnpm ship:check` -> push -> open a PR to `master` -> do a quick smoke test on the key pages before merge
+- See `docs/ai/ship.md` for the repo-specific checklist
+
 ### Docker Deployment
 
 ```bash
@@ -290,7 +307,7 @@ curl http://localhost:61323/api/health
 **Docker details:**
 - Default port: `61323`
 - Data volume: `comicpedia-data` mounted to `/app/data` (SQLite + images)
-- Memory limit: 1 GB
+- Memory limit: 2 GB (with a 512 MB reservation)
 - Multi-stage build with standalone output
 
 ### Configuration

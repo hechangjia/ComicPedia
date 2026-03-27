@@ -271,6 +271,23 @@ pnpm dev
 >
 > 同时建议清除浏览器中对应站点的 IndexedDB 缓存（开发者工具 → Application → IndexedDB → 删除 `comicpedia` 数据库），避免旧数据从浏览器缓存回写到服务端。
 
+### 质量检查与发版
+
+```bash
+# 本地质量检查
+pnpm lint
+pnpm test
+pnpm build
+
+# 发版前一键检查
+pnpm ship:check
+```
+
+- `pnpm ship:check` 会顺序执行 `lint -> test -> build`，并阻止直接从默认基线分支发版
+- GitHub Actions CI 会在 push / pull request 时运行同一套检查
+- 推荐流程：在功能分支或 `dev` 上开发 -> 运行 `pnpm ship:check` -> push -> 创建指向 `master` 的 PR -> 合并前做关键页面冒烟测试
+- 详细清单见 `docs/ai/ship.md`
+
 ### Docker 部署
 
 ```bash
@@ -292,7 +309,7 @@ curl http://localhost:61323/api/health
 **Docker 详情：**
 - 默认端口：`61323`
 - 数据卷：`comicpedia-data` 挂载到 `/app/data`（SQLite + 图片文件）
-- 内存限制：1 GB
+- 内存限制：2 GB（保底预留 512 MB）
 - 多阶段构建 + standalone 输出模式
 
 ### 配置说明
