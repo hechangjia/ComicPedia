@@ -73,3 +73,5 @@ CLAUDE.md
 .codex/
 .gemini/
 openspec/
+.superpowers/
+docs/superpowers/
