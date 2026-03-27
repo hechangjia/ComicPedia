@@ -307,6 +307,14 @@ Do not import:
 - clickbait copy
 - exaggerated reversal tone
 
+These external files are optional reference inputs, not required runtime dependencies.
+
+For implementation planning, the system should assume:
+
+- extraction happens once during development
+- the resulting cut rules, shot vocab, and hook/escalation heuristics are copied into repo-owned prompt or config assets
+- generation must not depend on `/home/chia/Downloads/提示词/` being present on any deployment machine
+
 ## 10. Pipeline Integration
 
 The recommended integration path is:
@@ -360,6 +368,8 @@ The system should preserve already-good panels whenever possible.
 
 ## 12. User-Facing Product Surface
 
+Final product target:
+
 Expose one lightweight narrative pacing control for `science` and `wikipedia`:
 
 - `稳妥讲解`
@@ -377,6 +387,12 @@ The result page may optionally show lightweight explainability metadata such as:
 - rhythm validation status
 
 This makes the feature feel like a real product capability instead of invisible prompt magic.
+
+Phase-1 clarification:
+
+- phase 1 may compute and persist pacing/debug metadata internally without exposing a new user control
+- the visible pacing control is a phase-2 surface unless implementation planning explicitly decides the UI is cheap enough to include in the same release
+- planning should treat the director layer itself as the required scope, and the visible pacing selector as optional for the first implementation slice
 
 ## 13. Error Handling and Fallbacks
 
