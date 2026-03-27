@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { generateAllImages } from "@/lib/client/generator";
-import type { GenerateTask, VisualQualityScore } from "@/lib/types";
+import { generateAllImages, startGeneration } from "@/lib/client/generator";
+import {
+  buildEnhancedTopicFromResearch,
+  generateScript,
+  generateScriptStream,
+  generateTopicResearch,
+} from "@/lib/llm";
+import { generateNarrativeOutline, buildOutlineGuidance } from "@/lib/director";
+import { validateScript } from "@/lib/scriptValidator";
+import type { GenerateTask, NarrativeOutline, VisualQualityScore } from "@/lib/types";
 
 const {
   getTaskMock,
@@ -204,6 +212,105 @@ function makeMultiPanelTask(panelCount: number): GenerateTask {
         status: "completed" as const,
       })),
     },
+  };
+}
+
+function makeBeatPlan(overrides: Partial<NarrativeOutline> = {}): NarrativeOutline {
+  return {
+    totalPanels: 5,
+    templateType: "mechanism",
+    source: "beat-plan",
+    narrativeArc: "A hook-first explanation of why thunder happens",
+    infoDistribution: "progressive",
+    characterList: [],
+    panels: [
+      {
+        narrativeFunction: "opening",
+        beatRole: "hook",
+        suggestedComposition: "close-up",
+        shotIntent: "hook-closeup",
+        characters: [],
+        keyInfo: "先用反常识现象抓住读者",
+        knowledgeGoal: "先让读者产生疑问",
+        infoDensity: "low",
+        intensity: "high",
+        carryForward: "为什么会出现这种现象",
+      },
+      {
+        narrativeFunction: "development",
+        beatRole: "progression",
+        suggestedComposition: "medium shot",
+        shotIntent: "contrast",
+        characters: [],
+        keyInfo: "说明旧直觉为什么不够",
+        knowledgeGoal: "看见旧解释的不足",
+        infoDensity: "medium",
+        intensity: "medium",
+        carryForward: "真正机制是什么",
+      },
+      {
+        narrativeFunction: "climax",
+        beatRole: "reveal",
+        suggestedComposition: "dynamic",
+        shotIntent: "reveal",
+        characters: [],
+        keyInfo: "揭示核心机制",
+        knowledgeGoal: "理解因果链条",
+        infoDensity: "high",
+        intensity: "high",
+        carryForward: "它会带来什么后果",
+      },
+      {
+        narrativeFunction: "resolution",
+        beatRole: "progression",
+        suggestedComposition: "wide shot",
+        shotIntent: "process",
+        characters: [],
+        keyInfo: "推进结果",
+        knowledgeGoal: "看懂机制落到现实的过程",
+        infoDensity: "medium",
+        intensity: "medium",
+        carryForward: "最后记住什么",
+      },
+      {
+        narrativeFunction: "epilogue",
+        beatRole: "closure",
+        suggestedComposition: "wide shot",
+        shotIntent: "aftermath",
+        characters: [],
+        keyInfo: "收束记忆点",
+        knowledgeGoal: "留下清晰结论",
+        infoDensity: "low",
+        intensity: "medium",
+        carryForward: "none",
+      },
+    ],
+    ...overrides,
+  };
+}
+
+function makeGeneratedScript() {
+  return {
+    title: "雷电从哪里来",
+    topic: "为什么会打雷",
+    style: "flat" as const,
+    characterDescription: "",
+    panels: [
+      {
+        id: 1,
+        scene: "乌云压城",
+        dialogue: "先看到闪电和雷声的错位现象",
+        imagePrompt: "storm clouds, close-up lightning, dramatic sky",
+        status: "pending" as const,
+      },
+      {
+        id: 2,
+        scene: "云层摩擦",
+        dialogue: "云层里的电荷开始分离",
+        imagePrompt: "charged clouds, contrast composition",
+        status: "pending" as const,
+      },
+    ],
   };
 }
 
@@ -686,6 +793,110 @@ describe("taskLifecycle automatic visual review", () => {
       expect(persistedTask.reviewStatus).toBe("needs_repair");
       expect(persistedTask.script?.panels[0].imagePrompt).toBe(patchedPrompt);
       expect(withRetryMock).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe("taskLifecycle scripting director beat plan", () => {
+  beforeEach(() => {
+    vi.mocked(generateTopicResearch).mockReset();
+    vi.mocked(buildEnhancedTopicFromResearch).mockReset();
+    vi.mocked(generateScript).mockReset();
+    vi.mocked(generateScriptStream).mockReset();
+    vi.mocked(generateNarrativeOutline).mockReset();
+    vi.mocked(buildOutlineGuidance).mockReset();
+    vi.mocked(validateScript).mockReset();
+
+    vi.mocked(generateTopicResearch).mockResolvedValue({
+      expandedDescription: "expanded topic",
+      keyFacts: ["fact 1"],
+      narrativeAngle: "angle 1",
+      narrativeAngles: [],
+      knowledgeMap: { core: [], sub: [], related: [] },
+    });
+    vi.mocked(buildEnhancedTopicFromResearch).mockReturnValue("expanded topic");
+    vi.mocked(generateScriptStream).mockResolvedValue(makeGeneratedScript());
+    vi.mocked(generateScript).mockResolvedValue(makeGeneratedScript());
+    vi.mocked(buildOutlineGuidance).mockReturnValue("\n\n[Director Outline]\n");
+    vi.mocked(validateScript).mockReturnValue({
+      passed: true,
+      characterConsistency: true,
+      compositionVariety: true,
+      styleAlignment: true,
+      languagePurity: true,
+      warnings: [],
+    });
+  });
+
+  it("stores a beat-plan capable outline on science scripting tasks", async () => {
+    let storedTask: GenerateTask | undefined;
+    saveTaskMock.mockImplementation(async (task: GenerateTask) => {
+      storedTask = task;
+    });
+    getTaskMock.mockImplementation(async () => storedTask);
+    vi.mocked(generateNarrativeOutline).mockResolvedValue(makeBeatPlan());
+
+    const taskId = await startGeneration({
+      topic: "为什么会打雷",
+      style: "flat",
+      contentType: "science",
+      quality: "standard",
+      llmConfig: { model: "gpt-4o", provider: "openai-compatible" },
+    });
+
+    await vi.waitFor(() => {
+      expect(storedTask?.id).toBe(taskId);
+      expect(storedTask?.status).toBe("script_ready");
+      expect(storedTask?.narrativeOutline?.templateType).toBe("mechanism");
+      expect(storedTask?.narrativeOutline?.panels[0].shotIntent).toBe("hook-closeup");
+      expect(storedTask?.narrativeOutline?.source).toBe("beat-plan");
+    });
+  });
+
+  it("falls back to legacy scripting when director outline generation fails", async () => {
+    let storedTask: GenerateTask | undefined;
+    saveTaskMock.mockImplementation(async (task: GenerateTask) => {
+      storedTask = task;
+    });
+    getTaskMock.mockImplementation(async () => storedTask);
+    vi.mocked(generateNarrativeOutline).mockRejectedValue(new Error("director failed"));
+
+    await startGeneration({
+      topic: "为什么会打雷",
+      style: "flat",
+      contentType: "science",
+      quality: "standard",
+      llmConfig: { model: "gpt-4o", provider: "openai-compatible" },
+    });
+
+    await vi.waitFor(() => {
+      expect(storedTask?.status).toBe("script_ready");
+      expect(storedTask?.script?.title).toBe("雷电从哪里来");
+      expect(storedTask?.narrativeOutline).toBeUndefined();
+    });
+  });
+
+  it("does not require beat-plan metadata for non science wikipedia scripting", async () => {
+    let storedTask: GenerateTask | undefined;
+    saveTaskMock.mockImplementation(async (task: GenerateTask) => {
+      storedTask = task;
+    });
+    getTaskMock.mockImplementation(async () => storedTask);
+    vi.mocked(generateNarrativeOutline).mockResolvedValue(null);
+
+    await startGeneration({
+      topic: "春晓",
+      style: "inkwash",
+      contentType: "poetry",
+      quality: "standard",
+      poetryGenre: "shi",
+      llmConfig: { model: "gpt-4o", provider: "openai-compatible" },
+    });
+
+    await vi.waitFor(() => {
+      expect(storedTask?.status).toBe("script_ready");
+      expect(storedTask?.narrativeOutline).toBeUndefined();
+      expect(storedTask?.script?.title).toBe("雷电从哪里来");
     });
   });
 });
