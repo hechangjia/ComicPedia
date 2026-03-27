@@ -1,4 +1,4 @@
-import { ComicScript, ComicStyle, NarrativeOutline, WikipediaContent } from "../lib/types";
+import { ComicScript, ComicStyle, FactPack, NarrativeOutline, WikipediaContent } from "../lib/types";
 import { getStyleGuidanceForLLM } from "../lib/config/styles";
 import { parseScriptResponse } from "./scriptGenerator";
 import { buildOutlineGuidance } from "../lib/director";
@@ -43,6 +43,25 @@ function getImagePromptGuidance(style: ComicStyle): string {
 "[Professor Chen: middle-aged Chinese scientist in his 40s, wearing white lab coat with glasses, friendly expression] standing in modern AI research lab, pointing at holographic neural network visualization floating in air, glowing blue nodes connected by light beams, multiple computer screens in background showing data, medium shot, warm overhead laboratory lighting, ${style} style, text-free image, no watermark"`;
 }
 
+function buildFactPackSection(factPack?: FactPack): string {
+  if (!factPack) return "";
+
+  return `
+## Fact Pack（必须遵守）
+- Hard facts:
+${factPack.hardFacts.map((fact) => `- [${fact.claimType}] ${fact.subject} / ${fact.predicate} / ${fact.object}`).join("\n") || "- none"}
+- Soft facts:
+${factPack.softFacts.map((fact) => `- ${fact.summary}`).join("\n") || "- none"}
+- Coverage gaps:
+${factPack.coverageGaps.map((gap) => `- ${gap.reason}`).join("\n") || "- none"}
+
+规则：
+- hard facts 是必须保真的事实锚点
+- soft facts 可以用于解释，但不能偏离 hard facts
+- coverage gaps 标记了 unsupported hard detail 的边界，不要越界补写
+`;
+}
+
 /**
  * Wikipedia 百科漫画 Prompt 生成器
  * 基于 Wikipedia 结构化内容，生成信息准确、教育性强的科普漫画分镜脚本。
@@ -53,6 +72,7 @@ export function buildWikipediaPrompt(
   panelCount?: number,
   allowGuideCharacter: boolean = true,
   narrativeOutline?: NarrativeOutline,
+  factPack?: FactPack,
 ): string {
   const panelGuidance = panelCount && panelCount > 0
     ? `规划${panelCount}格分镜，如需微调可在±2格范围内调整。`
@@ -64,6 +84,7 @@ export function buildWikipediaPrompt(
 
   const imageGuidance = getImagePromptGuidance(style);
   const isInfoStyle = INFOGRAPHIC_STYLES.has(style);
+  const factPackSection = buildFactPackSection(factPack);
   const narrativeBeatPlanSection = narrativeOutline
     ? `
 ## Narrative Beat Plan（必须遵守）
@@ -93,6 +114,7 @@ ${getStyleGuidanceForLLM(style)}
 ## 分镜数量
 ${panelGuidance}
 ${narrativeBeatPlanSection}
+${factPackSection}
 
 ## ⚠️ 语言限制（必须严格遵守）
 

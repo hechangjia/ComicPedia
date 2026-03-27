@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { generateAllImages, startGeneration } from "@/lib/client/generator";
 import {
   buildEnhancedTopicFromResearch,
@@ -25,6 +25,7 @@ const {
   urlToBase64Mock,
   withRetryMock,
   mergeReferenceImageMock,
+  fetchMock,
 } = vi.hoisted(() => ({
   getTaskMock: vi.fn(),
   saveTaskMock: vi.fn(),
@@ -40,6 +41,7 @@ const {
   urlToBase64Mock: vi.fn(),
   withRetryMock: vi.fn(),
   mergeReferenceImageMock: vi.fn(),
+  fetchMock: vi.fn(),
 }));
 
 vi.mock("@/lib/client/db", () => ({
@@ -312,6 +314,67 @@ function makeGeneratedScript() {
       },
     ],
   };
+}
+
+function makeFactPack() {
+  return {
+    topic: "为什么会打雷",
+    queryPlan: {
+      hardFactQueries: ["为什么会打雷"],
+      softFactQueries: ["为什么会打雷 overview"],
+      fallbackUsed: false,
+    },
+    hardFacts: [
+      {
+        id: "fact-1",
+        claimType: "term",
+        subject: "为什么会打雷",
+        predicate: "definition",
+        object: "雷声来自闪电加热空气后的剧烈膨胀。",
+        normalizedValue: "雷声来自闪电加热空气后的剧烈膨胀。",
+        sourceIds: ["anchor-1"],
+        confidence: 0.95,
+        mustPreserve: true,
+      },
+    ],
+    softFacts: [],
+    sourceEntries: [
+      {
+        id: "anchor-1",
+        url: "https://zh.wikipedia.org/wiki/%E9%9B%B7",
+        domain: "zh.wikipedia.org",
+        title: "雷",
+        sourceTier: "anchor",
+        retrievalMethod: "wikipedia",
+        excerpt: "雷声来自闪电加热空气后的剧烈膨胀。",
+        retrievedAt: "2026-03-27T00:00:00.000Z",
+        trustScore: 0.95,
+      },
+    ],
+    coverageGaps: [],
+    confidenceSummary: {
+      hardFactCoverage: 1,
+      softFactCoverage: 0,
+      overallRisk: "low",
+    },
+    recommendedNarrativeAngles: [],
+  };
+}
+
+function makeResearchBrief() {
+  return {
+    verifiedHardFactCount: 1,
+    sourceTiersUsed: ["anchor"],
+    majorRisks: [],
+    safeToGenerate: true,
+  };
+}
+
+function mockJsonResponse(body: unknown, ok: boolean = true) {
+  return {
+    ok,
+    json: vi.fn().mockResolvedValue(body),
+  } as unknown as Response;
 }
 
 describe("taskLifecycle automatic visual review", () => {
@@ -827,6 +890,26 @@ describe("taskLifecycle scripting director beat plan", () => {
       languagePurity: true,
       warnings: [],
     });
+
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/accuracy/research")) {
+        return mockJsonResponse({
+          factPack: makeFactPack(),
+          researchBrief: makeResearchBrief(),
+        });
+      }
+      if (url.startsWith("/api/wikipedia")) {
+        return mockJsonResponse({ results: [] }, false);
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+  });
+
+  afterAll(() => {
+    vi.unstubAllGlobals();
   });
 
   it("stores a beat-plan capable outline on science scripting tasks", async () => {
@@ -854,6 +937,32 @@ describe("taskLifecycle scripting director beat plan", () => {
     });
   });
 
+  it("stores fact pack and research brief on science scripting tasks and passes fact pack into stream generation", async () => {
+    let storedTask: GenerateTask | undefined;
+    saveTaskMock.mockImplementation(async (task: GenerateTask) => {
+      storedTask = task;
+    });
+    getTaskMock.mockImplementation(async () => storedTask);
+    vi.mocked(generateNarrativeOutline).mockResolvedValue(makeBeatPlan());
+
+    await startGeneration({
+      topic: "为什么会打雷",
+      style: "flat",
+      contentType: "science",
+      quality: "standard",
+      llmConfig: { model: "gpt-4o", provider: "openai-compatible" },
+    });
+
+    await vi.waitFor(() => {
+      expect(storedTask?.status).toBe("script_ready");
+      expect(storedTask?.factPack?.hardFacts[0].object).toContain("雷声");
+      expect(storedTask?.researchBrief?.verifiedHardFactCount).toBe(1);
+      expect(fetchMock).toHaveBeenCalledWith("/api/accuracy/research", expect.any(Object));
+      const streamCall = vi.mocked(generateScriptStream).mock.calls.at(-1);
+      expect(streamCall?.at(-1)).toEqual(storedTask?.factPack);
+    });
+  });
+
   it("falls back to legacy scripting when director outline generation fails", async () => {
     let storedTask: GenerateTask | undefined;
     saveTaskMock.mockImplementation(async (task: GenerateTask) => {
@@ -874,6 +983,36 @@ describe("taskLifecycle scripting director beat plan", () => {
       expect(storedTask?.status).toBe("script_ready");
       expect(storedTask?.script?.title).toBe("雷电从哪里来");
       expect(storedTask?.narrativeOutline).toBeUndefined();
+    });
+  });
+
+  it("passes fact pack into non-stream fallback generation for wikipedia tasks", async () => {
+    let storedTask: GenerateTask | undefined;
+    saveTaskMock.mockImplementation(async (task: GenerateTask) => {
+      storedTask = task;
+    });
+    getTaskMock.mockImplementation(async () => storedTask);
+    vi.mocked(generateNarrativeOutline).mockResolvedValue(makeBeatPlan());
+    vi.mocked(generateScriptStream).mockRejectedValue(new Error("stream failed"));
+
+    await startGeneration({
+      topic: "DNA",
+      style: "flat",
+      contentType: "wikipedia",
+      quality: "standard",
+      wikipediaContent: {
+        title: "DNA",
+        extract: "DNA is a molecule carrying hereditary information.",
+        lang: "en",
+      },
+      llmConfig: { model: "gpt-4o", provider: "openai-compatible" },
+    });
+
+    await vi.waitFor(() => {
+      expect(storedTask?.status).toBe("script_ready");
+      expect(storedTask?.factPack).toBeDefined();
+      const fallbackCall = vi.mocked(generateScript).mock.calls.at(-1);
+      expect(fallbackCall?.at(-1)).toEqual(storedTask?.factPack);
     });
   });
 

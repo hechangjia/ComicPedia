@@ -1,4 +1,4 @@
-import { Character, ComicScript, ComicStyle, ContentType, NarrativeOutline, NovelMeta, PartialLLMConfig, PoetryGenre, PoetryMeta, WikipediaContent } from "./types";
+import { Character, ComicScript, ComicStyle, ContentType, FactPack, NarrativeOutline, NovelMeta, PartialLLMConfig, PoetryGenre, PoetryMeta, WikipediaContent } from "./types";
 import { getContentHandler } from "./contentRegistry";
 import { withRetry } from "./retryQueue";
 
@@ -307,13 +307,14 @@ export async function generateScriptStream(
   wikipediaContent?: WikipediaContent,
   allowGuideCharacter?: boolean,
   narrativeOutline?: NarrativeOutline,
+  factPack?: FactPack,
 ): Promise<ComicScript> {
   const config = getLLMConfig(llmOverrides);
 
   // Use contentRegistry for prompt building
   const handler = getContentHandler(contentType);
   const prompt = handler.buildPrompt({
-    topic, style, panelCount, poetryGenre, poetryMeta, character, novelMeta, wikipediaContent, allowGuideCharacter, narrativeOutline,
+    topic, style, panelCount, poetryGenre, poetryMeta, character, novelMeta, wikipediaContent, allowGuideCharacter, narrativeOutline, factPack,
   });
 
   let response: string;
@@ -357,13 +358,14 @@ export async function generateScript(
   wikipediaContent?: WikipediaContent,
   allowGuideCharacter?: boolean,
   narrativeOutline?: NarrativeOutline,
+  factPack?: FactPack,
 ): Promise<ComicScript> {
   const config = getLLMConfig(llmOverrides);
 
   // Use contentRegistry for prompt building
   const handler = getContentHandler(contentType);
   const prompt = handler.buildPrompt({
-    topic, style, panelCount, poetryGenre, poetryMeta, character, novelMeta, wikipediaContent, allowGuideCharacter, narrativeOutline,
+    topic, style, panelCount, poetryGenre, poetryMeta, character, novelMeta, wikipediaContent, allowGuideCharacter, narrativeOutline, factPack,
   });
 
   let response: string;

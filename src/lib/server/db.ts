@@ -134,6 +134,8 @@ function taskToRow(task: GenerateTask) {
   if (task.scriptValidation) metadata.scriptValidation = task.scriptValidation;
   if (task.scriptRepairRounds) metadata.scriptRepairRounds = task.scriptRepairRounds;
   if (task.topicResearch) metadata.topicResearch = task.topicResearch;
+  if (task.factPack) metadata.factPack = task.factPack;
+  if (task.researchBrief) metadata.researchBrief = task.researchBrief;
   if (task.narrativeOutline) metadata.narrativeOutline = task.narrativeOutline;
   if (task.generationConfig) metadata.generationConfig = task.generationConfig;
 
@@ -248,6 +250,8 @@ function rowToTask(row: Record<string, unknown>): GenerateTask {
     scriptValidation: meta.scriptValidation as GenerateTask["scriptValidation"],
     scriptRepairRounds: meta.scriptRepairRounds as number | undefined,
     topicResearch: meta.topicResearch as GenerateTask["topicResearch"],
+    factPack: meta.factPack as GenerateTask["factPack"],
+    researchBrief: meta.researchBrief as GenerateTask["researchBrief"],
     narrativeOutline: meta.narrativeOutline as GenerateTask["narrativeOutline"],
     generationConfig: meta.generationConfig as GenerateTask["generationConfig"],
     createdAt: new Date(row.created_at as string),
@@ -648,4 +652,3 @@ export const batchUpsertSeries = db.transaction((list: Series[]) => {
     stmtInsertSeries.run(seriesToRow(s));
   }
 });
-

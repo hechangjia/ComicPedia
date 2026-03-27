@@ -349,6 +349,8 @@ export interface GenerateTask {
       related: string[];
     };
   };
+  factPack?: FactPack;
+  researchBrief?: ResearchBrief;
   /** Narrative outline from Director Agent (guides script generation) */
   narrativeOutline?: NarrativeOutline;
   /** Script quality validation (auto-run after scripting, before script_ready) */

@@ -1,6 +1,36 @@
-import { Character, ComicScript, ComicStyle, NarrativeOutline } from "../lib/types";
+import { Character, ComicScript, ComicStyle, FactPack, NarrativeOutline } from "../lib/types";
 import { getStyleGuidanceForLLM } from "../lib/config/styles";
 import { buildOutlineGuidance } from "../lib/director";
+
+function buildFactPackSection(factPack?: FactPack): string {
+  if (!factPack) return "";
+
+  const hardFacts = factPack.hardFacts
+    .map((fact) => `- [${fact.claimType}] ${fact.subject} / ${fact.predicate} / ${fact.object}`)
+    .join("\n");
+  const softFacts = factPack.softFacts
+    .map((fact) => `- ${fact.summary}`)
+    .join("\n");
+  const coverageGaps = factPack.coverageGaps
+    .map((gap) => `- ${gap.reason}`)
+    .join("\n");
+
+  return `
+## Fact Pack（必须遵守）
+- Hard facts:
+${hardFacts || "- none"}
+- Soft facts:
+${softFacts || "- none"}
+- Coverage gaps:
+${coverageGaps || "- none"}
+
+规则：
+- hard facts 是强约束，必须保持一致
+- soft facts 可用于解释和叙事组织，但不能与 hard facts 冲突
+- coverage gaps 表示证据不足的边界，遇到这些空白时不要编造 unsupported hard detail
+- 如果细节不被 Fact Pack 支持，宁可省略，也不要为了戏剧性额外发明
+`;
+}
 
 /** 分镜脚本生成 Prompt 模板 */
 export function buildScriptPrompt(
@@ -10,6 +40,7 @@ export function buildScriptPrompt(
   character?: Character,
   allowGuideCharacter: boolean = true,
   narrativeOutline?: NarrativeOutline,
+  factPack?: FactPack,
 ): string {
   const panelGuidance = panelCount && panelCount > 0
     ? `优先规划${panelCount}格，如为保证知识讲清可在±2格范围内微调。`
@@ -71,8 +102,9 @@ ${buildOutlineGuidance(narrativeOutline)}
 - 开头两格不能重新退化成平铺直叙讲解
 - 至少保留一次 hook-closeup 或 contrast 作为强镜头变化
 - 最后一格优先做 reveal 或 aftermath，不要再次做主持式解释
-`
+    `
     : "";
+  const factPackSection = buildFactPackSection(factPack);
 
   return `你是一位专业的科普漫画编剧，擅长把复杂概念拆解为可视化的分镜叙事。请根据以下科普主题创作分镜脚本。
 
@@ -101,6 +133,7 @@ ${panelGuidance}
 ${characterConstraint}
 ${guideCharacterPolicy}
 ${narrativeBeatPlanSection}
+${factPackSection}
 
 ## 叙事策略选择（根据主题自动判断）
 

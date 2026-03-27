@@ -3,6 +3,7 @@ import {
   ComicScript,
   ComicStyle,
   ContentType,
+  FactPack,
   NarrativeOutline,
   NovelMeta,
   PoetryGenre,
@@ -31,6 +32,7 @@ export interface ScriptGenerationParams {
   wikipediaContent?: WikipediaContent;
   allowGuideCharacter?: boolean;
   narrativeOutline?: NarrativeOutline;
+  factPack?: FactPack;
 }
 
 // ============================================================
@@ -53,7 +55,7 @@ const contentRegistry = new Map<ContentType, ContentTypeHandler>();
 
 /** 科普漫画 */
 contentRegistry.set("science", {
-  buildPrompt: (p) => buildScriptPrompt(p.topic, p.style, p.panelCount, p.character, p.allowGuideCharacter, p.narrativeOutline),
+  buildPrompt: (p) => buildScriptPrompt(p.topic, p.style, p.panelCount, p.character, p.allowGuideCharacter, p.narrativeOutline, p.factPack),
   parseResponse: parseScriptResponse,
 });
 
@@ -88,7 +90,7 @@ contentRegistry.set("wikipedia", {
       // 降级：无百科内容时用科普模式
       return buildScriptPrompt(p.topic, p.style, p.panelCount, undefined, p.allowGuideCharacter, p.narrativeOutline);
     }
-    return buildWikipediaPrompt(p.wikipediaContent, p.style, p.panelCount, p.allowGuideCharacter, p.narrativeOutline);
+    return buildWikipediaPrompt(p.wikipediaContent, p.style, p.panelCount, p.allowGuideCharacter, p.narrativeOutline, p.factPack);
   },
   parseResponse: parseWikipediaResponse,
 });

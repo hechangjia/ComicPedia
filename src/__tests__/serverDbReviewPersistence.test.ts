@@ -90,6 +90,54 @@ function makeTask(): GenerateTask {
       quality: "fine",
       generatedAt: "2026-03-27T00:00:00.000Z",
     },
+    factPack: {
+      topic: "Round-trip",
+      queryPlan: {
+        hardFactQueries: ["Round-trip"],
+        softFactQueries: ["Round-trip overview"],
+        fallbackUsed: false,
+      },
+      hardFacts: [
+        {
+          id: "fact-1",
+          claimType: "term",
+          subject: "Round-trip",
+          predicate: "definition",
+          object: "Round-trip keeps metadata intact.",
+          normalizedValue: "round-trip keeps metadata intact.",
+          sourceIds: ["anchor-1"],
+          confidence: 0.95,
+          mustPreserve: true,
+        },
+      ],
+      softFacts: [],
+      sourceEntries: [
+        {
+          id: "anchor-1",
+          url: "https://example.com/round-trip",
+          domain: "example.com",
+          title: "Round-trip",
+          sourceTier: "anchor",
+          retrievalMethod: "search",
+          excerpt: "Round-trip keeps metadata intact.",
+          retrievedAt: "2026-03-27T00:00:00.000Z",
+          trustScore: 0.9,
+        },
+      ],
+      coverageGaps: [],
+      confidenceSummary: {
+        hardFactCoverage: 1,
+        softFactCoverage: 0,
+        overallRisk: "low",
+      },
+      recommendedNarrativeAngles: [],
+    },
+    researchBrief: {
+      verifiedHardFactCount: 1,
+      sourceTiersUsed: ["anchor"],
+      majorRisks: [],
+      safeToGenerate: true,
+    },
   };
 }
 
@@ -149,6 +197,8 @@ describe("server db review persistence", () => {
     expect(roundTripped?.panelReview).toEqual(task.panelReview);
     expect(roundTripped?.visualRetrySummary).toEqual(task.visualRetrySummary);
     expect(roundTripped?.lastReviewAt).toBe(task.lastReviewAt);
+    expect(roundTripped?.factPack).toEqual(task.factPack);
+    expect(roundTripped?.researchBrief).toEqual(task.researchBrief);
     expect(roundTripped?.createdAt).toEqual(task.createdAt);
     expect(roundTripped?.updatedAt).toEqual(task.updatedAt);
   });

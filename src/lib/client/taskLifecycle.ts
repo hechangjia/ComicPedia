@@ -501,6 +501,32 @@ async function processScripting(taskId: string, request: GenerateRequest) {
     // ── Phase 0.5: Director Outline (standard + fine 自动触发) ──
     const qualityPreset = QUALITY_PRESETS[request.quality || "standard"];
     const qualityLevel = request.quality || "standard";
+    const shouldRunAccuracyResearch = request.contentType === "science" || request.contentType === "wikipedia";
+
+    if (shouldRunAccuracyResearch) {
+      try {
+        task.streamText = "正在构建事实约束...";
+        notifyListeners(task);
+
+        const accuracyResearchRes = await fetch("/api/accuracy/research", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            topic: request.topic,
+            contentType: request.contentType,
+            wikipediaContent: request.wikipediaContent,
+          }),
+        });
+
+        if (accuracyResearchRes.ok) {
+          const accuracyResearch = await accuracyResearchRes.json();
+          task.factPack = accuracyResearch.factPack;
+          task.researchBrief = accuracyResearch.researchBrief;
+        }
+      } catch (accuracyResearchErr) {
+        console.warn("[AccuracyResearch] failed (non-fatal):", accuracyResearchErr);
+      }
+    }
 
     if (qualityLevel === "fine" || qualityLevel === "standard") {
       try {
@@ -583,6 +609,7 @@ async function processScripting(taskId: string, request: GenerateRequest) {
         request.wikipediaContent,
         request.allowGuideCharacter,
         task.narrativeOutline,
+        task.factPack,
       );
     } catch (streamErr) {
       if (controller.signal.aborted) throw streamErr;
@@ -604,6 +631,7 @@ async function processScripting(taskId: string, request: GenerateRequest) {
         request.wikipediaContent,
         request.allowGuideCharacter,
         task.narrativeOutline,
+        task.factPack,
       );
     }
 
