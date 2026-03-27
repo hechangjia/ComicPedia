@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   getWikipediaSummaryMock,
+  searchWikipediaMock,
   resolveAccuracyProvidersMock,
   searchWithProviderMock,
   fetchWithProviderMock,
 } = vi.hoisted(() => ({
   getWikipediaSummaryMock: vi.fn(),
+  searchWikipediaMock: vi.fn(),
   resolveAccuracyProvidersMock: vi.fn(),
   searchWithProviderMock: vi.fn(),
   fetchWithProviderMock: vi.fn(),
@@ -14,6 +16,7 @@ const {
 
 vi.mock("@/lib/server/wikipedia", () => ({
   getWikipediaSummary: getWikipediaSummaryMock,
+  searchWikipedia: searchWikipediaMock,
 }));
 
 vi.mock("@/lib/accuracy/providerRegistry", () => ({
@@ -30,6 +33,7 @@ vi.mock("@/lib/accuracy/providerClients", () => ({
 describe("accuracy research", () => {
   beforeEach(() => {
     getWikipediaSummaryMock.mockReset();
+    searchWikipediaMock.mockReset();
     resolveAccuracyProvidersMock.mockReset();
     searchWithProviderMock.mockReset();
     fetchWithProviderMock.mockReset();
@@ -74,6 +78,56 @@ describe("accuracy research", () => {
     );
     expect(result.researchBrief.sourceTiersUsed).toEqual(["anchor"]);
     expect(result.researchBrief.verifiedHardFactCount).toBeGreaterThan(0);
+    expect(result.researchBrief.safeToGenerate).toBe(true);
+  });
+
+  it("extracts multiple hard facts from a dense DNA anchor definition", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "DNA",
+      extract: "Deoxyribonucleic acid (DNA) is a polymer composed of two polynucleotide chains that coil around each other to form a double helix. The polymer carries genetic instructions for the development, functioning, growth and reproduction of all known organisms and many viruses.",
+      lang: "en",
+      sections: ["Structure", "Function"],
+      pageUrl: "https://en.wikipedia.org/wiki/DNA",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "DNA",
+      contentType: "wikipedia",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts.length).toBeGreaterThanOrEqual(2);
+    expect(result.factPack.hardFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+          object: expect.stringMatching(/double helix/i),
+        }),
+        expect.objectContaining({
+          claimType: "term",
+          object: expect.stringMatching(/genetic instructions/i),
+        }),
+      ]),
+    );
+    expect(result.factPack.hardFacts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          object: expect.stringMatching(/forms of life/i),
+        }),
+      ]),
+    );
     expect(result.researchBrief.safeToGenerate).toBe(true);
   });
 
@@ -228,6 +282,134 @@ describe("accuracy research", () => {
         expect.objectContaining({
           claimType: "event",
           object: "万有引力理论由艾萨克·牛顿提出",
+        }),
+      ]),
+    );
+  });
+
+  it("does not turn casual 可以 clauses into hard facts", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "牛顿",
+      extract: "牛顿是英国物理学家。牛顿可以装进一夸脱的马克杯。",
+      lang: "zh",
+      sections: ["轶事"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E7%89%9B%E9%A1%BF",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "牛顿",
+      contentType: "wikipedia",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          object: expect.stringMatching(/可以装进/),
+        }),
+      ]),
+    );
+  });
+
+  it("falls back to wikipedia search for science question topics and recovers anchor coverage", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        title: "雷",
+        extract: "雷是由闪电使周围空气迅速膨胀而形成的声波现象。",
+        lang: "zh",
+        sections: ["形成机制"],
+        pageUrl: "https://zh.wikipedia.org/wiki/%E9%9B%B7",
+      });
+    searchWikipediaMock.mockResolvedValue([
+      { title: "雷", description: "大气中的声学现象" },
+    ]);
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "为什么会打雷",
+      contentType: "science",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(searchWikipediaMock).toHaveBeenCalledWith("雷", "zh");
+    expect(result.factPack.sourceEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceTier: "anchor",
+          title: "雷",
+        }),
+      ]),
+    );
+    expect(result.factPack.hardFacts.length).toBeGreaterThanOrEqual(2);
+    expect(result.researchBrief.safeToGenerate).toBe(true);
+  });
+
+  it("prefers the best wikipedia search hit instead of blindly taking the first result for question topics", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockImplementation(async (title: string) => {
+      if (title === "为什么会打雷") return null;
+      if (title === "雷") {
+        return {
+          title: "雷",
+          extract: "雷是由闪电使周围空气迅速膨胀而形成的声波现象。",
+          lang: "zh",
+          sections: ["形成机制"],
+          pageUrl: "https://zh.wikipedia.org/wiki/%E9%9B%B7",
+        };
+      }
+      return null;
+    });
+    searchWikipediaMock.mockResolvedValue([
+      { title: "雷打雪", description: "降雪伴随打雷的天气现象" },
+      { title: "雷", description: "大气中的声学现象" },
+    ]);
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "为什么会打雷",
+      contentType: "science",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.sourceEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceTier: "anchor",
+          title: "雷",
         }),
       ]),
     );

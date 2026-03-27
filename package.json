@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "smoke:accuracy": "bash scripts/accuracy-smoke.sh",
     "ship:check": "bash scripts/ship-check.sh",
     "clean": "rm -rf data/ && echo 'data/ removed, restart to get a fresh database'"
   },

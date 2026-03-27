@@ -2,7 +2,7 @@
 
 ## 当前目标
 - 稳定并评估 `science` / `wikipedia` 的第一版“科普准确性闭环”。
-- 下一次会话优先做真实 golden topics 冒烟，不再先扩新功能。
+- 继续扩大 live golden-topic smoke 覆盖面，并根据真实结果补强 extraction / normalization。
 
 ## 今天已完成内容
 - 落地 accuracy provider 配置与服务端 health check：
@@ -36,24 +36,36 @@
   - `牛顿`
   - `火药`
   - `为什么会打雷`
+- 新增 live smoke harness：
+  - `scripts/accuracy-smoke.sh`
+  - `src/lib/accuracy/goldenTopicSmoke.ts`
+  - `src/__tests__/accuracyGoldenTopicSmoke.live.test.ts`
+  - `src/__tests__/accuracyGoldenTopicSmoke.test.ts`
+- 已完成 3 个真实 smoke：
+  - `DNA`：`finalStatus=script_ready`，不再 `blocked`
+  - `牛顿`：`finalStatus=script_ready`
+  - `为什么会打雷`：`finalStatus=script_ready`
+- 根据真实 smoke 已补强：
+  - DNA 长定义句拆分为多条 term hard facts
+  - `term` 单 canonical fact 未命中时降级为 `missing`，避免误 `blocked`
+  - science 问句主题会先做 Wikipedia 搜索归一，再选更合理的 anchor 词条
+  - 中文句首句切分与 `可...` 假事实抽取已修正
 - 更新 handoff 文档到当前状态。
 
 ## 当前进行中的内容
 - 无进行中的代码改动。
-- 当前停在“deterministic 闭环进一步补强、待真实主题冒烟”的状态。
+- 当前停在“live smoke 已跑 3/5，待继续扩题与清噪”的状态。
 
 ## 剩余工作
 - 真实 golden topics 冒烟：
   - `女娲`
-  - `DNA`
-  - `牛顿`
   - `火药`
-  - `为什么会打雷`
 - 根据真实冒烟结果继续补强 deterministic extraction / normalization：
-  - 英文术语的更复杂同位语/括注
+  - 问句 topic 的 canonical subject 归一（例如 `为什么会打雷` -> `雷`）
+  - 长词条里的噪声日期 / 噪声地点过滤（`牛顿` 仍有脏 `date/place`）
   - 地点层级与别名归一
   - 非 `由…提出` 句式的事件归因
-  - 更长科学机制句的术语对齐
+  - myth / invention 主题的稳定 anchor 选择
 - 根据 golden topics 结果决定下一优先级：
   - VLM “看对路”
   - 导出质量升级
@@ -79,6 +91,7 @@
 - `src/lib/accuracy/research.ts`
 - `src/lib/accuracy/claimReview.ts`
 - `src/lib/accuracy/repair.ts`
+- `src/lib/accuracy/goldenTopicSmoke.ts`
 - `src/lib/server/wikipedia.ts`
 - `src/lib/server/db.ts`
 - `src/lib/client/taskLifecycle.ts`
@@ -96,6 +109,9 @@
 - `src/components/result/AccuracySummary.tsx`
 - `src/prompts/scriptGenerator.ts`
 - `src/prompts/wikipediaGenerator.ts`
+- `src/__tests__/accuracyGoldenTopicSmoke.test.ts`
+- `src/__tests__/accuracyGoldenTopicSmoke.live.test.ts`
+- `scripts/accuracy-smoke.sh`
 - `docs/superpowers/specs/2026-03-27-science-wikipedia-accuracy-closed-loop-design.md`
 - `docs/superpowers/plans/2026-03-27-science-wikipedia-accuracy-closed-loop.md`
 
@@ -103,17 +119,23 @@
 - 无硬阻塞。
 - 当前 deterministic matcher 已覆盖日期/数字/基础术语/基础地点/基础归因，但仍不是完整语义匹配器。
 - `FactPack` 事实抽取仍是启发式；复杂长文本、跨句推理、别名层级仍可能 coverage 不足。
+- live smoke 依赖外部 LLM 与 Wikipedia；Wikipedia 在当前环境偶发慢响应，因此 harness 对 wiki 主题做了“先 live fetch，失败再 snapshot fallback”的降级。
+- `牛顿` smoke 仍暴露长词条中的噪声 `date/place`；`为什么会打雷` 虽已可过 smoke，但 hard facts 仍带问题句主体痕迹。
 - provider clients 目前是 MVP 接法，还没做细粒度 provider-specific error taxonomy。
-- 尚未做浏览器级或真实 provider-backed golden-topic 冒烟，现阶段结论仍主要来自自动化验证。
+- 尚未做浏览器级端到端生成冒烟；当前真实回归是“服务端脚本阶段 live smoke”，不含图片生成。
 
 ## 下次启动后优先执行的 3 个步骤
-1. 跑 5 个 golden topics 的真实生成回归，重点看 `blocked / repair_required / passed` 是否符合预期。
-2. 针对真实冒烟暴露的问题补强 extraction / normalization，优先地点别名、英文术语括注、复杂归因句式。
+1. 跑剩余 `女娲` / `火药` live smoke，并把 5 题结果汇总到同一轮 report。
+2. 针对 `牛顿` / `为什么会打雷` 的真实结果继续清理噪声 facts，优先 question-subject 归一和长词条脏 date/place 过滤。
 3. 如果 golden topics 表现稳定，再决定是否进入下一优先级模块，而不是继续打磨当前闭环细节。
 
 ## 当前验证状态
 - accuracy 目标测试矩阵：
-  - `10 files / 64 tests passed`
+  - `11 files / 74 tests passed`
+- live smoke：
+  - `DNA` -> `finalStatus=script_ready`, `reviewStatus=repair_required`
+  - `牛顿` -> `finalStatus=script_ready`, `reviewStatus=repair_required`
+  - `为什么会打雷` -> `finalStatus=script_ready`, `reviewStatus=repair_required`
 - `pnpm build`：
   - passed
 - `pnpm exec tsc --noEmit`：

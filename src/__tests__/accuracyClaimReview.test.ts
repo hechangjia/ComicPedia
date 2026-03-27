@@ -398,6 +398,26 @@ describe("accuracy claim review", () => {
     );
   });
 
+  it("does not block richer DNA term explanations when the fact pack only has one canonical definition fact", async () => {
+    const { reviewPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const review = reviewPanelClaims(
+      makeScript(["DNA是一种由两条多核苷酸链互相缠绕形成的双螺旋聚合物，负责携带遗传指令。"]),
+      makeDnaFactPack(),
+    );
+
+    expect(review.status).toBe("repair_required");
+    expect(review.blockingIssueCount).toBe(0);
+    expect(review.panelClaims[0].hardClaims).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+          matchStatus: "missing",
+        }),
+      ]),
+    );
+  });
+
   it("matches golden-topic event attribution claims when the proposer uses a full-name alias", async () => {
     const { reviewPanelClaims } = await import("@/lib/accuracy/claimReview");
 

@@ -9,7 +9,7 @@ import type {
   ResearchBrief,
   WikipediaContent,
 } from "@/lib/types";
-import { getWikipediaSummary } from "@/lib/server/wikipedia";
+import { getWikipediaSummary, searchWikipedia } from "@/lib/server/wikipedia";
 import { resolveAccuracyProviders, getWhitelistDomains } from "@/lib/accuracy/providerRegistry";
 import { searchWithProvider } from "@/lib/accuracy/providerClients";
 
@@ -49,6 +49,49 @@ function normalizeValue(value: string): string {
   return value.trim().toLowerCase();
 }
 
+function normalizeAnchorSearchQuery(topic: string): string {
+  const trimmed = topic.trim();
+  const stripped = trimmed
+    .replace(/^(为什么会|为什么|为何会|为何|怎么会|怎么|什么是|什么叫)/, "")
+    .replace(/[？?。！!]+$/g, "")
+    .trim();
+
+  if (stripped === "打雷") return "雷";
+  if (stripped === "下雨") return "雨";
+  return stripped || trimmed;
+}
+
+function chooseBestWikipediaSearchTitle(topic: string, titles: string[]): string | null {
+  if (titles.length === 0) return null;
+
+  const normalizedQuery = normalizeAnchorSearchQuery(topic);
+  const variants = [...new Set([
+    normalizedQuery,
+    normalizedQuery.replace(/^打/, ""),
+    normalizedQuery.replace(/^下/, ""),
+    topic.trim(),
+  ].filter(Boolean))];
+
+  let bestTitle = titles[0];
+  let bestScore = Number.NEGATIVE_INFINITY;
+
+  titles.forEach((title) => {
+    let score = 0;
+    variants.forEach((variant) => {
+      if (title === variant) score += 100;
+      else if (title.includes(variant)) score += 30;
+      else if (variant.includes(title)) score += 20;
+    });
+    score -= title.length;
+    if (score > bestScore) {
+      bestScore = score;
+      bestTitle = title;
+    }
+  });
+
+  return bestTitle;
+}
+
 function cleanCapturedText(value: string): string {
   return value
     .trim()
@@ -58,8 +101,62 @@ function cleanCapturedText(value: string): string {
     .trim();
 }
 
+function extractAdditionalTermClauses(topic: string, excerpt: string): string[] {
+  const clauses = new Set<string>();
+  const normalizedTopic = topic.trim();
+  const compactExcerpt = excerpt.replace(/\s+/g, " ").trim();
+
+  const englishPatterns: Array<{ regex: RegExp; build: (match: RegExpExecArray) => string }> = [
+    {
+      regex: /\bto form (?:a |an )?([^.,;]+)/gi,
+      build: (match) => `${normalizedTopic} forms ${cleanCapturedText(match[1])}`,
+    },
+    {
+      regex: /\b(?:carries|carry|stores|store|contains|contain)\s+([^.;]+)/gi,
+      build: (match) => `${normalizedTopic} carries ${cleanCapturedText(match[1])}`,
+    },
+  ];
+  englishPatterns.forEach(({ regex, build }) => {
+    for (const match of compactExcerpt.matchAll(regex)) {
+      const clause = build(match);
+      if (clause.length >= 12) clauses.add(clause);
+    }
+  });
+
+  const chinesePatterns: Array<{ regex: RegExp; build: (match: RegExpExecArray) => string }> = [
+    {
+      regex: /形成([^，。；]+)/g,
+      build: (match) => `${normalizedTopic}形成${cleanCapturedText(match[1])}`,
+    },
+    {
+      regex: /由([^，。；]+)形成/g,
+      build: (match) => `${normalizedTopic}由${cleanCapturedText(match[1])}形成`,
+    },
+    {
+      regex: /(?:负责|用于|用来)([^，。；]+)/g,
+      build: (match) => `${normalizedTopic}${cleanCapturedText(match[0])}`,
+    },
+    {
+      regex: /携带([^，。；]+)/g,
+      build: (match) => `${normalizedTopic}携带${cleanCapturedText(match[1])}`,
+    },
+    {
+      regex: /(?:是|属于)([^，。；]*声波[^，。；]*)/g,
+      build: (match) => `${normalizedTopic}是${cleanCapturedText(match[1])}`,
+    },
+  ];
+  chinesePatterns.forEach(({ regex, build }) => {
+    for (const match of excerpt.matchAll(regex)) {
+      const clause = build(match);
+      if (clause.length >= 6) clauses.add(clause);
+    }
+  });
+
+  return [...clauses];
+}
+
 function firstSentence(text: string): string {
-  const sentence = text.split(/(?<=[.!?。！？])\s+/)[0] || text;
+  const sentence = text.match(/^[\s\S]*?[.!?。！？]/)?.[0] || text;
   return sentence.trim().slice(0, 240);
 }
 
@@ -119,6 +216,19 @@ function extractHardFacts(topic: string, sourceEntries: AccuracySourceEntry[]): 
         mustPreserve: true,
       });
     }
+
+    extractAdditionalTermClauses(topic, entry.excerpt).forEach((clause) => {
+      pushHardFact(facts, seen, {
+        claimType: "term",
+        subject: topic,
+        predicate: "property",
+        object: clause,
+        normalizedValue: normalizeValue(clause),
+        sourceIds: [entry.id],
+        confidence: entry.sourceTier === "anchor" ? 0.86 : 0.66,
+        mustPreserve: true,
+      });
+    });
 
     const normalizedTopic = normalizeValue(topic);
     const personMatch = definition.match(PERSON_DEFINITION_REGEX);
@@ -255,7 +365,18 @@ export async function runAccuracyResearch(input: AccuracyResearchInput): Promise
       trustScore: 0.95,
     });
   } else {
-    const summary = await getWikipediaSummary(input.topic, wikiLang);
+    let summary = await getWikipediaSummary(input.topic, wikiLang);
+    if (!summary) {
+      const searchQuery = normalizeAnchorSearchQuery(input.topic);
+      const searchResults = await searchWikipedia(searchQuery, wikiLang).catch(() => []);
+      const bestTitle = chooseBestWikipediaSearchTitle(input.topic, searchResults.map((item) => item.title));
+      if (bestTitle) {
+        summary = await getWikipediaSummary(bestTitle, wikiLang).catch(() => null);
+        if (summary) {
+          queryPlan.fallbackUsed = true;
+        }
+      }
+    }
     if (summary) {
       pushSourceEntry(sourceEntries, {
         url: summary.pageUrl,

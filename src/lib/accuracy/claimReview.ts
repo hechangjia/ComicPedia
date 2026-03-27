@@ -116,6 +116,12 @@ function matchClaim(claim: AccuracyPanelClaim, factPack: FactPack): AccuracyPane
   }
 
   if (sameTypeFacts.length === 1) {
+    if (claim.claimType === "term") {
+      return {
+        ...claim,
+        matchStatus: "missing",
+      };
+    }
     return {
       ...claim,
       matchedFactId: sameTypeFacts[0].id,
