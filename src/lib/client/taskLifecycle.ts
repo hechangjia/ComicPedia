@@ -645,7 +645,10 @@ async function processScripting(taskId: string, request: GenerateRequest) {
           task.streamText = `正在自动修复脚本（第${repairRounds}轮，${currentWarnings.length}个问题）...`;
           notifyListeners(task);
 
-          const repaired = await repairScript(script, currentWarnings, request.llmConfig);
+          const repaired = await repairScript(script, currentWarnings, request.llmConfig, {
+            contentType: request.contentType,
+            narrativeOutline: task.narrativeOutline,
+          });
           if (!repaired) break;
 
           script = repaired;

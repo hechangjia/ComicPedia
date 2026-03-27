@@ -4,13 +4,17 @@
  */
 
 import { ComicScript, PartialLLMConfig } from "./types";
-import { ScriptWarning } from "./scriptValidator";
+import { ScriptValidationContext, ScriptWarning } from "./scriptValidator";
 import { callLLM } from "./llm";
 
 /**
  * 构建修复提示词：将脚本 + 结构化 warnings 翻译为 LLM 可理解的修复指令。
  */
-function buildRepairPrompt(script: ComicScript, warnings: ScriptWarning[]): string {
+function buildRepairPrompt(
+  script: ComicScript,
+  warnings: ScriptWarning[],
+  context?: ScriptValidationContext,
+): string {
   const panelsJSON = script.panels.map((p) => ({
     id: p.id,
     scene: p.scene,
@@ -25,6 +29,19 @@ function buildRepairPrompt(script: ComicScript, warnings: ScriptWarning[]): stri
     return `${i + 1}. [${w.severity}] ${w.dimension}${panelRefs}: ${w.message}\n   Fix: ${w.suggestion}`;
   }).join("\n");
 
+  const hasLocalizedWarnings = warnings.every((warning) => warning.panelIndices.length > 0);
+  const narrativeContext = context?.narrativeOutline
+    ? `
+## Narrative Beat Plan Context
+contentType: ${context.contentType ?? "unknown"}
+templateType: ${context.narrativeOutline.templateType}
+source: ${context.narrativeOutline.source ?? "unknown"}
+${context.narrativeOutline.panels.map((panel, index) =>
+  `Panel ${index + 1}: beatRole=${panel.beatRole}, shotIntent=${panel.shotIntent}, knowledgeGoal=${panel.knowledgeGoal}, carryForward=${panel.carryForward}`
+).join("\n")}
+`
+    : "";
+
   return `You are a comic script quality editor. Fix the issues in the following script.
 
 ## Script
@@ -37,6 +54,7 @@ ${JSON.stringify(panelsJSON, null, 2)}
 
 ## Issues to Fix
 ${issueList}
+${narrativeContext}
 
 ## Rules
 1. Fix ALL listed issues
@@ -46,6 +64,9 @@ ${issueList}
 5. imagePrompt MUST be in English only (no Chinese/Japanese/Korean characters)
 6. Each panel's imagePrompt should use different camera angles/compositions
 7. Character descriptions in imagePrompt must use consistent [Name: description] tags across all panels
+8. Validator findings take precedence over the original beat plan for the affected repair pass, but preserve the higher-level rhythm intent where possible
+9. Only rewrite the affected panels when warnings are localized${hasLocalizedWarnings ? "" : " and limit collateral changes as much as possible"}
+10. Preserve unaffected panels unless a listed issue clearly requires a broader rewrite
 
 Output ONLY a JSON object with this exact format, no other text:
 {
@@ -67,10 +88,11 @@ export async function repairScript(
   script: ComicScript,
   warnings: ScriptWarning[],
   llmConfig?: PartialLLMConfig,
+  context?: ScriptValidationContext,
 ): Promise<ComicScript | null> {
   if (warnings.length === 0) return null;
 
-  const prompt = buildRepairPrompt(script, warnings);
+  const prompt = buildRepairPrompt(script, warnings, context);
 
   try {
     const response = await callLLM(prompt, llmConfig);
