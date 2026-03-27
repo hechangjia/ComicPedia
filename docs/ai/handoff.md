@@ -24,24 +24,36 @@
 - 落地结果页轻量可见性：
   - `AccuracySummary`
   - `PipelineSummary` 新增 `准确性研究` / `事实校验`
-- 更新 handoff 文档到当前状态。
-
-## 当前进行中的内容
-- 无进行中的代码改动。
-- 当前停在“已实现、已自动化验证、待真实主题冒烟”的状态。
-
-## 剩余工作
-- 手工 golden topics 冒烟：
+- 补强 deterministic factual guard：
+  - `claimReview` 新增括注别名清洗
+  - 支持 `起源于` / `源于` 地点识别
+  - 事件归因支持人名全称/简称别名匹配
+- 补强 anchor hard fact 抽取：
+  - `research` 现在可从 anchor 摘要提取基础 `person` / `place` / `event`
+- 新增 golden-topic 自动回归种子：
   - `女娲`
   - `DNA`
   - `牛顿`
   - `火药`
   - `为什么会打雷`
-- 补强 deterministic claim extraction / normalization：
-  - 人名
-  - 地点
-  - 事件归因
-  - 术语定义
+- 更新 handoff 文档到当前状态。
+
+## 当前进行中的内容
+- 无进行中的代码改动。
+- 当前停在“deterministic 闭环进一步补强、待真实主题冒烟”的状态。
+
+## 剩余工作
+- 真实 golden topics 冒烟：
+  - `女娲`
+  - `DNA`
+  - `牛顿`
+  - `火药`
+  - `为什么会打雷`
+- 根据真实冒烟结果继续补强 deterministic extraction / normalization：
+  - 英文术语的更复杂同位语/括注
+  - 地点层级与别名归一
+  - 非 `由…提出` 句式的事件归因
+  - 更长科学机制句的术语对齐
 - 根据 golden topics 结果决定下一优先级：
   - VLM “看对路”
   - 导出质量升级
@@ -89,21 +101,19 @@
 
 ## 当前阻塞和风险
 - 无硬阻塞。
-- 当前 deterministic matcher 主要对日期/数字更稳；复杂事实类型覆盖不足。
-- `FactPack` 事实抽取仍是启发式，复杂长文本主题可能 coverage 不足。
+- 当前 deterministic matcher 已覆盖日期/数字/基础术语/基础地点/基础归因，但仍不是完整语义匹配器。
+- `FactPack` 事实抽取仍是启发式；复杂长文本、跨句推理、别名层级仍可能 coverage 不足。
 - provider clients 目前是 MVP 接法，还没做细粒度 provider-specific error taxonomy。
-- 尚未做浏览器级真实主题冒烟，现阶段结论主要来自自动化验证。
+- 尚未做浏览器级或真实 provider-backed golden-topic 冒烟，现阶段结论仍主要来自自动化验证。
 
 ## 下次启动后优先执行的 3 个步骤
-1. 跑 5 个 golden topics 的真实生成回归，重点看 blocked / repair_required / passed 是否符合预期。
-2. 针对冒烟中暴露的问题补强 claim extraction / normalization，优先人名、地点、事件归因、术语定义。
+1. 跑 5 个 golden topics 的真实生成回归，重点看 `blocked / repair_required / passed` 是否符合预期。
+2. 针对真实冒烟暴露的问题补强 extraction / normalization，优先地点别名、英文术语括注、复杂归因句式。
 3. 如果 golden topics 表现稳定，再决定是否进入下一优先级模块，而不是继续打磨当前闭环细节。
 
 ## 当前验证状态
 - accuracy 目标测试矩阵：
-  - `10 files / 52 tests passed`
-- 全量测试：
-  - `23 files / 197 tests passed`
+  - `10 files / 64 tests passed`
 - `pnpm build`：
   - passed
 - `pnpm exec tsc --noEmit`：

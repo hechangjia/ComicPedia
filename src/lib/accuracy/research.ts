@@ -19,6 +19,14 @@ const MAX_OPEN_WEB_SOURCES = 2;
 const MAX_EXCERPT_CHARS = 800;
 const PROVIDER_TIMEOUT_MS = 8000;
 const RESEARCH_BUDGET_MS = 20000;
+const PERSON_DEFINITION_REGEX = /^([^，。；！？（(]{1,24})(?:[（(][^）)]{1,40}[）)])?是[^。！？]{1,80}(?:家|者|人物|女神|学家|科学家|数学家|物理学家)/;
+const PLACE_PATTERNS: Array<{ regex: RegExp; predicate: string }> = [
+  { regex: /出生于\s*([^，。；！？]+)/g, predicate: "birth_place" },
+  { regex: /(?:起源于|源于)\s*([^，。；！？]+)/g, predicate: "origin_place" },
+  { regex: /位于\s*([^，。；！？]+)/g, predicate: "location" },
+  { regex: /来自\s*([^，。；！？]+)/g, predicate: "origin_place" },
+];
+const EVENT_ATTRIBUTION_REGEX = /([^，。；！？]{2,40})由([^，。；！？]{1,24})提出/g;
 
 export interface AccuracyResearchInput {
   topic: string;
@@ -39,6 +47,15 @@ function buildSourceId(prefix: string, index: number): string {
 
 function normalizeValue(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function cleanCapturedText(value: string): string {
+  return value
+    .trim()
+    .replace(/^[“"'《〈（(]+/, "")
+    .replace(/[”"'》〉）)。！？；，]+$/g, "")
+    .replace(/^(?:并|又|也)/, "")
+    .trim();
 }
 
 function firstSentence(text: string): string {
@@ -70,6 +87,20 @@ function pushSourceEntry(
   });
 }
 
+function pushHardFact(
+  facts: AccuracyHardFact[],
+  seen: Set<string>,
+  fact: Omit<AccuracyHardFact, "id">,
+): void {
+  const key = `${fact.claimType}:${normalizeValue(fact.normalizedValue || fact.object)}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  facts.push({
+    ...fact,
+    id: `fact-${fact.claimType}-${facts.length + 1}`,
+  });
+}
+
 function extractHardFacts(topic: string, sourceEntries: AccuracySourceEntry[]): AccuracyHardFact[] {
   const facts: AccuracyHardFact[] = [];
   const seen = new Set<string>();
@@ -77,30 +108,77 @@ function extractHardFacts(topic: string, sourceEntries: AccuracySourceEntry[]): 
   sourceEntries.forEach((entry) => {
     const definition = firstSentence(entry.excerpt);
     if (definition.length > 12) {
-      const key = `term:${normalizeValue(definition)}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        facts.push({
-          id: `fact-term-${facts.length + 1}`,
-          claimType: "term",
+      pushHardFact(facts, seen, {
+        claimType: "term",
+        subject: topic,
+        predicate: "definition",
+        object: definition,
+        normalizedValue: normalizeValue(definition),
+        sourceIds: [entry.id],
+        confidence: entry.sourceTier === "anchor" ? 0.92 : 0.7,
+        mustPreserve: true,
+      });
+    }
+
+    const normalizedTopic = normalizeValue(topic);
+    const personMatch = definition.match(PERSON_DEFINITION_REGEX);
+    if (personMatch) {
+      const canonicalPerson = cleanCapturedText(personMatch[1]);
+      const normalizedPerson = normalizeValue(canonicalPerson);
+      if (
+        canonicalPerson
+        && (normalizedPerson.includes(normalizedTopic) || normalizedTopic.includes(normalizedPerson))
+      ) {
+        pushHardFact(facts, seen, {
+          claimType: "person",
           subject: topic,
-          predicate: "definition",
-          object: definition,
-          normalizedValue: normalizeValue(definition),
+          predicate: "name",
+          object: canonicalPerson,
+          normalizedValue: normalizedPerson,
           sourceIds: [entry.id],
-          confidence: entry.sourceTier === "anchor" ? 0.92 : 0.7,
+          confidence: entry.sourceTier === "anchor" ? 0.9 : 0.68,
           mustPreserve: true,
         });
       }
     }
 
+    PLACE_PATTERNS.forEach(({ regex, predicate }) => {
+      Array.from(entry.excerpt.matchAll(regex)).forEach((match) => {
+        const place = cleanCapturedText(match[1]);
+        if (!place || /\d/.test(place)) return;
+        pushHardFact(facts, seen, {
+          claimType: "place",
+          subject: topic,
+          predicate,
+          object: place,
+          normalizedValue: normalizeValue(place),
+          sourceIds: [entry.id],
+          confidence: entry.sourceTier === "anchor" ? 0.88 : 0.64,
+          mustPreserve: true,
+        });
+      });
+    });
+
+    Array.from(entry.excerpt.matchAll(EVENT_ATTRIBUTION_REGEX)).forEach((match) => {
+      const eventSubject = cleanCapturedText(match[1]);
+      const proposer = cleanCapturedText(match[2]);
+      if (!eventSubject || !proposer) return;
+      const eventText = `${eventSubject}由${proposer}提出`;
+      pushHardFact(facts, seen, {
+        claimType: "event",
+        subject: eventSubject,
+        predicate: "attribution",
+        object: eventText,
+        normalizedValue: normalizeValue(eventText),
+        sourceIds: [entry.id],
+        confidence: entry.sourceTier === "anchor" ? 0.88 : 0.64,
+        mustPreserve: true,
+      });
+    });
+
     const years = Array.from(new Set(entry.excerpt.match(/\b(1[0-9]{3}|20[0-9]{2})\b/g) || []));
     years.forEach((year) => {
-      const key = `date:${year}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      facts.push({
-        id: `fact-date-${facts.length + 1}`,
+      pushHardFact(facts, seen, {
         claimType: "date",
         subject: topic,
         predicate: "year",

@@ -10,7 +10,7 @@ import type {
 const YEAR_REGEX = /\b(1[0-9]{3}|20[0-9]{2})\b/g;
 const AGE_REGEX = /(\d{1,3})\s*岁/g;
 const TERM_REGEX = /([^。！？；]{2,60}(?:是|指)[^。！？；]{2,80})/g;
-const PLACE_REGEX = /(?:出生于|位于|来自)\s*([^，。；！？]+)/g;
+const PLACE_REGEX = /(?:出生于|位于|来自|起源于|源于)\s*([^，。；！？]+)/g;
 const EVENT_REGEX = /([^，。；！？]{2,80}由[^，。；！？]{2,20}提出)/g;
 const PERSON_ROLE_REGEX = /([^，。；！？]{1,12})是[^，。；！？]{1,20}(?:家|者|学家)/g;
 const PERSON_BIRTH_REGEX = /([^，。；！？]{1,12})出生于/g;
@@ -20,6 +20,7 @@ function canonicalizeText(rawText: string): string {
   return rawText
     .trim()
     .toLowerCase()
+    .replace(/[（(][^）)]{1,40}[）)]/g, "")
     .replace(/[，。！？；：、“”"'（）()\[\]\s]/g, "")
     .replace(/[与及]/g, "和");
 }
@@ -58,6 +59,15 @@ function normalizeValue(rawText: string, claimType: AccuracyPanelClaim["claimTyp
   return canonicalizeText(rawText);
 }
 
+function matchesNormalizedText(factValue: string, claimValue: string, factPack: FactPack): boolean {
+  const factNormalized = stripKnownPersonAliases(factValue, factPack);
+  const claimNormalized = stripKnownPersonAliases(claimValue, factPack);
+  if (!factNormalized || !claimNormalized) return false;
+  return factNormalized === claimNormalized
+    || factNormalized.includes(claimNormalized)
+    || claimNormalized.includes(factNormalized);
+}
+
 function buildSourceCoverage(factPack: FactPack): AccuracyReviewResult["sourceCoverage"] {
   return {
     anchor: factPack.sourceEntries.some((entry) => entry.sourceTier === "anchor"),
@@ -80,11 +90,19 @@ function matchClaim(claim: AccuracyPanelClaim, factPack: FactPack): AccuracyPane
     }
 
     if (claim.claimType === "term") {
-      const factNormalized = stripKnownPersonAliases(normalizeValue(fact.normalizedValue || fact.object, "term"), factPack);
-      const claimNormalized = stripKnownPersonAliases(claim.normalizedValue, factPack);
-      return factNormalized === claimNormalized
-        || factNormalized.includes(claimNormalized)
-        || claimNormalized.includes(factNormalized);
+      return matchesNormalizedText(
+        normalizeValue(fact.normalizedValue || fact.object, "term"),
+        claim.normalizedValue,
+        factPack,
+      );
+    }
+
+    if (claim.claimType === "event") {
+      return matchesNormalizedText(
+        normalizeValue(fact.normalizedValue || fact.object, "event"),
+        claim.normalizedValue,
+        factPack,
+      );
     }
 
     return normalizeValue(fact.normalizedValue || fact.object, claim.claimType) === claim.normalizedValue;
