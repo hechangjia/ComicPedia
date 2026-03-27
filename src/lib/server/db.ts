@@ -136,6 +136,8 @@ function taskToRow(task: GenerateTask) {
   if (task.topicResearch) metadata.topicResearch = task.topicResearch;
   if (task.factPack) metadata.factPack = task.factPack;
   if (task.researchBrief) metadata.researchBrief = task.researchBrief;
+  if (task.accuracyReview) metadata.accuracyReview = task.accuracyReview;
+  if (task.accuracyErrorSummary) metadata.accuracyErrorSummary = task.accuracyErrorSummary;
   if (task.narrativeOutline) metadata.narrativeOutline = task.narrativeOutline;
   if (task.generationConfig) metadata.generationConfig = task.generationConfig;
 
@@ -252,6 +254,8 @@ function rowToTask(row: Record<string, unknown>): GenerateTask {
     topicResearch: meta.topicResearch as GenerateTask["topicResearch"],
     factPack: meta.factPack as GenerateTask["factPack"],
     researchBrief: meta.researchBrief as GenerateTask["researchBrief"],
+    accuracyReview: meta.accuracyReview as GenerateTask["accuracyReview"],
+    accuracyErrorSummary: meta.accuracyErrorSummary as GenerateTask["accuracyErrorSummary"],
     narrativeOutline: meta.narrativeOutline as GenerateTask["narrativeOutline"],
     generationConfig: meta.generationConfig as GenerateTask["generationConfig"],
     createdAt: new Date(row.created_at as string),

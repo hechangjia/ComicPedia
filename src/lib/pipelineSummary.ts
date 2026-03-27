@@ -24,6 +24,14 @@ export function getPipelinePhases(task: GenerateTask): PhaseInfo[] {
     });
   }
 
+  if (!isFast && task.researchBrief) {
+    phases.push({
+      name: "准确性研究",
+      status: task.researchBrief.safeToGenerate ? "done" : "failed",
+      detail: `${task.researchBrief.verifiedHardFactCount} 个硬事实 / ${task.researchBrief.sourceTiersUsed.join(", ") || "无来源"}`,
+    });
+  }
+
   if (!isFast) {
     const hasOutline = !!task.narrativeOutline;
     const firstShotIntent = task.narrativeOutline?.panels.find((panel) => panel.shotIntent)?.shotIntent;
@@ -51,6 +59,26 @@ export function getPipelinePhases(task: GenerateTask): PhaseInfo[] {
       detail: warnCount === 0
         ? "无问题"
         : `${warnCount} 个警告${repairRounds > 0 ? ` / 修复 ${repairRounds} 轮` : ""}`,
+    });
+  }
+
+  if (task.accuracyReview || task.accuracyErrorSummary) {
+    const review = task.accuracyReview;
+    const blocked = task.accuracyErrorSummary;
+    phases.push({
+      name: "事实校验",
+      status: blocked || review?.status === "blocked"
+        ? "failed"
+        : review?.status === "passed"
+          ? "done"
+          : "skipped",
+      detail: blocked
+        ? `${blocked.blockingIssueCount} 个阻塞问题`
+        : review?.status === "passed"
+          ? "通过"
+          : review?.status === "repair_required"
+            ? `${review.repairableIssueCount} 个待修复问题`
+            : undefined,
     });
   }
 

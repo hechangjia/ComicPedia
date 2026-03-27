@@ -138,6 +138,60 @@ function makeTask(): GenerateTask {
       majorRisks: [],
       safeToGenerate: true,
     },
+    accuracyReview: {
+      status: "blocked",
+      blockingIssueCount: 1,
+      repairableIssueCount: 0,
+      panelClaims: [
+        {
+          panelIndex: 0,
+          hardClaims: [
+            {
+              claimType: "date",
+              rawText: "1642年",
+              normalizedValue: "1642",
+              matchedFactId: "fact-1",
+              matchStatus: "conflicting",
+            },
+          ],
+          unsupportedClaims: [],
+          riskLevel: "high",
+        },
+      ],
+      panels: [
+        {
+          panelIndex: 0,
+          claimType: "date",
+          rawText: "1642年",
+          reason: "conflicts with fact pack",
+          matchedFactId: "fact-1",
+        },
+      ],
+      sourceCoverage: {
+        anchor: true,
+        whitelist: false,
+        open_web: false,
+      },
+    },
+    accuracyErrorSummary: {
+      status: "blocked",
+      blockingIssueCount: 1,
+      panels: [
+        {
+          panelIndex: 0,
+          claimType: "date",
+          rawText: "1642年",
+          reason: "conflicts with fact pack",
+          matchedFactId: "fact-1",
+        },
+      ],
+      generatedAt: "2026-03-27T00:09:00.000Z",
+      sourceCoverage: {
+        anchor: true,
+        whitelist: false,
+        open_web: false,
+      },
+    },
   };
 }
 
@@ -199,6 +253,8 @@ describe("server db review persistence", () => {
     expect(roundTripped?.lastReviewAt).toBe(task.lastReviewAt);
     expect(roundTripped?.factPack).toEqual(task.factPack);
     expect(roundTripped?.researchBrief).toEqual(task.researchBrief);
+    expect(roundTripped?.accuracyReview).toEqual(task.accuracyReview);
+    expect(roundTripped?.accuracyErrorSummary).toEqual(task.accuracyErrorSummary);
     expect(roundTripped?.createdAt).toEqual(task.createdAt);
     expect(roundTripped?.updatedAt).toEqual(task.updatedAt);
   });

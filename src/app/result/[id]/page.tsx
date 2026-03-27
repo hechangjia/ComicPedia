@@ -20,6 +20,7 @@ import { CompletedActions } from "@/components/result/CompletedActions";
 import { PanelGrid } from "@/components/result/PanelGrid";
 import { QualityScorePanel } from "@/components/result/QualityScorePanel";
 import { PipelineSummary } from "@/components/result/PipelineSummary";
+import { AccuracySummary } from "@/components/result/AccuracySummary";
 import "@/app/result/print.css";
 
 const QuizPanel = dynamic(() =>
@@ -228,6 +229,9 @@ export default function ResultPage() {
 
         {/* Agent Pipeline Summary */}
         {(isCompleted || isScriptReady) && <PipelineSummary task={task} />}
+
+        {/* Accuracy summary */}
+        {(isCompleted || isScriptReady || task.accuracyErrorSummary) && <AccuracySummary task={task} />}
 
         {/* Topic research result */}
         {task.topicResearch && (
@@ -496,7 +500,9 @@ export default function ResultPage() {
       {/* 错误状态 */}
       {task.status === "failed" && (
         <div className="p-4 rounded-xl border bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 no-print">
-          生成失败：{task.error || "未知错误"}
+          {task.accuracyErrorSummary
+            ? `高风险事实冲突，脚本未通过准确性校验（${task.accuracyErrorSummary.blockingIssueCount} 项）`
+            : `生成失败：${task.error || "未知错误"}`}
         </div>
       )}
 
