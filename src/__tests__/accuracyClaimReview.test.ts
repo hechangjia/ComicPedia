@@ -104,6 +104,70 @@ function makeFactPack(): FactPack {
   });
 }
 
+function makeNewtonIdentityFactPack(): FactPack {
+  return makeBaseFactPack("牛顿", [
+    {
+      id: "fact-person",
+      claimType: "person",
+      subject: "牛顿",
+      predicate: "name",
+      object: "艾萨克·牛顿",
+      normalizedValue: "艾萨克·牛顿",
+      sourceIds: ["anchor-1"],
+      confidence: 0.95,
+      mustPreserve: true,
+    },
+    {
+      id: "fact-term",
+      claimType: "term",
+      subject: "牛顿",
+      predicate: "identity",
+      object: "艾萨克·牛顿是英国物理学家、数学家、天文学家、自然哲学家及辉格党政治人物。",
+      normalizedValue: "艾萨克·牛顿是英国物理学家数学家天文学家自然哲学家及辉格党政治人物",
+      sourceIds: ["anchor-1"],
+      confidence: 0.95,
+      mustPreserve: true,
+    },
+  ], {
+    url: "https://zh.wikipedia.org/wiki/%E8%89%BE%E8%90%A8%E5%85%8B%C2%B7%E7%89%9B%E9%A1%BF",
+    domain: "zh.wikipedia.org",
+    title: "艾萨克·牛顿",
+    excerpt: "艾萨克·牛顿爵士 PRS MP 是英国物理学家、数学家、天文学家、自然哲学家及辉格党政治人物。",
+  });
+}
+
+function makeNewtonCalendarFactPack(): FactPack {
+  return makeBaseFactPack("牛顿", [
+    {
+      id: "fact-date-birth",
+      claimType: "date",
+      subject: "牛顿",
+      predicate: "birth_year",
+      object: "1643",
+      normalizedValue: "1643",
+      sourceIds: ["anchor-1"],
+      confidence: 0.95,
+      mustPreserve: true,
+    },
+    {
+      id: "fact-date-death",
+      claimType: "date",
+      subject: "牛顿",
+      predicate: "death_year",
+      object: "1727",
+      normalizedValue: "1727",
+      sourceIds: ["anchor-1"],
+      confidence: 0.95,
+      mustPreserve: true,
+    },
+  ], {
+    url: "https://zh.wikipedia.org/wiki/%E8%89%BE%E8%90%A8%E5%85%8B%C2%B7%E7%89%9B%E9%A1%BF",
+    domain: "zh.wikipedia.org",
+    title: "艾萨克·牛顿",
+    excerpt: "艾萨克·牛顿（儒略历：1642年12月25日—1727年3月20日，格里历：1643年1月4日—1727年3月31日），英国物理学家。",
+  });
+}
+
 function makeDnaFactPack(): FactPack {
   return makeBaseFactPack("DNA", [
     {
@@ -122,6 +186,49 @@ function makeDnaFactPack(): FactPack {
     domain: "en.wikipedia.org",
     title: "DNA",
     excerpt: "DNA is the molecule that carries genetic information.",
+  });
+}
+
+function makeDnaSmokeFactPack(): FactPack {
+  return makeBaseFactPack("DNA", [
+    {
+      id: "fact-dna-polymer",
+      claimType: "term",
+      subject: "DNA",
+      predicate: "definition",
+      object: "DNA is a polymer composed of two polynucleotide chains",
+      normalizedValue: "DNA is a polymer composed of two polynucleotide chains",
+      sourceIds: ["anchor-1"],
+      confidence: 0.95,
+      mustPreserve: true,
+    },
+    {
+      id: "fact-dna-helix",
+      claimType: "term",
+      subject: "DNA",
+      predicate: "structure",
+      object: "DNA forms double helix",
+      normalizedValue: "DNA forms double helix",
+      sourceIds: ["anchor-1"],
+      confidence: 0.95,
+      mustPreserve: true,
+    },
+    {
+      id: "fact-dna-carry",
+      claimType: "term",
+      subject: "DNA",
+      predicate: "function",
+      object: "DNA carries genetic instructions for the development, functioning, growth and reproduction of all known organisms and many viruses",
+      normalizedValue: "DNA carries genetic instructions for the development, functioning, growth and reproduction of all known organisms and many viruses",
+      sourceIds: ["anchor-1"],
+      confidence: 0.95,
+      mustPreserve: true,
+    },
+  ], {
+    url: "https://en.wikipedia.org/wiki/DNA",
+    domain: "en.wikipedia.org",
+    title: "DNA",
+    excerpt: "DNA forms double helix and carries genetic instructions.",
   });
 }
 
@@ -298,6 +405,136 @@ describe("accuracy claim review", () => {
     );
   });
 
+  it("matches honorific-heavy Newton aliases against the canonical person fact", async () => {
+    const { reviewPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const review = reviewPanelClaims(
+      makeScript(["艾萨克·牛顿爵士是英国物理学家。"]),
+      makeNewtonIdentityFactPack(),
+    );
+
+    expect(review.status).toBe("passed");
+    expect(review.panelClaims[0].hardClaims).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "person",
+          matchStatus: "matched",
+          matchedFactId: "fact-person",
+        }),
+      ]),
+    );
+  });
+
+  it("does not treat pronoun-plus-adverb fragments like 他同时 as person claims", async () => {
+    const { extractPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const panelClaims = extractPanelClaims(
+      makeScript(["别只记得苹果，他同时是英国物理学家、数学家、天文学家和自然哲学家。"]),
+    );
+
+    expect(panelClaims[0].hardClaims).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "person",
+          rawText: "他同时",
+        }),
+      ]),
+    );
+  });
+
+  it("prefers the canonical Gregorian year when a mixed-calendar Newton lead includes 1642 and 1643", async () => {
+    const { reviewPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const review = reviewPanelClaims(
+      makeScript(["艾萨克·牛顿爵士（英语：Sir Isaac Newton；儒略历：1642年12月25日—1727年3月20日，格里历：1643年1月4日—1727年3月31日），英国物理学家。"]),
+      makeNewtonCalendarFactPack(),
+    );
+
+    expect(review.status).toBe("passed");
+    expect(review.panelClaims[0].hardClaims).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "date",
+          rawText: "1643",
+          matchStatus: "matched",
+        }),
+        expect.objectContaining({
+          claimType: "date",
+          rawText: "1727",
+          matchStatus: "matched",
+        }),
+      ]),
+    );
+    expect(review.panelClaims[0].hardClaims).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "date",
+          rawText: "1642",
+        }),
+      ]),
+    );
+  });
+
+  it("matches identity term claims even when honorific tokens are present", async () => {
+    const { reviewPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const review = reviewPanelClaims(
+      makeScript(["艾萨克·牛顿爵士 PRS MP 是英国物理学家、数学家、天文学家、自然哲学家及辉格党政治人物。"]),
+      makeNewtonIdentityFactPack(),
+    );
+
+    expect(review.status).toBe("passed");
+    expect(review.panelClaims[0].hardClaims).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+          matchStatus: "matched",
+          matchedFactId: "fact-term",
+        }),
+      ]),
+    );
+  });
+
+  it("matches identity term claims after trimming leading discourse phrases", async () => {
+    const { reviewPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const review = reviewPanelClaims(
+      makeScript(["别只记得苹果，他是英国物理学家、数学家、天文学家、自然哲学家及辉格党政治人物。"]),
+      makeNewtonIdentityFactPack(),
+    );
+
+    expect(review.status).toBe("passed");
+    expect(review.panelClaims[0].hardClaims).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+          matchStatus: "matched",
+          matchedFactId: "fact-term",
+        }),
+      ]),
+    );
+  });
+
+  it("matches identity term claims after trimming causal lead-ins", async () => {
+    const { reviewPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const review = reviewPanelClaims(
+      makeScript(["人们记住他，是因为他是英国物理学家、数学家、天文学家、自然哲学家及辉格党政治人物。"]),
+      makeNewtonIdentityFactPack(),
+    );
+
+    expect(review.status).toBe("passed");
+    expect(review.panelClaims[0].hardClaims).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+          matchStatus: "matched",
+          matchedFactId: "fact-term",
+        }),
+      ]),
+    );
+  });
+
   it("blocks conflicting person claims", async () => {
     const { reviewPanelClaims } = await import("@/lib/accuracy/claimReview");
 
@@ -418,6 +655,102 @@ describe("accuracy claim review", () => {
     );
   });
 
+  it("matches chinese double-helix explanations against english DNA smoke facts", async () => {
+    const { reviewPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const review = reviewPanelClaims(
+      makeScript(["把DNA拆开看，它是由两条多核苷酸链构成的双螺旋。"]),
+      makeDnaSmokeFactPack(),
+    );
+
+    expect(review.status).toBe("passed");
+    expect(review.panelClaims[0].hardClaims).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+          matchStatus: "matched",
+          matchedFactId: "fact-dna-helix",
+        }),
+      ]),
+    );
+  });
+
+  it("splits blended DNA structure-plus-function lines into matchable term claims", async () => {
+    const { reviewPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const review = reviewPanelClaims(
+      makeScript(["这就是DNA，全名叫脱氧核糖核酸。它是由两条多核苷酸链互相盘绕形成的双螺旋，还携带着已知所有生物和许多病毒的遗传指令。"]),
+      makeDnaSmokeFactPack(),
+    );
+
+    expect(review.status).toBe("passed");
+    expect(review.panelClaims[0].hardClaims).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+          matchStatus: "matched",
+          matchedFactId: "fact-dna-helix",
+        }),
+        expect.objectContaining({
+          claimType: "term",
+          matchStatus: "matched",
+          matchedFactId: "fact-dna-carry",
+        }),
+      ]),
+    );
+  });
+
+  it("treats dna explainer lead-ins like 把它拆开看 as meta framing instead of unsupported term claims", async () => {
+    const { reviewPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const review = reviewPanelClaims(
+      makeScript(["把它拆开看：DNA是由两条多核苷酸链组成的聚合物，这两条链互相盘绕形成双螺旋。"]),
+      makeDnaSmokeFactPack(),
+    );
+
+    expect(review.status).toBe("passed");
+  });
+
+  it("matches chinese polymer explanations against english DNA smoke facts", async () => {
+    const { reviewPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const review = reviewPanelClaims(
+      makeScript(["把它拆开看，DNA是由两条多核苷酸链组成的聚合物。"]),
+      makeDnaSmokeFactPack(),
+    );
+
+    expect(review.status).toBe("passed");
+    expect(review.panelClaims[0].hardClaims).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+          matchStatus: "matched",
+          matchedFactId: "fact-dna-polymer",
+        }),
+      ]),
+    );
+  });
+
+  it("matches shortened two-polynucleotide-chain dna structure lines against polymer facts", async () => {
+    const { reviewPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const review = reviewPanelClaims(
+      makeScript(["把它拆开看，DNA是由两条多核苷酸链组成的。"]),
+      makeDnaSmokeFactPack(),
+    );
+
+    expect(review.status).toBe("passed");
+    expect(review.panelClaims[0].hardClaims).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+          matchStatus: "matched",
+          matchedFactId: "fact-dna-polymer",
+        }),
+      ]),
+    );
+  });
+
   it("matches golden-topic event attribution claims when the proposer uses a full-name alias", async () => {
     const { reviewPanelClaims } = await import("@/lib/accuracy/claimReview");
 
@@ -473,6 +806,150 @@ describe("accuracy claim review", () => {
           claimType: "term",
           matchStatus: "matched",
           matchedFactId: "fact-thunder-term",
+        }),
+      ]),
+    );
+  });
+
+  it("does not extract process phrases like 同一次放电 as place claims", async () => {
+    const { extractPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const panelClaims = extractPanelClaims(
+      makeScript(["你先看到闪电、后听到雷声，但它们通常来自同一次放电。"]),
+    );
+
+    expect(panelClaims[0].hardClaims).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "place",
+        }),
+      ]),
+    );
+  });
+
+  it("does not extract generic biological containers like 细胞质中 as place claims", async () => {
+    const { extractPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const panelClaims = extractPanelClaims(
+      makeScript(["原核生物的 DNA 位于细胞质中。"]),
+    );
+
+    expect(panelClaims[0].hardClaims).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "place",
+        }),
+      ]),
+    );
+  });
+
+  it("does not treat meta narration like 最关键的一点是 as a term claim", async () => {
+    const { extractPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const panelClaims = extractPanelClaims(
+      makeScript(["最关键的一点是：系统阐述万有引力和三大运动定律。"]),
+    );
+
+    expect(panelClaims[0].hardClaims).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+        }),
+      ]),
+    );
+  });
+
+  it("does not treat ranking narration like 成就之一，是 as a term claim", async () => {
+    const { extractPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const panelClaims = extractPanelClaims(
+      makeScript(["牛顿最重要的成就之一，是在1687年发表《自然哲学的数学原理》。"]),
+    );
+
+    expect(panelClaims[0].hardClaims).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+        }),
+      ]),
+    );
+  });
+
+  it("does not treat ranking narration like 最著名的突破，是 as a term claim", async () => {
+    const { extractPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const panelClaims = extractPanelClaims(
+      makeScript(["牛顿最著名的突破，是在1687年发表《自然哲学的数学原理》。"]),
+    );
+
+    expect(panelClaims[0].hardClaims).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+        }),
+      ]),
+    );
+  });
+
+  it("does not treat certainty lead-ins like 不过可以确定的是 as a term claim", async () => {
+    const { extractPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const panelClaims = extractPanelClaims(
+      makeScript(["关于苹果的故事流传很广，不过可以确定的是，艾萨克·牛顿后来成为英国物理学家、数学家、天文学家、自然哲学家及辉格党政治人物。"]),
+    );
+
+    expect(panelClaims[0].hardClaims).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+        }),
+      ]),
+    );
+  });
+
+  it("does not treat simple alias-introduction lines like 这就是脱氧核糖核酸（DNA） as term claims", async () => {
+    const { extractPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const panelClaims = extractPanelClaims(
+      makeScript(["这就是脱氧核糖核酸（DNA）。"]),
+    );
+
+    expect(panelClaims[0].hardClaims).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+        }),
+      ]),
+    );
+  });
+
+  it("does not treat presenter-style alias introductions like 这位就是艾萨克·牛顿爵士 as term claims", async () => {
+    const { extractPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const panelClaims = extractPanelClaims(
+      makeScript(["这位就是艾萨克·牛顿爵士，英国物理学家、数学家、天文学家和自然哲学家。"]),
+    );
+
+    expect(panelClaims[0].hardClaims).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+        }),
+      ]),
+    );
+  });
+
+  it("does not treat legacy-impact framing like 后世记住他的，不只是... as a term claim", async () => {
+    const { extractPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const panelClaims = extractPanelClaims(
+      makeScript(["后世记住他的，不只是苹果故事，更是他作为英国物理学家、数学家、天文学家、自然哲学家及辉格党政治人物的影响。"]),
+    );
+
+    expect(panelClaims[0].hardClaims).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
         }),
       ]),
     );

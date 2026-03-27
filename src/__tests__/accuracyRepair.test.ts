@@ -129,4 +129,22 @@ describe("accuracy repair", () => {
     const repaired = await repairAccuracyIssues(makeScript(), makeReview(), makeFactPack());
     expect(repaired).toBeNull();
   });
+
+  it("tells the repair model to delete unsupported hard details and stay close to canonical term wording", async () => {
+    const { repairAccuracyIssues } = await import("@/lib/accuracy/repair");
+
+    callLLMMock.mockResolvedValue(JSON.stringify({
+      panels: [
+        { id: 1, scene: "Scene 1", dialogue: "牛顿出生于1643年。", imagePrompt: "prompt 1" },
+        { id: 2, scene: "Scene 2", dialogue: "苹果故事很有名。", imagePrompt: "prompt 2" },
+      ],
+    }));
+
+    await repairAccuracyIssues(makeScript(), makeReview(), makeFactPack());
+
+    expect(callLLMMock).toHaveBeenCalledTimes(1);
+    const [prompt] = callLLMMock.mock.calls[0];
+    expect(prompt).toContain("Delete unsupported years, dates, places, attributions, or hard-detail clauses");
+    expect(prompt).toContain("stay as close as possible to the canonical fact wording");
+  });
 });

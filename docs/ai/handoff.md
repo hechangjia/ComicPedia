@@ -2,7 +2,7 @@
 
 ## 当前目标
 - 稳定并评估 `science` / `wikipedia` 的第一版“科普准确性闭环”。
-- 继续扩大 live golden-topic smoke 覆盖面，并根据真实结果补强 extraction / normalization。
+- 把 golden-topic live smoke 尽量推进到 `passed`，并确认首选 `gpt-5.4` 模型下的真实基线。
 
 ## 今天已完成内容
 - 落地 accuracy provider 配置与服务端 health check：
@@ -62,17 +62,66 @@
   - `女娲` 的弱 myth term 去噪：已过滤 `职业神` / `后世民间信仰中的神祇`
   - `雷` 的 mechanism term 去噪：已过滤 `雷形成的声波` 这类不自然短语
 - 更新 handoff 文档到当前状态。
+- 补强 live smoke 诊断可见性：
+  - smoke report 现在会输出 `panelDialogues`
+  - `panelDiagnostics`（每格 dialogue、riskLevel、hardClaimCount、unsupportedClaims）
+  - `topUnsupportedClaims`
+- 让 smoke harness 的 accuracy repair 与真实 `taskLifecycle` 对齐：
+  - `fast` smoke 也会执行 `repairAccuracyIssues`
+  - 这样 smoke 的 `reviewStatus` 更接近真实脚本阶段，而不再系统性高估 `repair_required`
+- 收紧 claim review 的 place 抽取：
+  - 过滤 `同一次放电`
+  - 过滤 `细胞质中`
+  - 避免把明显不是地理/来源地点的过程短语误判为 `place`
+- 收紧 generation / repair 约束：
+  - `scriptGenerator` / `wikipediaGenerator` 的 Fact Pack 规则显式禁止补写未支持的年份/硬细节
+  - `accuracy/repair` 明确要求删除 unsupported 年份/地点/归因/硬细节，并尽量贴近 canonical wording
+- 补强 thunder mechanism facts：
+  - `research` 现在会抽取 `雷云内部电荷分布不平均`
+  - `research` 现在会抽取 `因光热使空气迅速膨胀所产生的自然现象`
+- 补强 claim review 的 term / person 归一：
+  - 清洗 `爵士 / Sir / PRS / MP`
+  - 过滤 `最关键的一点是` / `...之一，是...` 这类 meta term
+  - 过滤 `是因为他` 这类假 person claim
+  - term 归一会裁掉前置 discourse / causal lead-in，减少 `别只记得苹果，他是...` 这类噪声
+- 补强 research 的 canonical person 抽取：
+  - 当 lead 明显是人物条目时，可直接从 anchor title 提取 canonical person fact
+- 补强 science smoke anchor 预载：
+  - `thunder` case 现在会预载 `雷` 的 Wikipedia anchor
+  - live 失败时可直接走 smoke fallback，避免 `hardFacts=0 / safeToGenerate=false`
+- 补强 DNA 结构 fact：
+  - `research` 现在会额外抽取 `DNA is a polymer composed of two polynucleotide chains`
+- 补强 DNA / Newton claim normalization：
+  - DNA 的 `双螺旋` / `遗传指令` / `两条多核苷酸链组成的聚合物` 支持更窄的中英归一
+  - `把它拆开看` / `先抓住核心` / `后世记住他的` 这类 framing 句会更少被误当成 hard term claim
+- factual repair 从 1 轮提升到最多 2 轮：
+  - smoke harness 与真实 `taskLifecycle` 已保持一致
+- 新增并通过回归测试：
+  - smoke report 诊断序列化
+  - fast smoke accuracy repair 行为
+  - second-round accuracy repair 行为
+  - noisy place claim 过滤
+  - prompt / repair factual constraint
+  - thunder atomic mechanism clause extraction
+  - Newton honorific alias / discourse-term / meta-term filtering
+  - anchor-title person extraction
+- 新的 live smoke 观察：
+  - `DNA`、`牛顿`、`为什么会打雷` 的单题 smoke 均已在备用模型下跑到 `passed`
+  - 最新一轮 backup full 5-topic smoke 已拿到全量 `passed`
+  - 首选 `gpt-5.4` 关键 3 题中：
+    - `dna` -> `passed`
+    - `thunder` -> `passed`
+    - `newton` -> `passed`
+  - 首选 `gpt-5.4` latest full 5-topic smoke 也已拿到全量 `passed`
 
 ## 当前进行中的内容
-- 无进行中的代码改动。
-- 当前停在“5 题 live smoke 已跑通，待继续清理噪声 facts”的状态。
+- accuracy smoke 闭环这一阶段已拿到可用基线。
+- 下一焦点已经可以转向下一优先级模块，而不是继续打磨当前 heuristics。
 
 ## 剩余工作
-- 根据真实冒烟结果继续补强 deterministic extraction / normalization：
-  - 长词条里的噪声日期 / 噪声地点过滤（`牛顿` / `女娲` 仍有脏 `date/place`）
-  - 地点层级与别名归一
-  - 非 `由…提出` 句式的事件归因
-  - biography / myth 主题的更强 canonical place 收敛
+- 基于新的 smoke 诊断继续补强 deterministic extraction / normalization：
+  - 当前没有必须先做的 accuracy smoke 修复项
+  - 如果后续又出现新 residual，再按具体 panelDiagnostics 做窄修正
 - 根据 golden topics 结果决定下一优先级：
   - VLM “看对路”
   - 导出质量升级
@@ -88,6 +137,7 @@
   - 写入 `accuracyErrorSummary`
   - phase 1 没有 override 按钮
 - 当前 claim review 是“确定性最小集”，不是完整事实语义理解器。
+- smoke harness 现在应尽量对齐真实 `taskLifecycle` 的 accuracy repair 路径。
 - `pnpm exec tsc --noEmit` 需在 `pnpm build` 之后串行运行；并发时可能因为 `.next/types` 尚未生成而报 `TS6053`。
 
 ## 重要文件路径
@@ -99,6 +149,7 @@
 - `src/lib/accuracy/claimReview.ts`
 - `src/lib/accuracy/repair.ts`
 - `src/lib/accuracy/goldenTopicSmoke.ts`
+- `src/__tests__/accuracyClaimReview.test.ts`
 - `src/lib/server/wikipedia.ts`
 - `src/lib/server/db.ts`
 - `src/lib/client/taskLifecycle.ts`
@@ -123,29 +174,44 @@
 - `docs/superpowers/plans/2026-03-27-science-wikipedia-accuracy-closed-loop.md`
 
 ## 当前阻塞和风险
-- 无硬阻塞。
 - 当前 deterministic matcher 已覆盖日期/数字/基础术语/基础地点/基础归因，但仍不是完整语义匹配器。
 - `FactPack` 事实抽取仍是启发式；复杂长文本、跨句推理、别名层级仍可能 coverage 不足。
 - live smoke 依赖外部 LLM 与 Wikipedia；Wikipedia 在当前环境偶发慢响应，因此 harness 对 wiki 主题做了“先 live fetch，失败再 snapshot fallback”的降级。
-- `牛顿` / `女娲` smoke 仍暴露长词条中的噪声 `date/place`；`牛顿` 的 place 仍偏长，`女娲` 的 myth term 仍以首句别名为主。
+- 首选 smoke 模型 `1774192103590-0tob8m2`（Zeabur / `gpt-5.4`）此前对 `newton` / `thunder` 多次返回上游 `500`；当前这轮已重新跑通关键 3 题和 full 5-topic。
 - provider clients 目前是 MVP 接法，还没做细粒度 provider-specific error taxonomy。
 - 尚未做浏览器级端到端生成冒烟；当前真实回归是“服务端脚本阶段 live smoke”，不含图片生成。
-- 5 题虽已全部 `script_ready`，但目前都落在 `reviewStatus=repair_required`，还没有达到“高置信 passed”。
+- 当前 backup 模型和首选模型都已拿到一轮 full 5-topic `passed`。
 
 ## 下次启动后优先执行的 3 个步骤
-1. 针对 `牛顿` / `女娲` 的真实结果继续清理噪声 facts，优先长词条脏 `date/place` 过滤。
-2. 针对 `牛顿` 的真实结果继续做 canonical place/date 收敛，减少 biography 词条歧义。
-3. 如果 golden topics 表现稳定，再决定是否进入下一优先级模块，而不是继续打磨当前闭环细节。
+1. 进入下一个优先级模块，不再把时间继续花在 accuracy smoke heuristics 上。
+2. 如果开始做 VLM / 导出 / 角色工作流，先以当前 smoke 基线为回归底线。
+3. 如果后续 smoke 再回退，优先看 `data/smoke-reports` 中的 `panelDiagnostics/topUnsupportedClaims`，按窄规则修正。
 
 ## 当前验证状态
-- accuracy 目标测试矩阵：
-  - `11 files / 75 tests passed`
+- targeted tests：
+  - `src/__tests__/accuracyClaimReview.test.ts`
+  - `src/__tests__/accuracyResearch.test.ts`
+  - `src/__tests__/accuracyRepair.test.ts`
+  - `src/__tests__/guideCharacterPolicy.test.ts`
+  - `src/__tests__/accuracyGoldenTopicSmoke.test.ts`
+  - `72 tests passed`
 - live smoke：
-  - `女娲` -> `finalStatus=script_ready`, `reviewStatus=repair_required`
-  - `DNA` -> `finalStatus=script_ready`, `reviewStatus=repair_required`
-  - `牛顿` -> `finalStatus=script_ready`, `reviewStatus=repair_required`
-  - `火药` -> `finalStatus=script_ready`, `reviewStatus=repair_required`
-  - `为什么会打雷` -> `finalStatus=script_ready`, `reviewStatus=repair_required`
+  - backup model latest full 5-topic smoke:
+    - `nuwa` -> `script_ready`, `passed`
+    - `dna` -> `script_ready`, `passed`
+    - `newton` -> `script_ready`, `passed`
+    - `gunpowder` -> `script_ready`, `passed`
+    - `thunder` -> `script_ready`, `passed`
+  - preferred `gpt-5.4` latest targeted smoke:
+    - `dna` -> `script_ready`, `passed`
+    - `newton` -> `script_ready`, `passed`
+    - `thunder` -> `script_ready`, `passed`
+  - preferred `gpt-5.4` latest full 5-topic smoke:
+    - `nuwa` -> `script_ready`, `passed`
+    - `dna` -> `script_ready`, `passed`
+    - `newton` -> `script_ready`, `passed`
+    - `gunpowder` -> `script_ready`, `passed`
+    - `thunder` -> `script_ready`, `passed`
 - `pnpm build`：
   - passed
 - `pnpm exec tsc --noEmit`：

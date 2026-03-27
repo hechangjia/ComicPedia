@@ -32,8 +32,10 @@ ${JSON.stringify(script.panels.map((panel) => ({
 1. Keep exactly ${script.panels.length} panels with the same IDs.
 2. Only repair the factual issues listed above.
 3. Replace wrong hard facts with canonical fact values.
-4. Leave unaffected panels unchanged.
-5. Output ONLY JSON: { "panels": [...] }`;
+4. Delete unsupported years, dates, places, attributions, or hard-detail clauses when the fact pack does not support them.
+5. For term or mechanism claims, stay as close as possible to the canonical fact wording instead of preserving speculative paraphrases.
+6. Leave unaffected panels unchanged.
+7. Output ONLY JSON: { "panels": [...] }`;
 }
 
 export async function repairAccuracyIssues(

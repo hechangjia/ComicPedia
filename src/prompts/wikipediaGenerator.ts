@@ -59,6 +59,9 @@ ${factPack.coverageGaps.map((gap) => `- ${gap.reason}`).join("\n") || "- none"}
 - hard facts 是必须保真的事实锚点
 - soft facts 可以用于解释，但不能偏离 hard facts
 - coverage gaps 标记了 unsupported hard detail 的边界，不要越界补写
+- 尤其不要额外写出未出现在 Hard facts 中的年份/日期
+- 如果某个人名、地点、归因关系或硬细节不在 Hard facts 中，不要补写成确定事实
+- term/机制类表达优先贴近 Hard facts 原句；证据不足时宁可写短、写保守，也不要自由扩写成长解释
 `;
 }
 

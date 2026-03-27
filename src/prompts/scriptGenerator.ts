@@ -29,6 +29,9 @@ ${coverageGaps || "- none"}
 - soft facts 可用于解释和叙事组织，但不能与 hard facts 冲突
 - coverage gaps 表示证据不足的边界，遇到这些空白时不要编造 unsupported hard detail
 - 如果细节不被 Fact Pack 支持，宁可省略，也不要为了戏剧性额外发明
+- 尤其不要额外写出未出现在 Hard facts 中的年份/日期
+- 如果某个人名、地点、归因关系或硬细节不在 Hard facts 中，不要补写成确定事实
+- term/机制类表达优先贴近 Hard facts 原句；证据不足时宁可写短、写保守，也不要自由扩写成长解释
 `;
 }
 

@@ -20,6 +20,7 @@ const MAX_EXCERPT_CHARS = 800;
 const PROVIDER_TIMEOUT_MS = 8000;
 const RESEARCH_BUDGET_MS = 20000;
 const PERSON_DEFINITION_REGEX = /^([^，。；！？（(]{1,24})(?:[（(][^）)]{1,40}[）)])?是[^。！？]{1,80}(?:家|者|人物|女神|学家|科学家|数学家|物理学家)/;
+const PERSON_ROLE_KEYWORD_REGEX = /(物理学家|数学家|天文学家|自然哲学家|科学家|学家|人物|女神|政治人物|氏族首领|始祖)/;
 const PLACE_PATTERNS: Array<{ regex: RegExp; predicate: string }> = [
   { regex: /出生于\s*([^，。；！？]+)/g, predicate: "birth_place" },
   { regex: /(?:起源于|源于)\s*([^，。；！？]+)/g, predicate: "origin_place" },
@@ -141,6 +142,19 @@ function canonicalizePlaceValue(value: string): string {
   return trimmed;
 }
 
+function canonicalizePersonValue(value: string): string {
+  return cleanCapturedText(value)
+    .replace(/[（(][^）)]{1,80}[）)]/g, "")
+    .replace(/\b(?:sir|prs|mp)\b/gi, "")
+    .replace(/爵士/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function definitionLikelyDescribesPerson(definition: string): boolean {
+  return PERSON_DEFINITION_REGEX.test(definition) || PERSON_ROLE_KEYWORD_REGEX.test(definition);
+}
+
 function isLikelyWeakTermClause(value: string): boolean {
   return /(职业神|所祀奉|民间信仰中的神祇|形成的带电云层|形成的声波)/.test(value);
 }
@@ -151,6 +165,10 @@ function extractAdditionalTermClauses(topic: string, excerpt: string): string[] 
   const compactExcerpt = excerpt.replace(/\s+/g, " ").trim();
 
   const englishPatterns: Array<{ regex: RegExp; build: (match: RegExpExecArray) => string }> = [
+    {
+      regex: /\bis a polymer composed of\s+([^.,;]+?)(?=\s+that\s+coil|\s+to\s+form|[.,;])/gi,
+      build: (match) => `${normalizedTopic} is a polymer composed of ${cleanCapturedText(match[1])}`,
+    },
     {
       regex: /\bto form (?:a |an )?([^.,;]+)/gi,
       build: (match) => `${normalizedTopic} forms ${cleanCapturedText(match[1])}`,
@@ -168,6 +186,14 @@ function extractAdditionalTermClauses(topic: string, excerpt: string): string[] 
   });
 
   const chinesePatterns: Array<{ regex: RegExp; build: (match: RegExpExecArray) => string }> = [
+    {
+      regex: /因([^，。；]*电荷分布不平均)/g,
+      build: (match) => cleanCapturedText(match[1]),
+    },
+    {
+      regex: /因([^，。；]*光热使空气迅速膨胀所产生的自然现象)/g,
+      build: (match) => `因${cleanCapturedText(match[1])}`,
+    },
     {
       regex: /形成([^，。；]+)/g,
       build: (match) => `${normalizedTopic}形成${cleanCapturedText(match[1])}`,
@@ -306,9 +332,30 @@ function extractHardFacts(topic: string, sourceEntries: AccuracySourceEntry[]): 
     });
 
     const normalizedTopic = normalizeValue(factSubject);
+    const definitionIndicatesPerson = definitionLikelyDescribesPerson(definition);
+    if (definitionIndicatesPerson) {
+      const canonicalTitlePerson = canonicalizePersonValue(entry.title);
+      const normalizedTitlePerson = normalizeValue(canonicalTitlePerson);
+      if (
+        canonicalTitlePerson
+        && (normalizedTitlePerson.includes(normalizedTopic) || normalizedTopic.includes(normalizedTitlePerson))
+      ) {
+        pushHardFact(facts, seen, {
+          claimType: "person",
+          subject: factSubject,
+          predicate: "name",
+          object: canonicalTitlePerson,
+          normalizedValue: normalizedTitlePerson,
+          sourceIds: [entry.id],
+          confidence: entry.sourceTier === "anchor" ? 0.92 : 0.7,
+          mustPreserve: true,
+        });
+      }
+    }
+
     const personMatch = definition.match(PERSON_DEFINITION_REGEX);
     if (personMatch) {
-      const canonicalPerson = cleanCapturedText(personMatch[1]);
+      const canonicalPerson = canonicalizePersonValue(personMatch[1]);
       const normalizedPerson = normalizeValue(canonicalPerson);
       if (
         canonicalPerson

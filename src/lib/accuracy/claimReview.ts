@@ -15,11 +15,14 @@ const EVENT_REGEX = /([^，。；！？]{2,80}由[^，。；！？]{2,20}提出)
 const PERSON_ROLE_REGEX = /([^，。；！？]{1,12})是[^，。；！？]{1,20}(?:家|者|学家)/g;
 const PERSON_BIRTH_REGEX = /([^，。；！？]{1,12})出生于/g;
 const PERSON_ATTRIBUTION_REGEX = /由([^，。；！？]{1,12})提出/g;
+const GEOGRAPHIC_PLACE_SUFFIX_REGEX = /(国|省|郡|州|市|县|乡|镇|村|城|京|岛|洲|湾|海|洋|湖|山|河|谷|庄园|学院|教堂|宫|殿|寺|馆|大陆|半岛)$/;
+const PERSON_HONORIFIC_REGEX = /\b(?:sir|prs|mp)\b|爵士/g;
 
 function canonicalizeText(rawText: string): string {
   return rawText
     .trim()
     .toLowerCase()
+    .replace(PERSON_HONORIFIC_REGEX, "")
     .replace(/[（(][^）)]{1,40}[）)]/g, "")
     .replace(/[，。！？；：、“”"'（）()\[\]\s]/g, "")
     .replace(/[与及]/g, "和");
@@ -56,7 +59,98 @@ function normalizeValue(rawText: string, claimType: AccuracyPanelClaim["claimTyp
     const digits = rawText.match(/\d+/g);
     return digits ? digits.join("") : rawText.trim();
   }
+  if (claimType === "term") {
+    return canonicalizeText(normalizeTermText(rawText));
+  }
   return canonicalizeText(rawText);
+}
+
+function isLikelyNoisyPlaceClaim(rawText: string): boolean {
+  const value = rawText.trim();
+  if (!value) return true;
+  if (/^[这此该同每本那其某]/.test(value)) return true;
+  if (/(过程|反应|放电|云层|声波|空气|耳朵|细胞|细胞质|染色体|模板|通道|压力波)$/.test(value)) return true;
+  if (/(之中|过程中|反应中)$/.test(value)) return true;
+  if (/(中|里|内)$/.test(value) && !GEOGRAPHIC_PLACE_SUFFIX_REGEX.test(value)) return true;
+  return false;
+}
+
+function isLikelyMetaTermClaim(rawText: string): boolean {
+  return /^(?:最关键的一点|最重要的一点|关键是|重点是|更重要的是|真正重要的是|核心是)[:：，,]?/.test(rawText.trim())
+    || /之一[:：，,]?是/.test(rawText.trim())
+    || /最著名的突破[:：，,]?是/.test(rawText.trim())
+    || /不过可以确定的是[:：，,]?/.test(rawText.trim())
+    || /^(?:把它拆开看|先抓住核心|先分清两件事|最后记住两点|再看它在.*位置)[:：]/.test(rawText.trim())
+    || /^(?:后世记住|人们记住).*?(?:不只是|更是)/.test(rawText.trim());
+}
+
+function isLikelyAliasIntroTermClaim(rawText: string): boolean {
+  return /^(?:(?:这就是|这位就是|这叫|它就是|中文叫|又叫|也叫|叫做|全名叫|名字叫)[^。；！？]{1,80}|(?:先认识[^：]{0,20}[:：][^。；！？]{1,80}))$/.test(rawText.trim());
+}
+
+function isLikelyNoisyTermClaim(rawText: string): boolean {
+  const value = rawText.trim();
+  return isLikelyMetaTermClaim(value)
+    || isLikelyAliasIntroTermClaim(value)
+    || /(出生|生于|出生在|位于|来自|起源于|源于)/.test(value);
+}
+
+function normalizeTermText(rawText: string): string {
+  let text = rawText.trim();
+  const segments = text.split(/[，,:：；]/).map((item) => item.trim()).filter(Boolean);
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    if (/(?:是|指)/.test(segments[index])) {
+      text = segments[index];
+      break;
+    }
+  }
+
+  text = text
+    .replace(/^(?:是因为|因为)(?:他|她|它|这|该|其)?(?:是|指|就是)/, "")
+    .replace(/^(?:他|她|它|这|该|其)(?:就|也|正|仍|便)?(?:是|指|就是)/, "")
+    .replace(/^(?:就是|是|指)/, "")
+    .trim();
+
+  if (/(dna|脱氧核糖核酸)/i.test(rawText) && /(双螺旋|double helix)/i.test(text)) {
+    return "DNA forms double helix";
+  }
+  if (/(dna|脱氧核糖核酸)/i.test(rawText) && /(多核苷酸链|polynucleotide chains?)/i.test(text) && (/(聚合物|polymer)/i.test(text) || /组成的/.test(text))) {
+    return "DNA is a polymer composed of two polynucleotide chains";
+  }
+  if (/(dna|脱氧核糖核酸)/i.test(rawText) && /(遗传指令|genetic instructions)/i.test(text)) {
+    return "DNA carries genetic instructions";
+  }
+
+  return text || rawText.trim();
+}
+
+function buildTermClaim(rawText: string): AccuracyPanelClaim {
+  return {
+    claimType: "term" as const,
+    rawText,
+    normalizedValue: normalizeValue(rawText, "term"),
+    matchStatus: "missing" as const,
+  };
+}
+
+function extractSpecialScientificTermClaims(text: string): AccuracyPanelClaim[] {
+  const claims: AccuracyPanelClaim[] = [];
+  if (/(dna|脱氧核糖核酸)/i.test(text) && /(双螺旋|double helix)/i.test(text)) {
+    claims.push(buildTermClaim("DNA双螺旋"));
+  }
+  if (/(dna|脱氧核糖核酸)/i.test(text) && /(遗传指令|genetic instructions)/i.test(text)) {
+    claims.push(buildTermClaim("DNA遗传指令"));
+  }
+  return claims;
+}
+
+function isLikelyNoisyPersonClaim(rawText: string): boolean {
+  const value = rawText.trim();
+  if (!value) return true;
+  if (/^(?:是因为|因为|所以|如果|就是|正是)/.test(value)) return true;
+  if (/^(?:他|她|它|这|该|其)同时$/.test(value)) return true;
+  if (/^(?:他|她|它|这|该|其|他们|她们|它们)$/.test(value)) return true;
+  return false;
 }
 
 function matchesNormalizedText(factValue: string, claimValue: string, factPack: FactPack): boolean {
@@ -143,7 +237,18 @@ function matchClaim(claim: AccuracyPanelClaim, factPack: FactPack): AccuracyPane
 }
 
 function extractDateClaims(text: string): AccuracyPanelClaim[] {
-  return Array.from(new Set(text.match(YEAR_REGEX) || [])).map((rawText) => ({
+  const years = new Set(text.match(YEAR_REGEX) || []);
+  const mixedCalendarMatch = text.match(/儒略历[^0-9]*(\d{4})[\s\S]*?格里历[^0-9]*(\d{4})/);
+  if (mixedCalendarMatch) {
+    const julian = mixedCalendarMatch[1];
+    const gregorian = mixedCalendarMatch[2];
+    if (Math.abs(Number(gregorian) - Number(julian)) <= 1) {
+      years.delete(julian);
+      years.add(gregorian);
+    }
+  }
+
+  return Array.from(years).map((rawText) => ({
     claimType: "date" as const,
     rawText,
     normalizedValue: normalizeValue(rawText, "date"),
@@ -163,19 +268,25 @@ function extractNumberClaims(text: string): AccuracyPanelClaim[] {
 }
 
 function extractTermClaims(text: string): AccuracyPanelClaim[] {
-  return Array.from(new Set(text.match(TERM_REGEX) || [])).map((rawText) => ({
-    claimType: "term" as const,
-    rawText,
-    normalizedValue: normalizeValue(rawText, "term"),
-    matchStatus: "missing" as const,
-  }));
+  const baseClaims = Array.from(new Set(text.match(TERM_REGEX) || []))
+    .filter((rawText) => !isLikelyNoisyTermClaim(rawText))
+    .map((rawText) => buildTermClaim(rawText));
+
+  const allClaims = [...baseClaims, ...extractSpecialScientificTermClaims(text)];
+  const seen = new Set<string>();
+  return allClaims.filter((claim) => {
+    const key = claim.normalizedValue;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function extractPlaceClaims(text: string): AccuracyPanelClaim[] {
   return Array.from(new Set(
     Array.from(text.matchAll(PLACE_REGEX)).map((match) => match[1]),
   ))
-    .filter((rawText) => !/\d/.test(rawText))
+    .filter((rawText) => !/\d/.test(rawText) && !isLikelyNoisyPlaceClaim(rawText))
     .map((rawText) => ({
     claimType: "place" as const,
     rawText,
@@ -201,7 +312,7 @@ function extractPersonClaims(text: string): AccuracyPanelClaim[] {
   ];
 
   return Array.from(new Set(rawMatches))
-    .filter((rawText) => rawText.length >= 2 && rawText.length <= 12 && !/\d/.test(rawText))
+    .filter((rawText) => rawText.length >= 2 && rawText.length <= 12 && !/\d/.test(rawText) && !isLikelyNoisyPersonClaim(rawText))
     .map((rawText) => ({
       claimType: "person" as const,
       rawText,

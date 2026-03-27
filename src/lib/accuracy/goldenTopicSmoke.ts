@@ -56,6 +56,44 @@ export interface AccuracyGoldenTopicSmokeResult {
   script: ComicScript;
 }
 
+export interface AccuracyGoldenTopicSmokeReportEntry {
+  id: string;
+  topic: string;
+  contentType: AccuracyGoldenTopicSmokeCase["contentType"];
+  wikipediaFallbackUsed: boolean;
+  safeToGenerate: boolean;
+  verifiedHardFactCount: number;
+  hardFactCount: number;
+  hardFactsSummary: AccuracyGoldenTopicSmokeResult["hardFactsSummary"];
+  softFactCount: number;
+  outlineGenerated: boolean;
+  validationWarningCount: number;
+  scriptRepairRounds: number;
+  reviewStatus: AccuracyReviewResult["status"];
+  blockingIssueCount: number;
+  repairableIssueCount: number;
+  blockingPanels: AccuracyReviewResult["panels"];
+  finalStatus: AccuracyGoldenTopicSmokeResult["finalStatus"];
+  sourceTierSummary: AccuracyGoldenTopicSmokeResult["sourceTierSummary"];
+  title: string;
+  panelCount: number;
+  extractPreview?: string;
+  panelDialogues: Array<{
+    panelIndex: number;
+    dialogue: string;
+  }>;
+  panelDiagnostics: Array<{
+    panelIndex: number;
+    dialogue: string;
+    riskLevel: AccuracyReviewResult["panelClaims"][number]["riskLevel"];
+    hardClaimCount: number;
+    unsupportedClaims: AccuracyReviewResult["panelClaims"][number]["unsupportedClaims"];
+  }>;
+  topUnsupportedClaims: Array<AccuracyReviewResult["panelClaims"][number]["unsupportedClaims"][number] & {
+    panelIndex: number;
+  }>;
+}
+
 const GOLDEN_TOPIC_SMOKE_CASES: AccuracyGoldenTopicSmokeCase[] = [
   {
     id: "nuwa",
@@ -108,6 +146,8 @@ const GOLDEN_TOPIC_SMOKE_CASES: AccuracyGoldenTopicSmokeCase[] = [
     style: "flat",
     quality: "fast",
     panelCount: 4,
+    wikipediaTitle: "雷",
+    wikipediaLang: "zh",
     allowGuideCharacter: false,
   },
 ];
@@ -136,6 +176,12 @@ const WIKIPEDIA_FALLBACK_CONTENT: Record<string, WikipediaContent> = {
     extract: "火药是中国古代发明的混合炸药，通常由硝石、硫黄和木炭组成。它起源于中国，并深刻影响了军事、工程和火器技术的发展。",
     lang: "zh",
     sections: ["组成", "历史", "传播与影响"],
+  },
+  thunder: {
+    title: "雷",
+    extract: "雷（thunder）古代亦写作“靁”，因雷云内部电荷分布不平均，产生高电位形成的带电云层，是静电释放的反应，因光热使空气迅速膨胀所产生的自然现象。",
+    lang: "zh",
+    sections: ["机制"],
   },
 };
 
@@ -192,7 +238,8 @@ async function retryWikipediaSummary(title: string, lang: string): Promise<Wikip
 export async function loadSmokeWikipediaContent(
   smokeCase: AccuracyGoldenTopicSmokeCase,
 ): Promise<{ content?: WikipediaContent; usedFallback: boolean }> {
-  if (smokeCase.contentType !== "wikipedia") {
+  const shouldPreloadAnchor = smokeCase.contentType === "wikipedia" || !!smokeCase.wikipediaTitle;
+  if (!shouldPreloadAnchor) {
     return { content: undefined, usedFallback: false };
   }
 
@@ -302,12 +349,13 @@ export async function runAccuracyGoldenTopicSmokeCase(input: {
   applyCanonicalCharacterDesc(script);
 
   let accuracyReview = reviewPanelClaims(script, factPack);
-  if (accuracyReview.status === "repair_required" && smokeCase.quality !== "fast") {
+  let accuracyRepairRounds = 0;
+  while (accuracyReview.status === "repair_required" && accuracyRepairRounds < 2) {
+    accuracyRepairRounds += 1;
     const repaired = await repairAccuracyIssues(script, accuracyReview, factPack, llmConfig);
-    if (repaired) {
-      script = repaired;
-      accuracyReview = reviewPanelClaims(script, factPack);
-    }
+    if (!repaired) break;
+    script = repaired;
+    accuracyReview = reviewPanelClaims(script, factPack);
   }
 
   return {
@@ -333,5 +381,56 @@ export async function runAccuracyGoldenTopicSmokeCase(input: {
     },
     finalStatus: accuracyReview.status === "blocked" || !researchBrief.safeToGenerate ? "failed" : "script_ready",
     script,
+  };
+}
+
+export function buildAccuracyGoldenTopicSmokeReportEntry(
+  result: AccuracyGoldenTopicSmokeResult,
+): AccuracyGoldenTopicSmokeReportEntry {
+  const panelDialogues = result.script.panels.map((panel, index) => ({
+    panelIndex: index,
+    dialogue: panel.dialogue,
+  }));
+
+  const panelDiagnostics = result.accuracyReview.panelClaims.map((panel) => ({
+    panelIndex: panel.panelIndex,
+    dialogue: result.script.panels[panel.panelIndex]?.dialogue ?? "",
+    riskLevel: panel.riskLevel,
+    hardClaimCount: panel.hardClaims.length,
+    unsupportedClaims: panel.unsupportedClaims.map((claim) => ({ ...claim })),
+  }));
+
+  const topUnsupportedClaims = result.accuracyReview.panelClaims.flatMap((panel) =>
+    panel.unsupportedClaims.map((claim) => ({
+      panelIndex: panel.panelIndex,
+      ...claim,
+    })),
+  );
+
+  return {
+    id: result.smokeCase.id,
+    topic: result.smokeCase.topic,
+    contentType: result.smokeCase.contentType,
+    wikipediaFallbackUsed: result.wikipediaFallbackUsed,
+    safeToGenerate: result.safeToGenerate,
+    verifiedHardFactCount: result.verifiedHardFactCount,
+    hardFactCount: result.hardFactCount,
+    hardFactsSummary: result.hardFactsSummary,
+    softFactCount: result.softFactCount,
+    outlineGenerated: result.outlineGenerated,
+    validationWarningCount: result.validationWarningCount,
+    scriptRepairRounds: result.scriptRepairRounds,
+    reviewStatus: result.accuracyReview.status,
+    blockingIssueCount: result.accuracyReview.blockingIssueCount,
+    repairableIssueCount: result.accuracyReview.repairableIssueCount,
+    blockingPanels: result.accuracyReview.panels,
+    finalStatus: result.finalStatus,
+    sourceTierSummary: result.sourceTierSummary,
+    title: result.script.title,
+    panelCount: result.script.panels.length,
+    extractPreview: result.wikipediaContent?.extract.slice(0, 240),
+    panelDialogues,
+    panelDiagnostics,
+    topUnsupportedClaims,
   };
 }

@@ -711,13 +711,14 @@ async function processScripting(taskId: string, request: GenerateRequest) {
     if (task.factPack && (request.contentType === "science" || request.contentType === "wikipedia")) {
       let accuracyReview = reviewPanelClaims(script, task.factPack);
 
-      if (accuracyReview.status === "repair_required") {
+      let accuracyRepairRounds = 0;
+      while (accuracyReview.status === "repair_required" && accuracyRepairRounds < 2) {
+        accuracyRepairRounds += 1;
         const repaired = await repairAccuracyIssues(script, accuracyReview, task.factPack, request.llmConfig);
-        if (repaired) {
-          script = repaired;
-          task.script = script;
-          accuracyReview = reviewPanelClaims(script, task.factPack);
-        }
+        if (!repaired) break;
+        script = repaired;
+        task.script = script;
+        accuracyReview = reviewPanelClaims(script, task.factPack);
       }
 
       task.accuracyReview = accuracyReview;

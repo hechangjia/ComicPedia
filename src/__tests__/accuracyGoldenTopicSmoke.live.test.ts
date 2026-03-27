@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { getConfig } from "@/lib/server/db";
 import {
+  buildAccuracyGoldenTopicSmokeReportEntry,
   getAccuracyGoldenTopicSmokeCases,
   resolveAccuracySmokeLlmConfig,
   runAccuracyGoldenTopicSmokeCase,
@@ -64,29 +65,7 @@ describe.runIf(shouldRunLiveSmoke)("accuracy golden-topic live smoke", () => {
       console.log(
         `[AccuracySmoke] finished ${smokeCase.id}: review=${result.accuracyReview.status}, final=${result.finalStatus}, hardFacts=${result.hardFactCount}, fallback=${result.wikipediaFallbackUsed}`,
       );
-      results.push({
-        id: result.smokeCase.id,
-        topic: result.smokeCase.topic,
-        contentType: result.smokeCase.contentType,
-        wikipediaFallbackUsed: result.wikipediaFallbackUsed,
-        safeToGenerate: result.safeToGenerate,
-        verifiedHardFactCount: result.verifiedHardFactCount,
-        hardFactCount: result.hardFactCount,
-        hardFactsSummary: result.hardFactsSummary,
-        softFactCount: result.softFactCount,
-        outlineGenerated: result.outlineGenerated,
-        validationWarningCount: result.validationWarningCount,
-        scriptRepairRounds: result.scriptRepairRounds,
-        reviewStatus: result.accuracyReview.status,
-        blockingIssueCount: result.accuracyReview.blockingIssueCount,
-        repairableIssueCount: result.accuracyReview.repairableIssueCount,
-        blockingPanels: result.accuracyReview.panels,
-        finalStatus: result.finalStatus,
-        sourceTierSummary: result.sourceTierSummary,
-        title: result.script.title,
-        panelCount: result.script.panels.length,
-        extractPreview: result.wikipediaContent?.extract.slice(0, 240),
-      });
+      results.push(buildAccuracyGoldenTopicSmokeReportEntry(result));
       fs.writeFileSync(latestReportPath, JSON.stringify(results, null, 2), "utf8");
     }
 

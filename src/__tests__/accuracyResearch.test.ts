@@ -113,6 +113,10 @@ describe("accuracy research", () => {
       expect.arrayContaining([
         expect.objectContaining({
           claimType: "term",
+          object: "DNA is a polymer composed of two polynucleotide chains",
+        }),
+        expect.objectContaining({
+          claimType: "term",
           object: expect.stringMatching(/double helix/i),
         }),
         expect.objectContaining({
@@ -455,6 +459,14 @@ describe("accuracy research", () => {
           claimType: "term",
           object: expect.stringMatching(/静电释放的反应/),
         }),
+        expect.objectContaining({
+          claimType: "term",
+          object: "雷云内部电荷分布不平均",
+        }),
+        expect.objectContaining({
+          claimType: "term",
+          object: "因光热使空气迅速膨胀所产生的自然现象",
+        }),
       ]),
     );
     expect(result.factPack.hardFacts).not.toEqual(
@@ -547,6 +559,117 @@ describe("accuracy research", () => {
     expect(result.factPack.hardFacts).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ claimType: "date", object: "1642" }),
+      ]),
+    );
+  });
+
+  it("extracts a canonical person fact from the anchor title even when the lead contains honorific noise", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "艾萨克·牛顿",
+      extract: "艾萨克·牛顿爵士 PRS MP（英语：Sir Isaac Newton）是英国物理学家、数学家、天文学家、自然哲学家及辉格党政治人物。",
+      lang: "zh",
+      sections: ["生平"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E8%89%BE%E8%90%A8%E5%85%8B%C2%B7%E7%89%9B%E9%A1%BF",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "牛顿",
+      contentType: "wikipedia",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "person",
+          object: "艾萨克·牛顿",
+        }),
+      ]),
+    );
+  });
+
+  it("extracts a canonical person fact even when the anchor title itself includes honorific noise", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "艾萨克·牛顿爵士 PRS MP",
+      extract: "艾萨克·牛顿爵士 PRS MP（英语：Sir Isaac Newton）是英国物理学家、数学家、天文学家、自然哲学家及辉格党政治人物。",
+      lang: "zh",
+      sections: ["生平"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E8%89%BE%E8%90%A8%E5%85%8B%C2%B7%E7%89%9B%E9%A1%BF",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "牛顿",
+      contentType: "wikipedia",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "person",
+          object: "艾萨克·牛顿",
+        }),
+      ]),
+    );
+  });
+
+  it("extracts a canonical person fact from mixed-calendar Newton leads that omit a simple 是-identity clause", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "艾萨克·牛顿爵士 PRS MP",
+      extract: "艾萨克·牛顿爵士 PRS MP（英语：Sir Isaac Newton；儒略历：1642年12月25日—1727年3月20日，格里历：1643年1月4日—1727年3月31日），英国物理学家、数学家、天文学家、自然哲学家及辉格党政治人物。",
+      lang: "zh",
+      sections: ["生平"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E8%89%BE%E8%90%A8%E5%85%8B%C2%B7%E7%89%9B%E9%A1%BF",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "牛顿",
+      contentType: "wikipedia",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "person",
+          object: "艾萨克·牛顿",
+        }),
       ]),
     );
   });

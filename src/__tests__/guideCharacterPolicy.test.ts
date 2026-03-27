@@ -1,8 +1,52 @@
 import { describe, expect, it } from "vitest";
-import type { ComicScript } from "@/lib/types";
+import type { ComicScript, FactPack } from "@/lib/types";
 import { stripDisallowedGuideCharacterFromScript } from "@/lib/guideCharacterPolicy";
 import { buildScriptPrompt } from "@/prompts/scriptGenerator";
 import { buildWikipediaPrompt } from "@/prompts/wikipediaGenerator";
+
+function makeFactPack(): FactPack {
+  return {
+    topic: "牛顿",
+    queryPlan: {
+      hardFactQueries: ["牛顿"],
+      softFactQueries: ["牛顿 overview"],
+      fallbackUsed: false,
+    },
+    hardFacts: [
+      {
+        id: "fact-date",
+        claimType: "date",
+        subject: "牛顿",
+        predicate: "birth_year",
+        object: "1643",
+        normalizedValue: "1643",
+        sourceIds: ["anchor-1"],
+        confidence: 0.95,
+        mustPreserve: true,
+      },
+      {
+        id: "fact-place",
+        claimType: "place",
+        subject: "牛顿",
+        predicate: "birth_place",
+        object: "伍尔索普庄园",
+        normalizedValue: "伍尔索普庄园",
+        sourceIds: ["anchor-1"],
+        confidence: 0.95,
+        mustPreserve: true,
+      },
+    ],
+    softFacts: [],
+    sourceEntries: [],
+    coverageGaps: [],
+    confidenceSummary: {
+      hardFactCoverage: 2,
+      softFactCoverage: 0,
+      overallRisk: "low",
+    },
+    recommendedNarrativeAngles: [],
+  };
+}
 
 describe("guide character policy", () => {
   it("adds an explicit prohibition against extra guide characters in science prompts when disabled", () => {
@@ -83,5 +127,30 @@ describe("guide character policy", () => {
     expect(sanitized.characterDescription).toBe(script.characterDescription);
     expect(sanitized.panels[0].imagePrompt).toContain("[Pangu:");
     expect(sanitized.panels[0].imagePrompt).toContain("splitting the cosmic egg");
+  });
+
+  it("adds explicit fact-pack constraints against unsupported dates and hard-detail expansion in science prompts", () => {
+    const prompt = buildScriptPrompt("牛顿", "flat", 4, undefined, false, undefined, makeFactPack());
+
+    expect(prompt).toContain("尤其不要额外写出未出现在 Hard facts 中的年份/日期");
+    expect(prompt).toContain("term/机制类表达优先贴近 Hard facts 原句");
+  });
+
+  it("adds explicit fact-pack constraints against unsupported dates and hard-detail expansion in wikipedia prompts", () => {
+    const prompt = buildWikipediaPrompt(
+      {
+        title: "艾萨克·牛顿",
+        extract: "艾萨克·牛顿是英国物理学家。",
+        lang: "zh",
+      },
+      "flat",
+      4,
+      false,
+      undefined,
+      makeFactPack(),
+    );
+
+    expect(prompt).toContain("尤其不要额外写出未出现在 Hard facts 中的年份/日期");
+    expect(prompt).toContain("term/机制类表达优先贴近 Hard facts 原句");
   });
 });
