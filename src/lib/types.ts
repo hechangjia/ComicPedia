@@ -85,17 +85,29 @@ export interface VisualRetrySummary {
 }
 
 /** 叙事大纲 — 面板级蓝图 (Director Agent) */
+export type NarrativeTemplateType = "mechanism" | "mythic" | "historical" | "discovery";
+export type NarrativeBeatRole = "hook" | "conflict" | "reveal" | "progression" | "closure";
+export type NarrativeShotIntent = "establish" | "hook-closeup" | "contrast" | "process" | "reveal" | "aftermath";
+export type NarrativeIntensity = "low" | "medium" | "high";
+
 export interface PanelBlueprint {
   narrativeFunction: "opening" | "setup" | "development" | "climax" | "resolution" | "epilogue";
+  beatRole: NarrativeBeatRole;
   suggestedComposition: string;
+  shotIntent: NarrativeShotIntent;
   characters: string[];
   keyInfo: string;
+  knowledgeGoal: string;
   infoDensity: "low" | "medium" | "high";
+  intensity: NarrativeIntensity;
+  carryForward: string;
 }
 
 /** Director Agent 生成的叙事大纲 */
 export interface NarrativeOutline {
   totalPanels: number;
+  templateType: NarrativeTemplateType;
+  source?: "legacy" | "beat-plan";
   panels: PanelBlueprint[];
   characterList: Array<{ name: string; role: string; firstAppearance: number }>;
   infoDistribution: string;
