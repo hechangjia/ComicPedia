@@ -68,7 +68,7 @@ describe("visual diagnosis repair helpers", () => {
     expect(rewrite.negativePrompt).toContain("cropped subject");
   });
 
-  test("applyDiagnosisRewrite leaves negative prompt alone when suggested negative prompt is disabled", () => {
+  test("applyDiagnosisRewrite does not apply suggested negative prompt when disabled", () => {
     const rewrite = applyDiagnosisRewrite({
       prompt: "old prompt",
       negativePrompt: "dusty",

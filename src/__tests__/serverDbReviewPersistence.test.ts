@@ -140,6 +140,16 @@ function makeTask(): GenerateTask {
       quality: "fine",
       generatedAt: "2026-03-27T00:00:00.000Z",
     },
+    visualRepairExecution: {
+      status: "completed",
+      panelIndices: [0],
+      mode: "rewrite",
+      scoreBefore: 5,
+      scoreAfter: 7,
+      outcome: "improved",
+      startedAt: "2026-03-27T01:12:00.000Z",
+      finishedAt: "2026-03-27T01:15:00.000Z",
+    },
     factPack: {
       topic: "Round-trip",
       queryPlan: {
@@ -305,6 +315,7 @@ describe("server db review persistence", () => {
     expect(roundTripped?.visualDiagnosisState).toBe(task.visualDiagnosisState);
     expect(roundTripped?.visualDiagnosisStale).toBe(task.visualDiagnosisStale);
     expect(roundTripped?.lastDiagnosisAt).toBe(task.lastDiagnosisAt);
+    expect(roundTripped?.visualRepairExecution).toEqual(task.visualRepairExecution);
     expect(roundTripped?.factPack).toEqual(task.factPack);
     expect(roundTripped?.researchBrief).toEqual(task.researchBrief);
     expect(roundTripped?.accuracyReview).toEqual(task.accuracyReview);

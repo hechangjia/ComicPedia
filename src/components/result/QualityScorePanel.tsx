@@ -1,12 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { ComicScript, VisualDiagnosisReport, VisualDiagnosisState, VisualQualityScore, PartialLLMConfig, UserLLMConfig } from "@/lib/types";
+import type {
+  ComicScript,
+  GenerateTask,
+  PartialLLMConfig,
+  UserLLMConfig,
+  VisualDiagnosisPanel,
+  VisualDiagnosisReport,
+  VisualDiagnosisState,
+  VisualQualityScore,
+  VisualRepairExecutionMode,
+  VisualRepairExecutionOutcome,
+} from "@/lib/types";
 import { evaluateQuality, type QualityScore } from "@/lib/qualityScore";
 import { evaluateVisualQuality } from "@/lib/vlmScorer";
-import { runVisualDiagnosisFlow } from "@/lib/vlmDiagnosis";
+import { buildDiagnosisRepairExecution, classifyRepairOutcome, runVisualDiagnosisFlow } from "@/lib/vlmDiagnosis";
 import { getStoredConfigs } from "@/hooks/useAPIConfig";
 import { generatePromptPatch, applyPromptPatch, shouldAutoRetry, type PromptPatch } from "@/lib/vlmRetry";
+import { VisualRewriteConfirmDialog } from "./VisualRewriteConfirmDialog";
 import { VisualDiagnosisWorkbench } from "./VisualDiagnosisWorkbench";
 
 interface QualityScorePanelProps {
@@ -20,8 +32,16 @@ interface QualityScorePanelProps {
   onSaveVisualQualityScore?: (score: VisualQualityScore) => Promise<void> | void;
   onSaveVisualDiagnosisReport?: (report: VisualDiagnosisReport) => Promise<void> | void;
   onSaveVisualDiagnosisFailure?: () => Promise<void> | void;
+  onBeginVisualRepairExecution?: (params: { panelIndices: number[]; mode: VisualRepairExecutionMode; startedAt: string }) => Promise<void> | void;
+  onCompleteVisualRepairExecution?: (score: VisualQualityScore, outcome: VisualRepairExecutionOutcome, finishedAt: string) => Promise<void> | void;
+  onFailVisualRepairExecution?: (finishedAt: string) => Promise<void> | void;
   /** Callback to trigger targeted regeneration of specific panels */
   onRetryPanels?: (panelIndices: number[], patchedPrompts: Map<number, string>, patches?: Map<number, PromptPatch>) => Promise<void> | void;
+  onRunDiagnosisRepair?: (
+    panelIndices: number[],
+    promptUpdates: Map<number, string>,
+    negativeTermsByPanel?: Map<number, string[]>,
+  ) => Promise<GenerateTask> | GenerateTask;
 }
 
 const DIMENSION_LABELS: Record<string, string> = {
@@ -36,6 +56,13 @@ const VISUAL_DIMENSION_LABELS: Record<string, string> = {
   styleAdherence: "风格一致性",
   artifactScore: "画面完整度",
   compositionQuality: "构图质量",
+};
+
+type DiagnosisRepairViewStatus = {
+  panelIndex?: number;
+  mode: "patch" | "rewrite";
+  status: "running" | "completed" | "failed";
+  message: string;
 };
 
 function ScoreBar({ label, score }: { label: string; score: number }) {
@@ -154,6 +181,8 @@ function VisualScoreSection({
   diagnosisLoading,
   diagnosisError,
   onRunDiagnosis,
+  onExecuteDiagnosisRepair,
+  onExecuteBatchDiagnosisPatch,
 }: {
   score: VisualQualityScore | null;
   loading: boolean;
@@ -170,9 +199,21 @@ function VisualScoreSection({
   diagnosisLoading?: boolean;
   diagnosisError?: string;
   onRunDiagnosis?: () => void;
+  onExecuteDiagnosisRepair?: (
+    panel: VisualDiagnosisPanel,
+    params: { mode: "patch" | "rewrite"; confirmedPrompt?: string; includeSuggestedNegativePrompt?: boolean },
+  ) => Promise<{ outcome: VisualRepairExecutionOutcome }>;
+  onExecuteBatchDiagnosisPatch?: (
+    panels: VisualDiagnosisPanel[],
+  ) => Promise<{ outcome: VisualRepairExecutionOutcome; partialFailure?: boolean }>;
 }) {
   const [expandedPanel, setExpandedPanel] = useState<number | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const [repairStatus, setRepairStatus] = useState<DiagnosisRepairViewStatus | null>(null);
+  const [rewriteDialogPanel, setRewriteDialogPanel] = useState<VisualDiagnosisPanel | null>(null);
+  const [rewritePromptValue, setRewritePromptValue] = useState("");
+  const [includeSuggestedNegativePrompt, setIncludeSuggestedNegativePrompt] = useState(false);
+  const [repairingDiagnosisPanel, setRepairingDiagnosisPanel] = useState(false);
 
   if (!score) {
     return (
@@ -225,6 +266,81 @@ function VisualScoreSection({
     styleAdherence: avg(score.panels.map(p => p.styleAdherence)),
     artifactScore: avg(score.panels.map(p => p.artifactScore)),
     compositionQuality: avg(score.panels.map(p => p.compositionQuality)),
+  };
+
+  const runDiagnosisRepair = async (
+    panel: VisualDiagnosisPanel,
+    params: { mode: "patch" | "rewrite"; confirmedPrompt?: string; includeSuggestedNegativePrompt?: boolean },
+  ) => {
+    if (!onExecuteDiagnosisRepair) return;
+
+    setRepairStatus({
+      panelIndex: panel.panelIndex,
+      mode: params.mode,
+      status: "running",
+      message: params.mode === "patch" ? "正在修复该面板..." : "正在应用重写并重生图...",
+    });
+    setRepairingDiagnosisPanel(true);
+
+    try {
+      const result = await onExecuteDiagnosisRepair(panel, params);
+      setRepairStatus({
+        panelIndex: panel.panelIndex,
+        mode: params.mode,
+        status: "completed",
+        message: result.outcome === "improved"
+          ? "修复完成，视觉评分已更新"
+          : "修复完成，但当前评分未改善",
+      });
+      setRewriteDialogPanel(null);
+    } catch {
+      setRepairStatus({
+        panelIndex: panel.panelIndex,
+        mode: params.mode,
+        status: "failed",
+        message: "修复失败，请重试",
+      });
+    } finally {
+      setRepairingDiagnosisPanel(false);
+    }
+  };
+
+  const handleOpenRewrite = (panel: VisualDiagnosisPanel) => {
+    setRewriteDialogPanel(panel);
+    setRewritePromptValue(panel.repair.suggestedPrompt ?? panel.promptSnapshot);
+    setIncludeSuggestedNegativePrompt(Boolean(panel.repair.suggestedNegativePrompt));
+  };
+
+  const handleBatchPatch = async (panels: VisualDiagnosisPanel[]) => {
+    if (!onExecuteBatchDiagnosisPatch || panels.length === 0) return;
+
+    setRepairStatus({
+      mode: "patch",
+      status: "running",
+      message: `正在修复 ${panels.length} 个面板...`,
+    });
+    setRepairingDiagnosisPanel(true);
+
+    try {
+      const result = await onExecuteBatchDiagnosisPatch(panels);
+      setRepairStatus({
+        mode: "patch",
+        status: "completed",
+        message: result.partialFailure
+          ? "部分面板修复失败，请逐个检查"
+          : result.outcome === "improved"
+            ? "修复完成，视觉评分已更新"
+            : "修复完成，但当前评分未改善",
+      });
+    } catch {
+      setRepairStatus({
+        mode: "patch",
+        status: "failed",
+        message: "修复失败，请重试",
+      });
+    } finally {
+      setRepairingDiagnosisPanel(false);
+    }
   };
 
   return (
@@ -406,6 +522,42 @@ function VisualScoreSection({
           visualScoreOverall={score.overall}
           report={diagnosisReport}
           stale={diagnosisStale}
+          onApplyPatch={onExecuteDiagnosisRepair
+            ? (panel) => {
+                void runDiagnosisRepair(panel, { mode: "patch" });
+              }
+            : undefined}
+          onApplyRewrite={onExecuteDiagnosisRepair ? handleOpenRewrite : undefined}
+          onApplyBatchPatch={onExecuteBatchDiagnosisPatch
+            ? (panels) => {
+                void handleBatchPatch(panels);
+              }
+            : undefined}
+          repairStatus={repairStatus}
+        />
+      )}
+
+      {rewriteDialogPanel && (
+        <VisualRewriteConfirmDialog
+          open
+          panel={rewriteDialogPanel}
+          promptValue={rewritePromptValue}
+          includeSuggestedNegativePrompt={includeSuggestedNegativePrompt}
+          confirming={repairingDiagnosisPanel && repairStatus?.panelIndex === rewriteDialogPanel.panelIndex}
+          onPromptValueChange={setRewritePromptValue}
+          onIncludeSuggestedNegativePromptChange={setIncludeSuggestedNegativePrompt}
+          onCancel={() => {
+            if (!repairingDiagnosisPanel) {
+              setRewriteDialogPanel(null);
+            }
+          }}
+          onConfirm={({ prompt, includeSuggestedNegativePrompt: includeNegative }) => {
+            void runDiagnosisRepair(rewriteDialogPanel, {
+              mode: "rewrite",
+              confirmedPrompt: prompt,
+              includeSuggestedNegativePrompt: includeNegative,
+            });
+          }}
         />
       )}
 
@@ -436,7 +588,11 @@ export function QualityScorePanel({
   onSaveVisualQualityScore,
   onSaveVisualDiagnosisReport,
   onSaveVisualDiagnosisFailure,
+  onBeginVisualRepairExecution,
+  onCompleteVisualRepairExecution,
+  onFailVisualRepairExecution,
   onRetryPanels,
+  onRunDiagnosisRepair,
 }: QualityScorePanelProps) {
   const [score, setScore] = useState<QualityScore | null>(cachedScore ?? null);
   const [visualScore, setVisualScore] = useState<VisualQualityScore | null>(cachedVisualScore ?? null);
@@ -578,6 +734,140 @@ export function QualityScorePanel({
     }
   };
 
+  const executeDiagnosisRepair = async (
+    panel: VisualDiagnosisPanel,
+    params: { mode: "patch" | "rewrite"; confirmedPrompt?: string; includeSuggestedNegativePrompt?: boolean },
+  ): Promise<{ outcome: VisualRepairExecutionOutcome }> => {
+    if (!visualScore) {
+      throw new Error("视觉评分尚未完成");
+    }
+    if (!onRunDiagnosisRepair || !onBeginVisualRepairExecution || !onCompleteVisualRepairExecution || !onFailVisualRepairExecution) {
+      throw new Error("诊断修复执行链路尚未配置");
+    }
+
+    const currentPanel = script.panels[panel.panelIndex];
+    if (!currentPanel) {
+      throw new Error(`Panel ${panel.panelIndex + 1} 不存在`);
+    }
+
+    const execution = buildDiagnosisRepairExecution({
+      panel,
+      currentPrompt: currentPanel.imagePrompt,
+      mode: params.mode,
+      confirmedPrompt: params.confirmedPrompt,
+      includeSuggestedNegativePrompt: params.includeSuggestedNegativePrompt,
+    });
+
+    const startedAt = new Date().toISOString();
+    await onBeginVisualRepairExecution({
+      panelIndices: [panel.panelIndex],
+      mode: execution.mode,
+      startedAt,
+    });
+
+    try {
+      const promptUpdates = new Map<number, string>([[panel.panelIndex, execution.prompt]]);
+      const negativeTermsByPanel = execution.negativeTerms.length > 0
+        ? new Map<number, string[]>([[panel.panelIndex, execution.negativeTerms]])
+        : undefined;
+      const refreshedTask = await onRunDiagnosisRepair([panel.panelIndex], promptUpdates, negativeTermsByPanel);
+
+      if (!refreshedTask?.script) {
+        throw new Error("修复后的任务不存在");
+      }
+
+      const vlm = resolveSelectedVLM();
+      const reevaluatedScore = await evaluateVisualQuality(refreshedTask.script, vlm);
+      const outcome = classifyRepairOutcome(visualScore.overall, reevaluatedScore.overall);
+
+      await onCompleteVisualRepairExecution(reevaluatedScore, outcome, new Date().toISOString());
+      setVisualScore(reevaluatedScore);
+      setVisualDiagnosisStale(true);
+
+      return { outcome };
+    } catch (err) {
+      try {
+        await Promise.resolve(onFailVisualRepairExecution(new Date().toISOString()));
+      } catch {}
+      throw err;
+    }
+  };
+
+  const executeBatchDiagnosisPatch = async (
+    panels: VisualDiagnosisPanel[],
+  ): Promise<{ outcome: VisualRepairExecutionOutcome; partialFailure?: boolean }> => {
+    if (!visualScore) {
+      throw new Error("视觉评分尚未完成");
+    }
+    if (!onRunDiagnosisRepair || !onBeginVisualRepairExecution || !onCompleteVisualRepairExecution || !onFailVisualRepairExecution) {
+      throw new Error("诊断修复执行链路尚未配置");
+    }
+    if (panels.length === 0) {
+      throw new Error("没有可批量修复的面板");
+    }
+
+    const startedAt = new Date().toISOString();
+    const panelIndices = panels.map((panel) => panel.panelIndex);
+    await onBeginVisualRepairExecution({
+      panelIndices,
+      mode: "batch_patch",
+      startedAt,
+    });
+
+    let failedCount = 0;
+    let latestTask: GenerateTask | null = null;
+
+    try {
+      for (const panel of panels) {
+        const currentPanel = script.panels[panel.panelIndex];
+        if (!currentPanel) {
+          failedCount += 1;
+          continue;
+        }
+
+        const execution = buildDiagnosisRepairExecution({
+          panel,
+          currentPrompt: currentPanel.imagePrompt,
+          mode: "patch",
+        });
+
+        try {
+          latestTask = await onRunDiagnosisRepair(
+            [panel.panelIndex],
+            new Map<number, string>([[panel.panelIndex, execution.prompt]]),
+            execution.negativeTerms.length > 0
+              ? new Map<number, string[]>([[panel.panelIndex, execution.negativeTerms]])
+              : undefined,
+          );
+        } catch {
+          failedCount += 1;
+        }
+      }
+
+      if (!latestTask?.script) {
+        throw new Error("批量修复后未能获取最新任务");
+      }
+
+      const vlm = resolveSelectedVLM();
+      const reevaluatedScore = await evaluateVisualQuality(latestTask.script, vlm);
+      const outcome = classifyRepairOutcome(visualScore.overall, reevaluatedScore.overall);
+
+      await onCompleteVisualRepairExecution(reevaluatedScore, outcome, new Date().toISOString());
+      setVisualScore(reevaluatedScore);
+      setVisualDiagnosisStale(true);
+
+      return {
+        outcome,
+        partialFailure: failedCount > 0,
+      };
+    } catch (err) {
+      try {
+        await Promise.resolve(onFailVisualRepairExecution(new Date().toISOString()));
+      } catch {}
+      throw err;
+    }
+  };
+
   const hasAnyScore = score || visualScore;
   const vlmOptions = getVLMOptions();
 
@@ -609,7 +899,7 @@ export function QualityScorePanel({
         <TextScoreSection score={score} loading={loadingText} error={errorText} onEvaluate={handleTextEvaluate} />
 
         {/* VLM 视觉评分 */}
-        <VisualScoreSection score={visualScore} loading={loadingVisual} error={errorVisual} onEvaluate={handleVisualEvaluate} onRetryLowPanels={onRetryPanels} script={script} vlmOptions={vlmOptions} selectedVLMOption={selectedVLMOption} onVLMOptionChange={setSelectedVLMOption} diagnosisReport={visualDiagnosisReport} diagnosisState={visualDiagnosisState} diagnosisStale={visualDiagnosisStale} diagnosisLoading={loadingDiagnosis} diagnosisError={errorDiagnosis} onRunDiagnosis={handleRunDiagnosis} />
+        <VisualScoreSection score={visualScore} loading={loadingVisual} error={errorVisual} onEvaluate={handleVisualEvaluate} onRetryLowPanels={onRetryPanels} script={script} vlmOptions={vlmOptions} selectedVLMOption={selectedVLMOption} onVLMOptionChange={setSelectedVLMOption} diagnosisReport={visualDiagnosisReport} diagnosisState={visualDiagnosisState} diagnosisStale={visualDiagnosisStale} diagnosisLoading={loadingDiagnosis} diagnosisError={errorDiagnosis} onRunDiagnosis={handleRunDiagnosis} onExecuteDiagnosisRepair={executeDiagnosisRepair} onExecuteBatchDiagnosisPatch={executeBatchDiagnosisPatch} />
       </div>
     </div>
   );

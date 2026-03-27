@@ -256,6 +256,12 @@ interface DiagnosisRewriteInput {
   includeSuggestedNegativePrompt?: boolean;
 }
 
+export interface DiagnosisRepairExecutionPayload {
+  mode: "patch" | "rewrite";
+  prompt: string;
+  negativeTerms: string[];
+}
+
 function normalizeTerms(list: string[] | undefined): string[] {
   return (list ?? []).map((term) => term.trim()).filter(Boolean);
 }
@@ -318,6 +324,43 @@ export function applyDiagnosisRewrite(input: DiagnosisRewriteInput): {
   return {
     prompt: prompt || input.prompt,
     negativePrompt,
+  };
+}
+
+export function buildDiagnosisRepairExecution(params: {
+  panel: VisualDiagnosisPanel;
+  currentPrompt: string;
+  mode: "patch" | "rewrite";
+  confirmedPrompt?: string;
+  includeSuggestedNegativePrompt?: boolean;
+}): DiagnosisRepairExecutionPayload {
+  if (params.mode === "patch") {
+    const patched = applyDiagnosisPatch({
+      prompt: params.currentPrompt,
+      patchPositive: params.panel.repair.patchPositive,
+      patchNegative: params.panel.repair.patchNegative,
+    });
+
+    return {
+      mode: "patch",
+      prompt: patched.prompt,
+      negativeTerms: normalizeTerms(params.panel.repair.patchNegative),
+    };
+  }
+
+  const rewritten = applyDiagnosisRewrite({
+    prompt: params.currentPrompt,
+    suggestedPrompt: params.confirmedPrompt ?? params.panel.repair.suggestedPrompt,
+    suggestedNegativePrompt: params.panel.repair.suggestedNegativePrompt,
+    includeSuggestedNegativePrompt: params.includeSuggestedNegativePrompt,
+  });
+
+  return {
+    mode: "rewrite",
+    prompt: rewritten.prompt,
+    negativeTerms: params.includeSuggestedNegativePrompt && params.panel.repair.suggestedNegativePrompt
+      ? params.panel.repair.suggestedNegativePrompt.split(",").map((term) => term.trim()).filter(Boolean)
+      : [],
   };
 }
 

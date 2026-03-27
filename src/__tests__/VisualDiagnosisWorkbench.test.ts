@@ -75,6 +75,154 @@ function makeReport(): VisualDiagnosisReport {
   };
 }
 
+function makeSinglePanelReport(mode: "patch" | "rewrite"): VisualDiagnosisReport {
+  return {
+    schemaVersion: 1,
+    generatedAt: "2026-03-27T01:10:00.000Z",
+    sourceEvaluatedAt: "2026-03-27T01:00:00.000Z",
+    model: {
+      provider: "openai-compatible",
+      model: "gpt-4o",
+    },
+    summary: {
+      problemPanelCount: 1,
+      highSeverityCount: 1,
+      actionableCount: 1,
+      crossPanelIssueCount: 0,
+    },
+    panels: [
+      {
+        panelIndex: 0,
+        imageUrl: "data:image/png;base64,panel-1",
+        promptSnapshot: "Prompt 1",
+        status: "issues_found",
+        topIssueType: mode === "patch" ? "artifact_defect" : "composition_mismatch",
+        severity: "high",
+        issues: [
+          {
+            issueType: mode === "patch" ? "artifact_defect" : "composition_mismatch",
+            severity: "high",
+            affectedDimensions: [mode === "patch" ? "artifactScore" : "compositionQuality"],
+            evidence: mode === "patch" ? "Hands look blurry" : "Main subject is cropped out of frame",
+            confidence: "high",
+            evidenceStrength: "strong",
+            falsePositiveRisk: "low",
+            actionability: mode === "patch" ? "apply_directly" : "confirm_first",
+          },
+        ],
+        repair: {
+          recommendedMode: mode,
+          rationale: mode === "patch" ? "A local patch can fix clarity." : "The scene needs a wider framing instruction.",
+          suggestedPrompt: mode === "rewrite" ? "A wider shot that keeps the main subject fully visible." : undefined,
+          patchPositive: mode === "patch" ? ["sharp focus"] : undefined,
+          patchNegative: mode === "patch" ? ["blurry hands"] : undefined,
+          expectedImprovement: ["Improves the panel"],
+        },
+      },
+    ],
+  };
+}
+
+function makeBatchPatchReport(): VisualDiagnosisReport {
+  return {
+    schemaVersion: 1,
+    generatedAt: "2026-03-27T01:10:00.000Z",
+    sourceEvaluatedAt: "2026-03-27T01:00:00.000Z",
+    model: {
+      provider: "openai-compatible",
+      model: "gpt-4o",
+    },
+    summary: {
+      problemPanelCount: 3,
+      highSeverityCount: 1,
+      actionableCount: 2,
+      crossPanelIssueCount: 0,
+    },
+    panels: [
+      {
+        panelIndex: 0,
+        imageUrl: "data:image/png;base64,panel-1",
+        promptSnapshot: "Prompt 1",
+        status: "issues_found",
+        topIssueType: "artifact_defect",
+        severity: "high",
+        issues: [
+          {
+            issueType: "artifact_defect",
+            severity: "high",
+            affectedDimensions: ["artifactScore"],
+            evidence: "Hands look blurry",
+            confidence: "high",
+            evidenceStrength: "strong",
+            falsePositiveRisk: "low",
+            actionability: "apply_directly",
+          },
+        ],
+        repair: {
+          recommendedMode: "patch",
+          rationale: "A focused patch can improve clarity.",
+          patchPositive: ["sharp focus"],
+          patchNegative: ["blurry hands"],
+          expectedImprovement: ["Improves clarity"],
+        },
+      },
+      {
+        panelIndex: 1,
+        imageUrl: "data:image/png;base64,panel-2",
+        promptSnapshot: "Prompt 2",
+        status: "issues_found",
+        topIssueType: "composition_mismatch",
+        severity: "medium",
+        issues: [
+          {
+            issueType: "composition_mismatch",
+            severity: "medium",
+            affectedDimensions: ["compositionQuality"],
+            evidence: "Framing is wrong",
+            confidence: "medium",
+            evidenceStrength: "medium",
+            falsePositiveRisk: "high",
+            actionability: "manual_only",
+          },
+        ],
+        repair: {
+          recommendedMode: "patch",
+          rationale: "This panel is too risky for direct execution.",
+          patchPositive: ["wide shot"],
+          patchNegative: ["cropped subject"],
+          expectedImprovement: ["Improves framing"],
+        },
+      },
+      {
+        panelIndex: 2,
+        imageUrl: "data:image/png;base64,panel-3",
+        promptSnapshot: "Prompt 3",
+        status: "issues_found",
+        topIssueType: "character_drift",
+        severity: "medium",
+        issues: [
+          {
+            issueType: "character_drift",
+            severity: "medium",
+            affectedDimensions: ["crossPanelConsistency"],
+            evidence: "Character outfit differs from adjacent panel",
+            confidence: "medium",
+            evidenceStrength: "medium",
+            falsePositiveRisk: "low",
+            actionability: "confirm_first",
+          },
+        ],
+        repair: {
+          recommendedMode: "rewrite",
+          rationale: "Identity mismatch needs prompt clarification.",
+          suggestedPrompt: "Restore the canonical outfit.",
+          expectedImprovement: ["Restores consistency"],
+        },
+      },
+    ],
+  };
+}
+
 describe("VisualDiagnosisWorkbench", () => {
   it("renders the diagnosis summary strip", () => {
     const html = renderToStaticMarkup(React.createElement(VisualDiagnosisWorkbench, {
@@ -122,5 +270,40 @@ describe("VisualDiagnosisWorkbench", () => {
     }));
 
     expect(html).toContain("诊断结果已过期");
+  });
+
+  it("renders a direct patch action for patch-eligible panels", () => {
+    const html = renderToStaticMarkup(React.createElement(VisualDiagnosisWorkbench, {
+      visualScoreOverall: 5.8,
+      report: makeSinglePanelReport("patch"),
+      stale: false,
+      onApplyPatch: () => {},
+    }));
+
+    expect(html).toContain("应用 patch");
+  });
+
+  it("suppresses direct actions for manual-only panels", () => {
+    const html = renderToStaticMarkup(React.createElement(VisualDiagnosisWorkbench, {
+      visualScoreOverall: 6.4,
+      report: makeReport(),
+      stale: false,
+      onApplyRewrite: () => {},
+    }));
+
+    expect(html).toContain("该问题建议人工确认后再修改");
+    expect(html).not.toContain("应用重写版");
+  });
+
+  it("renders batch patch CTA and counts only patch-eligible panels", () => {
+    const html = renderToStaticMarkup(React.createElement(VisualDiagnosisWorkbench, {
+      visualScoreOverall: 5.9,
+      report: makeBatchPatchReport(),
+      stale: false,
+      onApplyBatchPatch: () => {},
+    }));
+
+    expect(html).toContain("批量应用 patch");
+    expect(html).toContain("1 格可批量修复");
   });
 });

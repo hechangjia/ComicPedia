@@ -60,6 +60,9 @@ export default function ResultPage() {
     handleSaveVisualQualityScore,
     handleSaveVisualDiagnosisReport,
     handleSaveVisualDiagnosisFailure,
+    handleBeginVisualRepairExecution,
+    handleCompleteVisualRepairExecution,
+    handleFailVisualRepairExecution,
     handlePanelUpdate,
     handleRegenerate,
     handleCancel,
@@ -77,6 +80,7 @@ export default function ResultPage() {
     handleChangeStyle,
     handleReorder,
     handleVlmRetry,
+    handleRunDiagnosisRepair,
     generatingAll,
     actionError,
     clearActionError,
@@ -571,7 +575,11 @@ export default function ResultPage() {
           onSaveVisualQualityScore={handleSaveVisualQualityScore}
           onSaveVisualDiagnosisReport={handleSaveVisualDiagnosisReport}
           onSaveVisualDiagnosisFailure={handleSaveVisualDiagnosisFailure}
+          onBeginVisualRepairExecution={handleBeginVisualRepairExecution}
+          onCompleteVisualRepairExecution={handleCompleteVisualRepairExecution}
+          onFailVisualRepairExecution={handleFailVisualRepairExecution}
           onRetryPanels={handleVlmRetry}
+          onRunDiagnosisRepair={handleRunDiagnosisRepair}
         />
       )}
 
