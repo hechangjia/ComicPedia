@@ -4,15 +4,18 @@ import { useState, useRef } from "react";
 import Link from "next/link";
 import { useAPIConfig } from "@/hooks/useAPIConfig";
 import { useLLMForm, useImageForm } from "@/hooks/useConfigForm";
-import { UserAPIConfigV2, UserLLMConfig, UserImageConfig } from "@/lib/types";
+import { AccuracyProviderConfig, UserAPIConfigV2, UserLLMConfig, UserImageConfig } from "@/lib/types";
 import { testLLMConnection, testImageConnection, TestResult } from "@/lib/api/connectionTest";
 import { LLMConfigCard } from "@/components/settings/LLMConfigCard";
 import { ImageConfigCard } from "@/components/settings/ImageConfigCard";
 import { LLMForm } from "@/components/settings/LLMForm";
 import { ImageForm } from "@/components/settings/ImageForm";
+import { AccuracyProviderSection } from "@/components/settings/AccuracyProviderSection";
+import { type AccuracyProviderFormFields } from "@/components/settings/AccuracyProviderForm";
 import { VLM_PRESETS, getVLMPreset } from "@/lib/config/presets";
 import { BackupManager } from "@/components/settings/BackupManager";
 import { getWatermarkText, setWatermarkText } from "@/lib/downloadUtils";
+import { testAccuracyProvider } from "@/lib/api/accuracyProviderTest";
 
 /** 配置导出格式 */
 interface ConfigExportData {
@@ -48,6 +51,16 @@ function isSameImage(a: UserImageConfig, b: UserImageConfig): boolean {
 
 /** 测试结果 Map：configId → TestResult */
 type TestResultMap = Record<string, TestResult>;
+
+const EMPTY_ACCURACY_PROVIDER_FORM: AccuracyProviderFormFields = {
+  name: "",
+  kind: "search",
+  vendor: "firecrawl",
+  baseUrl: "https://api.firecrawl.dev",
+  apiKey: "",
+  enabled: true,
+  priority: 0,
+};
 
 function WatermarkInput() {
   const [text, setText] = useState(() => getWatermarkText());
@@ -89,6 +102,7 @@ export default function SettingsPage() {
     addLLM, updateLLMById, removeLLM, setActiveLLM,
     addImage, updateImageById, removeImage, setActiveImage,
     addVLM, updateVLMById, removeVLM, setActiveVLM,
+    addAccuracyProvider, updateAccuracyProviderById, removeAccuracyProvider, assignAccuracySlot, setAccuracyWhitelistDomains,
     clearAll, validate,
   } = useAPIConfig();
   const validation = validate();
@@ -100,6 +114,10 @@ export default function SettingsPage() {
   const [llmTests, setLlmTests] = useState<TestResultMap>({});
   const [imgTests, setImgTests] = useState<TestResultMap>({});
   const [vlmTests, setVlmTests] = useState<TestResultMap>({});
+  const [accuracyTests, setAccuracyTests] = useState<TestResultMap>({});
+  const [accuracyFormFields, setAccuracyFormFields] = useState<AccuracyProviderFormFields>(EMPTY_ACCURACY_PROVIDER_FORM);
+  const [accuracyEditingId, setAccuracyEditingId] = useState<string | null>(null);
+  const [showAccuracyForm, setShowAccuracyForm] = useState(false);
 
   // 表单状态（通过 hook 管理）
   const llmForm = useLLMForm({ addLLM, updateLLMById });
@@ -158,6 +176,100 @@ export default function SettingsPage() {
     setVlmTests((prev) => ({ ...prev, [c.id]: { status: "testing" } }));
     const result = await testLLMConnection(c);
     setVlmTests((prev) => ({ ...prev, [c.id]: result }));
+  };
+
+  const resetAccuracyForm = () => {
+    setAccuracyFormFields(EMPTY_ACCURACY_PROVIDER_FORM);
+    setAccuracyEditingId(null);
+    setShowAccuracyForm(false);
+  };
+
+  const handleStartNewAccuracyProvider = () => {
+    setAccuracyEditingId(null);
+    setAccuracyFormFields(EMPTY_ACCURACY_PROVIDER_FORM);
+    setShowAccuracyForm(true);
+  };
+
+  const handleStartEditAccuracyProvider = (provider: AccuracyProviderConfig) => {
+    setAccuracyEditingId(provider.id);
+    setAccuracyFormFields({
+      name: provider.name,
+      kind: provider.kind,
+      vendor: provider.vendor,
+      baseUrl: provider.baseUrl,
+      apiKey: "",
+      enabled: provider.enabled,
+      priority: provider.priority,
+    });
+    setShowAccuracyForm(true);
+  };
+
+  const handleSaveAccuracyProvider = () => {
+    if (!accuracyFormFields.name.trim()) {
+      setMessage({ type: "error", text: "请填写 provider 名称" });
+      setTimeout(() => setMessage(null), 3000);
+      return;
+    }
+    if (!accuracyFormFields.baseUrl.trim()) {
+      setMessage({ type: "error", text: "请填写 Base URL" });
+      setTimeout(() => setMessage(null), 3000);
+      return;
+    }
+
+    const existingProvider = accuracyEditingId
+      ? config.accuracyConfig.providers.find((provider) => provider.id === accuracyEditingId)
+      : null;
+
+    const providerData: Omit<AccuracyProviderConfig, "id"> = {
+      name: accuracyFormFields.name.trim(),
+      kind: accuracyFormFields.kind,
+      vendor: accuracyFormFields.vendor,
+      baseUrl: accuracyFormFields.baseUrl.trim(),
+      apiKey: accuracyFormFields.apiKey.trim(),
+      hasApiKey: accuracyFormFields.apiKey.trim().length > 0 || existingProvider?.hasApiKey || Boolean(existingProvider?.maskedApiKey),
+      maskedApiKey: existingProvider?.maskedApiKey,
+      enabled: accuracyFormFields.enabled,
+      priority: accuracyFormFields.priority,
+      capabilities: [accuracyFormFields.kind],
+      healthStatus: existingProvider?.healthStatus,
+      lastCheckedAt: existingProvider?.lastCheckedAt,
+      lastError: existingProvider?.lastError,
+    };
+
+    if (accuracyEditingId) {
+      updateAccuracyProviderById(accuracyEditingId, providerData);
+      setMessage({ type: "success", text: "Accuracy Provider 已更新" });
+    } else {
+      addAccuracyProvider(providerData);
+      setMessage({ type: "success", text: "Accuracy Provider 已添加" });
+    }
+
+    resetAccuracyForm();
+    setTimeout(() => setMessage(null), 3000);
+  };
+
+  const handleDeleteAccuracyProvider = (id: string) => {
+    const target = config.accuracyConfig.providers.find((provider) => provider.id === id);
+    if (!target) return;
+    if (confirm(`确定删除 provider「${target.name}」？`)) {
+      removeAccuracyProvider(id);
+      setMessage({ type: "success", text: `已删除 provider「${target.name}」` });
+      setTimeout(() => setMessage(null), 3000);
+      if (accuracyEditingId === id) {
+        resetAccuracyForm();
+      }
+    }
+  };
+
+  const handleTestAccuracyProvider = async (providerId: string) => {
+    setAccuracyTests((prev) => ({ ...prev, [providerId]: { status: "testing" } }));
+    const result = await testAccuracyProvider(providerId);
+    setAccuracyTests((prev) => ({ ...prev, [providerId]: result }));
+    updateAccuracyProviderById(providerId, {
+      healthStatus: result.healthStatus,
+      lastCheckedAt: result.lastCheckedAt,
+      lastError: result.lastError,
+    });
   };
 
   // 清除配置
@@ -437,6 +549,23 @@ export default function SettingsPage() {
           <p><span className="font-medium text-foreground">VLM</span> 负责看图评分、发现视觉问题，并驱动视觉复检与自动返工判断。</p>
         </div>
       </div>
+
+      <AccuracyProviderSection
+        config={config.accuracyConfig}
+        formFields={accuracyFormFields}
+        editingId={accuracyEditingId}
+        showForm={showAccuracyForm}
+        testResults={accuracyTests}
+        onChangeForm={(fields) => setAccuracyFormFields((prev) => ({ ...prev, ...fields }))}
+        onStartNew={handleStartNewAccuracyProvider}
+        onStartEdit={handleStartEditAccuracyProvider}
+        onSave={handleSaveAccuracyProvider}
+        onCancel={resetAccuracyForm}
+        onDelete={handleDeleteAccuracyProvider}
+        onTest={handleTestAccuracyProvider}
+        onAssignSlot={assignAccuracySlot}
+        onWhitelistChange={setAccuracyWhitelistDomains}
+      />
 
       {/* LLM 配置区 */}
       <div className="p-6 rounded-xl border bg-card space-y-4">

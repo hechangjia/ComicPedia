@@ -26,6 +26,12 @@ function normalizeProvider(input: Partial<AccuracyProviderConfig>): AccuracyProv
   }
 
   const apiKey = typeof input.apiKey === "string" ? input.apiKey.trim() : undefined;
+  const hasApiKey = input.hasApiKey === true || Boolean(apiKey);
+  const maskedApiKey = typeof input.maskedApiKey === "string" && input.maskedApiKey.trim().length > 0
+    ? input.maskedApiKey.trim()
+    : apiKey
+      ? maskApiKey(apiKey)
+      : undefined;
 
   return {
     id: input.id.trim(),
@@ -34,6 +40,8 @@ function normalizeProvider(input: Partial<AccuracyProviderConfig>): AccuracyProv
     vendor: input.vendor === "firecrawl" || input.vendor === "tavily" ? input.vendor : "custom",
     baseUrl: input.baseUrl.trim(),
     apiKey: apiKey || undefined,
+    hasApiKey,
+    maskedApiKey,
     capabilities: Array.isArray(input.capabilities)
       ? Array.from(new Set(input.capabilities.filter((item): item is string => typeof item === "string" && item.trim().length > 0)))
       : [],
@@ -148,6 +156,8 @@ export function mergeAccuracyProviderSecrets(
     return {
       ...provider,
       apiKey: nextApiKey,
+      hasApiKey: Boolean(nextApiKey),
+      maskedApiKey: nextApiKey ? maskApiKey(nextApiKey) : provider.maskedApiKey ?? existingProvider.maskedApiKey,
       healthStatus: provider.healthStatus ?? existingProvider.healthStatus,
       lastCheckedAt: provider.lastCheckedAt ?? existingProvider.lastCheckedAt,
       lastError: provider.lastError ?? existingProvider.lastError,
