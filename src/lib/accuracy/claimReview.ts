@@ -9,13 +9,24 @@ import type {
 
 const YEAR_REGEX = /\b(1[0-9]{3}|20[0-9]{2})\b/g;
 const AGE_REGEX = /(\d{1,3})\s*岁/g;
+const TERM_REGEX = /([^。！？；]{2,60}(?:是|指)[^。！？；]{2,80})/g;
+const PLACE_REGEX = /(?:出生于|位于|来自)\s*([^，。；！？]+)/g;
+const EVENT_REGEX = /([^，。；！？]{2,80}由[^，。；！？]{2,20}提出)/g;
+
+function canonicalizeText(rawText: string): string {
+  return rawText
+    .trim()
+    .toLowerCase()
+    .replace(/[，。！？；：、“”"'（）()\[\]\s]/g, "")
+    .replace(/[与及]/g, "和");
+}
 
 function normalizeValue(rawText: string, claimType: AccuracyPanelClaim["claimType"]): string {
   if (claimType === "date" || claimType === "number") {
     const digits = rawText.match(/\d+/g);
     return digits ? digits.join("") : rawText.trim();
   }
-  return rawText.trim().toLowerCase();
+  return canonicalizeText(rawText);
 }
 
 function buildSourceCoverage(factPack: FactPack): AccuracyReviewResult["sourceCoverage"] {
@@ -28,7 +39,9 @@ function buildSourceCoverage(factPack: FactPack): AccuracyReviewResult["sourceCo
 
 function matchClaim(claim: AccuracyPanelClaim, factPack: FactPack): AccuracyPanelClaim {
   const sameTypeFacts = factPack.hardFacts.filter((fact) => fact.claimType === claim.claimType);
-  const exactMatch = sameTypeFacts.find((fact) => fact.normalizedValue === claim.normalizedValue);
+  const exactMatch = sameTypeFacts.find((fact) =>
+    normalizeValue(fact.normalizedValue || fact.object, claim.claimType) === claim.normalizedValue,
+  );
   if (exactMatch) {
     return {
       ...claim,
@@ -37,11 +50,18 @@ function matchClaim(claim: AccuracyPanelClaim, factPack: FactPack): AccuracyPane
     };
   }
 
-  if (sameTypeFacts.length > 0) {
+  if (sameTypeFacts.length === 1) {
     return {
       ...claim,
       matchedFactId: sameTypeFacts[0].id,
       matchStatus: "conflicting",
+    };
+  }
+
+  if (sameTypeFacts.length > 1) {
+    return {
+      ...claim,
+      matchStatus: "ambiguous",
     };
   }
 
@@ -71,12 +91,46 @@ function extractNumberClaims(text: string): AccuracyPanelClaim[] {
   }));
 }
 
+function extractTermClaims(text: string): AccuracyPanelClaim[] {
+  return Array.from(new Set(text.match(TERM_REGEX) || [])).map((rawText) => ({
+    claimType: "term" as const,
+    rawText,
+    normalizedValue: normalizeValue(rawText, "term"),
+    matchStatus: "missing" as const,
+  }));
+}
+
+function extractPlaceClaims(text: string): AccuracyPanelClaim[] {
+  return Array.from(new Set(
+    Array.from(text.matchAll(PLACE_REGEX)).map((match) => match[1]),
+  ))
+    .filter((rawText) => !/\d/.test(rawText))
+    .map((rawText) => ({
+    claimType: "place" as const,
+    rawText,
+    normalizedValue: normalizeValue(rawText, "place"),
+    matchStatus: "missing" as const,
+  }));
+}
+
+function extractEventClaims(text: string): AccuracyPanelClaim[] {
+  return Array.from(new Set(text.match(EVENT_REGEX) || [])).map((rawText) => ({
+    claimType: "event" as const,
+    rawText,
+    normalizedValue: normalizeValue(rawText, "event"),
+    matchStatus: "missing" as const,
+  }));
+}
+
 export function extractPanelClaims(script: ComicScript): PanelClaimSet[] {
   return script.panels.map((panel, index) => ({
     panelIndex: index,
     hardClaims: [
       ...extractDateClaims(panel.dialogue),
       ...extractNumberClaims(panel.dialogue),
+      ...extractTermClaims(panel.dialogue),
+      ...extractPlaceClaims(panel.dialogue),
+      ...extractEventClaims(panel.dialogue),
     ],
     unsupportedClaims: [],
     riskLevel: "low",

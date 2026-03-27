@@ -27,7 +27,29 @@ function makeFactPack(): FactPack {
         subject: "牛顿",
         predicate: "identity",
         object: "牛顿是英国物理学家和数学家。",
-        normalizedValue: "牛顿是英国物理学家和数学家。",
+        normalizedValue: "牛顿是英国物理学家和数学家",
+        sourceIds: ["anchor-1"],
+        confidence: 0.95,
+        mustPreserve: true,
+      },
+      {
+        id: "fact-place",
+        claimType: "place",
+        subject: "牛顿",
+        predicate: "birth_place",
+        object: "英国林肯郡伍尔索普庄园",
+        normalizedValue: "英国林肯郡伍尔索普庄园",
+        sourceIds: ["anchor-1"],
+        confidence: 0.95,
+        mustPreserve: true,
+      },
+      {
+        id: "fact-event",
+        claimType: "event",
+        subject: "万有引力理论",
+        predicate: "attribution",
+        object: "万有引力理论由牛顿提出",
+        normalizedValue: "万有引力理论由牛顿提出",
         sourceIds: ["anchor-1"],
         confidence: 0.95,
         mustPreserve: true,
@@ -117,5 +139,61 @@ describe("accuracy claim review", () => {
     expect(review.status).toBe("repair_required");
     expect(review.panelClaims[0].unsupportedClaims).toHaveLength(1);
     expect(review.panelClaims[0].hardClaims[0].matchStatus).toBe("missing");
+  });
+
+  it("matches normalized term claims when wording differs only by punctuation or conjunction", async () => {
+    const { reviewPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const review = reviewPanelClaims(
+      makeScript(["牛顿是英国物理学家与数学家"]),
+      makeFactPack(),
+    );
+
+    expect(review.status).toBe("passed");
+    expect(review.panelClaims[0].hardClaims[0]).toMatchObject({
+      claimType: "term",
+      matchStatus: "matched",
+      matchedFactId: "fact-term",
+    });
+  });
+
+  it("blocks conflicting place claims", async () => {
+    const { reviewPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const review = reviewPanelClaims(
+      makeScript(["牛顿出生于法国巴黎。"]),
+      makeFactPack(),
+    );
+
+    expect(review.status).toBe("blocked");
+    expect(review.panelClaims[0].hardClaims).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "place",
+          matchStatus: "conflicting",
+          matchedFactId: "fact-place",
+        }),
+      ]),
+    );
+  });
+
+  it("blocks conflicting event attribution claims", async () => {
+    const { reviewPanelClaims } = await import("@/lib/accuracy/claimReview");
+
+    const review = reviewPanelClaims(
+      makeScript(["万有引力理论由伽利略提出。"]),
+      makeFactPack(),
+    );
+
+    expect(review.status).toBe("blocked");
+    expect(review.panelClaims[0].hardClaims).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "event",
+          matchStatus: "conflicting",
+          matchedFactId: "fact-event",
+        }),
+      ]),
+    );
   });
 });
