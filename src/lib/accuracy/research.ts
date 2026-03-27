@@ -126,6 +126,10 @@ function isLikelyNoisyPlace(value: string): boolean {
     || /(祭祀|国家级|享受历朝历代皇帝尊奉)/.test(value);
 }
 
+function isLikelyWeakTermClause(value: string): boolean {
+  return /(职业神|所祀奉|民间信仰中的神祇)/.test(value);
+}
+
 function extractAdditionalTermClauses(topic: string, excerpt: string): string[] {
   const clauses = new Set<string>();
   const normalizedTopic = topic.trim();
@@ -181,7 +185,7 @@ function extractAdditionalTermClauses(topic: string, excerpt: string): string[] 
   chinesePatterns.forEach(({ regex, build }) => {
     for (const match of excerpt.matchAll(regex)) {
       const clause = build(match);
-      if (clause.length >= 6) clauses.add(clause);
+      if (clause.length >= 6 && !isLikelyWeakTermClause(clause)) clauses.add(clause);
     }
   });
 

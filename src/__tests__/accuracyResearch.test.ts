@@ -619,4 +619,41 @@ describe("accuracy research", () => {
     );
     expect(result.researchBrief.safeToGenerate).toBe(true);
   });
+
+  it("does not promote weak myth extension terms like 职业神 or 后世神祇 into hard facts", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "女娲",
+      extract: "女娲是中国神话中的人类始祖。女娲亦成为中国雨伞和绣补业者所祀奉的职业神。根据《道藏》记载，女娲成为后世民间信仰中的神祇。",
+      lang: "zh",
+      sections: ["信仰"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E5%A5%B3%E5%A8%B2",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "女娲",
+      contentType: "wikipedia",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+          object: expect.stringMatching(/职业神|民间信仰中的神祇/),
+        }),
+      ]),
+    );
+  });
 });
