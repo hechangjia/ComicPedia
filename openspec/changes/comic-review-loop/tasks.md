@@ -27,4 +27,4 @@
 
 - [x] 5.1 Verify persisted review metadata survives task and character reload round-trips
 - [x] 5.2 Verify automatic retry remains bounded to one cycle and at most three panels
-- [ ] 5.3 Verify result, history, and character surfaces render consistent review state from persisted data
+- [x] 5.3 Verify result, history, and character surfaces render consistent review state from persisted data
