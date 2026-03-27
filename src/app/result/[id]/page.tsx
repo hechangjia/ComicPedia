@@ -58,6 +58,7 @@ export default function ResultPage() {
   const {
     handleSaveQualityScore,
     handleSaveVisualQualityScore,
+    handleSaveVisualDiagnosisReport,
     handlePanelUpdate,
     handleRegenerate,
     handleCancel,

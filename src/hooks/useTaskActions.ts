@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import { ComicPanel, ComicStyle, GenerateTask, PartialImageGenConfig, PartialLLMConfig, ReferenceImageEntry, VisualQualityScore } from "@/lib/types";
+import { ComicPanel, ComicStyle, GenerateTask, PartialImageGenConfig, PartialLLMConfig, ReferenceImageEntry, VisualDiagnosisReport, VisualQualityScore } from "@/lib/types";
 import type { QualityScore } from "@/lib/qualityScore";
 import {
   regeneratePanel,
@@ -22,6 +22,25 @@ import { getTask, saveTask } from "@/lib/client/db";
 import { notifyListeners } from "@/lib/client/eventBus";
 import { getStoredRequestConfigs } from "@/hooks/useAPIConfig";
 import { buildPanelReview, buildTaskReviewStatus, type PromptPatch } from "@/lib/vlmRetry";
+import { invalidateDiagnosis, markDiagnosisSucceeded } from "@/lib/vlmDiagnosisState";
+
+export function applyVisualQualityScoreUpdate(task: GenerateTask, visualQualityScore: VisualQualityScore): GenerateTask {
+  task.visualQualityScore = visualQualityScore;
+  task.panelReview = buildPanelReview(visualQualityScore);
+  task.reviewStatus = buildTaskReviewStatus(task.panelReview);
+  task.lastReviewAt = visualQualityScore.evaluatedAt;
+  return task;
+}
+
+export function applyVisualDiagnosisReportUpdate(task: GenerateTask, report: VisualDiagnosisReport): GenerateTask {
+  markDiagnosisSucceeded(task, report);
+  return task;
+}
+
+export function applyDiagnosisInvalidation(task: GenerateTask): GenerateTask {
+  invalidateDiagnosis(task);
+  return task;
+}
 
 /** 获取文生图配置（可按 ID 指定） */
 function getImageConfig(imageId?: string): PartialImageGenConfig | undefined {
@@ -101,10 +120,7 @@ export function useTaskActions(
     async (visualQualityScore: VisualQualityScore) => {
       try {
         await persistTaskUpdate((task) => {
-          task.visualQualityScore = visualQualityScore;
-          task.panelReview = buildPanelReview(visualQualityScore);
-          task.reviewStatus = buildTaskReviewStatus(task.panelReview);
-          task.lastReviewAt = visualQualityScore.evaluatedAt;
+          applyVisualQualityScoreUpdate(task, visualQualityScore);
         });
       } catch (err) {
         console.error("Visual quality score persistence failed:", err);
@@ -115,6 +131,27 @@ export function useTaskActions(
     [persistTaskUpdate, showError],
   );
 
+  const handleSaveVisualDiagnosisReport = useCallback(
+    async (report: VisualDiagnosisReport) => {
+      try {
+        await persistTaskUpdate((task) => {
+          applyVisualDiagnosisReportUpdate(task, report);
+        });
+      } catch (err) {
+        console.error("Visual diagnosis persistence failed:", err);
+        showError(`深入诊断保存失败: ${err instanceof Error ? err.message : "未知错误"}`);
+        throw err;
+      }
+    },
+    [persistTaskUpdate, showError],
+  );
+
+  const persistDiagnosisInvalidation = useCallback(async () => {
+    await persistTaskUpdate((task) => {
+      applyDiagnosisInvalidation(task);
+    });
+  }, [persistTaskUpdate]);
+
   // 更新单个面板 (持久化到 DB)
   const handlePanelUpdate = useCallback(
     (index: number, updatedPanel: ComicPanel) => {
@@ -123,33 +160,44 @@ export function useTaskActions(
         if (!prev?.script) return prev;
         const newPanels = [...prev.script.panels];
         newPanels[index] = updatedPanel;
-        return { ...prev, script: { ...prev.script, panels: newPanels } };
+        const nextTask = { ...prev, script: { ...prev.script, panels: newPanels } };
+        applyDiagnosisInvalidation(nextTask);
+        return nextTask;
       });
 
-      // 持久化到 DB
-      updatePanel(taskId, index, {
-        scene: updatedPanel.scene,
-        dialogue: updatedPanel.dialogue,
-        imagePrompt: updatedPanel.imagePrompt,
-        styleOverride: updatedPanel.styleOverride,
-      }).catch((err) => {
-        console.error("Failed to persist panel update:", err);
-        showError("面板更新保存失败，请重试");
-      });
+      void (async () => {
+        try {
+          await persistDiagnosisInvalidation();
+          await updatePanel(taskId, index, {
+            scene: updatedPanel.scene,
+            dialogue: updatedPanel.dialogue,
+            imagePrompt: updatedPanel.imagePrompt,
+            styleOverride: updatedPanel.styleOverride,
+          });
+        } catch (err) {
+          console.error("Failed to persist panel update:", err);
+          showError("面板更新保存失败，请重试");
+        }
+      })();
     },
-    [taskId, setTask, showError],
+    [taskId, setTask, showError, persistDiagnosisInvalidation],
   );
 
   // 单个面板生成/重生成
   const handleRegenerate = useCallback(
     (panelIndex: number, seedOverride?: number) => {
-      const imageConfig = getSelectedImageConfig();
-      regeneratePanel(taskId, panelIndex, imageConfig, seedOverride).catch((err) => {
-        console.error("Panel regeneration failed:", err);
-        showError(`第 ${panelIndex + 1} 格图片生成失败: ${err instanceof Error ? err.message : "未知错误"}`);
-      });
+      void (async () => {
+        try {
+          await persistDiagnosisInvalidation();
+          const imageConfig = getSelectedImageConfig();
+          await regeneratePanel(taskId, panelIndex, imageConfig, seedOverride);
+        } catch (err) {
+          console.error("Panel regeneration failed:", err);
+          showError(`第 ${panelIndex + 1} 格图片生成失败: ${err instanceof Error ? err.message : "未知错误"}`);
+        }
+      })();
     },
-    [taskId, showError, getSelectedImageConfig],
+    [taskId, showError, getSelectedImageConfig, persistDiagnosisInvalidation],
   );
 
   // 取消面板生成
@@ -263,13 +311,14 @@ export function useTaskActions(
   // 重新生成脚本（使用不同 LLM 配置）
   const handleRegenerateScript = useCallback(async () => {
     try {
+      await persistDiagnosisInvalidation();
       const llmConfig = getSelectedLLMConfig();
       await regenerateScript(taskId, llmConfig);
     } catch (err) {
       console.error("Script regeneration failed:", err);
       showError(`Script regeneration failed: ${err instanceof Error ? err.message : "Unknown error"}`);
     }
-  }, [taskId, showError, getSelectedLLMConfig]);
+  }, [taskId, showError, getSelectedLLMConfig, persistDiagnosisInvalidation]);
 
   // 面板排序
   const handleReorder = useCallback(
@@ -281,21 +330,29 @@ export function useTaskActions(
         const [moved] = panels.splice(fromIndex, 1);
         panels.splice(toIndex, 0, moved);
         panels.forEach((p, i) => { p.id = i + 1; });
-        return { ...prev, script: { ...prev.script, panels } };
+        const nextTask = { ...prev, script: { ...prev.script, panels } };
+        applyDiagnosisInvalidation(nextTask);
+        return nextTask;
       });
 
-      reorderPanels(taskId, fromIndex, toIndex).catch((err) => {
-        console.error("Panel reorder failed:", err);
-        showError("面板排序失败，请重试");
-      });
+      void (async () => {
+        try {
+          await persistDiagnosisInvalidation();
+          await reorderPanels(taskId, fromIndex, toIndex);
+        } catch (err) {
+          console.error("Panel reorder failed:", err);
+          showError("面板排序失败，请重试");
+        }
+      })();
     },
-    [taskId, setTask, showError],
+    [taskId, setTask, showError, persistDiagnosisInvalidation],
   );
 
   // 切换风格并重新生成所有图片
   const handleChangeStyle = useCallback(async (newStyle: ComicStyle) => {
     setGeneratingAll(true);
     try {
+      await persistDiagnosisInvalidation();
       const imageConfig = getSelectedImageConfig();
       await changeStyleAndRegenerate(taskId, newStyle, imageConfig);
     } catch (err) {
@@ -304,13 +361,14 @@ export function useTaskActions(
     } finally {
       setGeneratingAll(false);
     }
-  }, [taskId, showError, getSelectedImageConfig]);
+  }, [taskId, showError, getSelectedImageConfig, persistDiagnosisInvalidation]);
 
   // VLM 一键修复：根据 VLM 评分结果重新生成低分面板
   const handleVlmRetry = useCallback(
     async (panelIndices: number[], patchedPrompts: Map<number, string>, patches?: Map<number, PromptPatch>) => {
       setGeneratingAll(true);
       try {
+        await persistDiagnosisInvalidation();
         // 先更新面板 prompt
         for (const [idx, prompt] of patchedPrompts) {
           await updatePanel(taskId, idx, { imagePrompt: prompt });
@@ -342,12 +400,13 @@ export function useTaskActions(
         setGeneratingAll(false);
       }
     },
-    [taskId, showError, getSelectedImageConfig],
+    [taskId, showError, getSelectedImageConfig, persistDiagnosisInvalidation],
   );
 
   return {
     handleSaveQualityScore,
     handleSaveVisualQualityScore,
+    handleSaveVisualDiagnosisReport,
     handlePanelUpdate,
     handleRegenerate,
     handleCancel,
