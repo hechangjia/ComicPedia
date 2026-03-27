@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
-import type { GenerateTask, VisualDiagnosisReport } from "@/lib/types";
+import type { GenerateTask, VisualDiagnosisReport, VisualQualityScore } from "@/lib/types";
 import {
   applyDiagnosisInvalidation,
   applyVisualDiagnosisFailureUpdate,
   applyVisualDiagnosisReportUpdate,
   applyVisualQualityScoreUpdate,
+  beginVisualRepairExecution,
+  completeVisualRepairExecution,
+  failVisualRepairExecution,
 } from "@/hooks/useTaskActions";
 
 function makeTask(): GenerateTask {
@@ -74,6 +77,31 @@ function makeDiagnosisReport(): VisualDiagnosisReport {
         },
       },
     ],
+  };
+}
+
+function makeVisualQualityScore(): VisualQualityScore {
+  return {
+    overall: 6,
+    panels: [
+      {
+        panelIndex: 0,
+        textImageAlignment: 6,
+        styleAdherence: 6,
+        artifactScore: 5,
+        compositionQuality: 6,
+        overall: 6,
+        issues: ["clarity"],
+      },
+    ],
+    retryRecommendations: [
+      {
+        panelIndex: 0,
+        reason: "clarity",
+        suggestedFix: "Increase detail",
+      },
+    ],
+    evaluatedAt: "2026-03-27T02:05:00.000Z",
   };
 }
 
@@ -182,5 +210,76 @@ describe("applyVisualQualityScoreUpdate", () => {
     expect(task.reviewStatus).toBe("needs_repair");
     expect(task.panelReview?.[0].status).toBe("needs_repair");
     expect(task.lastReviewAt).toBe("2026-03-27T01:00:00.000Z");
+  });
+});
+
+describe("visual repair execution helpers", () => {
+  it("marks execution as running when a repair starts", () => {
+    const task = makeTask();
+    applyVisualDiagnosisReportUpdate(task, makeDiagnosisReport());
+
+    beginVisualRepairExecution(task, {
+      panelIndices: [0],
+      mode: "rewrite",
+      startedAt: "2026-03-27T02:00:00.000Z",
+    });
+
+    expect(task.visualRepairExecution?.status).toBe("running");
+    expect(task.visualRepairExecution?.panelIndices).toEqual([0]);
+    expect(task.visualRepairExecution?.mode).toBe("rewrite");
+    expect(task.visualRepairExecution?.startedAt).toBe("2026-03-27T02:00:00.000Z");
+    expect(task.visualDiagnosisStale).toBe(true);
+  });
+
+  it("records scores/outcome on success while keeping diagnosis stale", () => {
+    const task = makeTask();
+    applyVisualDiagnosisReportUpdate(task, makeDiagnosisReport());
+    applyVisualQualityScoreUpdate(task, makeVisualQualityScore());
+
+    beginVisualRepairExecution(task, {
+      panelIndices: [0],
+      mode: "rewrite",
+      startedAt: "2026-03-27T02:00:00.000Z",
+    });
+
+    const improvedScore: VisualQualityScore = {
+      ...makeVisualQualityScore(),
+      overall: 8,
+      panels: [
+        {
+          ...makeVisualQualityScore().panels[0],
+          artifactScore: 8,
+          overall: 8,
+          issues: [],
+        },
+      ],
+      evaluatedAt: "2026-03-27T02:10:00.000Z",
+    };
+
+    completeVisualRepairExecution(task, improvedScore, "improved", "2026-03-27T02:15:00.000Z");
+
+    expect(task.visualRepairExecution?.status).toBe("completed");
+    expect(task.visualRepairExecution?.scoreBefore).toBe(6);
+    expect(task.visualRepairExecution?.scoreAfter).toBe(8);
+    expect(task.visualRepairExecution?.outcome).toBe("improved");
+    expect(task.visualRepairExecution?.finishedAt).toBe("2026-03-27T02:15:00.000Z");
+    expect(task.visualDiagnosisStale).toBe(true);
+  });
+
+  it("records failed execution state without clearing diagnosis staleness", () => {
+    const task = makeTask();
+    applyVisualDiagnosisReportUpdate(task, makeDiagnosisReport());
+
+    beginVisualRepairExecution(task, {
+      panelIndices: [0],
+      mode: "rewrite",
+      startedAt: "2026-03-27T02:00:00.000Z",
+    });
+
+    failVisualRepairExecution(task, "2026-03-27T02:05:00.000Z");
+
+    expect(task.visualRepairExecution?.status).toBe("failed");
+    expect(task.visualRepairExecution?.finishedAt).toBe("2026-03-27T02:05:00.000Z");
+    expect(task.visualDiagnosisStale).toBe(true);
   });
 });

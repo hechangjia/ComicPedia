@@ -1,5 +1,16 @@
 import { useState, useCallback, useRef } from "react";
-import { ComicPanel, ComicStyle, GenerateTask, PartialImageGenConfig, PartialLLMConfig, ReferenceImageEntry, VisualDiagnosisReport, VisualQualityScore } from "@/lib/types";
+import {
+  ComicPanel,
+  ComicStyle,
+  GenerateTask,
+  PartialImageGenConfig,
+  PartialLLMConfig,
+  ReferenceImageEntry,
+  VisualDiagnosisReport,
+  VisualQualityScore,
+  VisualRepairExecutionMode,
+  VisualRepairExecutionOutcome,
+} from "@/lib/types";
 import type { QualityScore } from "@/lib/qualityScore";
 import {
   regeneratePanel,
@@ -44,6 +55,67 @@ export function applyDiagnosisInvalidation(task: GenerateTask): GenerateTask {
 
 export function applyVisualDiagnosisFailureUpdate(task: GenerateTask): GenerateTask {
   markDiagnosisFailed(task);
+  return task;
+}
+
+export function beginVisualRepairExecution(
+  task: GenerateTask,
+  params: { panelIndices: number[]; mode: VisualRepairExecutionMode; startedAt: string },
+): GenerateTask {
+  task.visualRepairExecution = {
+    status: "running",
+    panelIndices: params.panelIndices,
+    mode: params.mode,
+    startedAt: params.startedAt,
+  };
+  task.visualDiagnosisStale = true;
+  return task;
+}
+
+export function completeVisualRepairExecution(
+  task: GenerateTask,
+  visualQualityScore: VisualQualityScore,
+  outcome: VisualRepairExecutionOutcome,
+  finishedAt: string,
+): GenerateTask {
+  const previousScore = task.visualQualityScore?.overall;
+  const existingExecution = task.visualRepairExecution ?? {
+    panelIndices: [],
+    mode: "patch" as VisualRepairExecutionMode,
+    startedAt: finishedAt,
+  };
+
+  applyVisualQualityScoreUpdate(task, visualQualityScore);
+
+  task.visualRepairExecution = {
+    ...existingExecution,
+    status: "completed",
+    scoreBefore: previousScore,
+    scoreAfter: visualQualityScore.overall,
+    outcome,
+    finishedAt,
+  };
+  task.visualDiagnosisStale = true;
+  return task;
+}
+
+export function failVisualRepairExecution(task: GenerateTask, finishedAt: string): GenerateTask {
+  if (!task.visualRepairExecution) {
+    task.visualRepairExecution = {
+      status: "failed",
+      panelIndices: [],
+      mode: "patch",
+      startedAt: finishedAt,
+      finishedAt,
+    };
+  } else {
+    task.visualRepairExecution = {
+      ...task.visualRepairExecution,
+      status: "failed",
+      finishedAt,
+    };
+  }
+  task.visualDiagnosisStale = true;
   return task;
 }
 

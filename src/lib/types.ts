@@ -43,6 +43,15 @@ export type VisualDiagnosisSeverity = "low" | "medium" | "high";
 export type VisualDiagnosisEvidenceStrength = "weak" | "medium" | "strong";
 export type VisualDiagnosisActionability = "apply_directly" | "confirm_first" | "manual_only";
 export type VisualRepairMode = "patch" | "rewrite" | "manual";
+export type VisualRepairExecutionMode = "patch" | "rewrite" | "batch_patch";
+export type VisualRepairExecutionStatus = "running" | "completed" | "failed";
+export type VisualRepairExecutionOutcome = "improved" | "unchanged" | "regressed";
+export type VisualRepairExecutionMode = "patch" | "rewrite" | "batch_patch";
+export type VisualRepairExecutionStatus = "running" | "completed" | "failed";
+export type VisualRepairExecutionOutcome = "improved" | "unchanged" | "regressed";
+export type VisualRepairExecutionMode = "patch" | "rewrite" | "batch_patch";
+export type VisualRepairExecutionStatus = "running" | "completed" | "failed";
+export type VisualRepairExecutionOutcome = "improved" | "unchanged" | "regressed";
 
 /** Detailed diagnosis issue for a suspicious panel */
 export interface VisualDiagnosisIssue {
@@ -474,6 +483,16 @@ export interface GenerateTask {
     quality?: string;
     allowGuideCharacter?: boolean;
     generatedAt?: string;
+  };
+  visualRepairExecution?: {
+    status: VisualRepairExecutionStatus;
+    panelIndices: number[];
+    mode: VisualRepairExecutionMode;
+    scoreBefore?: number;
+    scoreAfter?: number;
+    outcome?: VisualRepairExecutionOutcome;
+    startedAt: string;
+    finishedAt?: string;
   };
   createdAt: Date;
   updatedAt: Date;
