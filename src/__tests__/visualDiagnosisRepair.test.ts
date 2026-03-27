@@ -57,6 +57,18 @@ describe("visual diagnosis repair helpers", () => {
     expect(rewrite.negativePrompt).toContain("cropped subject");
   });
 
+  test("applyDiagnosisRewrite leaves negative prompt alone when suggested negative prompt is disabled", () => {
+    const rewrite = applyDiagnosisRewrite({
+      prompt: "old prompt",
+      negativePrompt: "dusty",
+      suggestedPrompt: "wide shots",
+      suggestedNegativePrompt: "cropped subject",
+      includeSuggestedNegativePrompt: false,
+    });
+
+    expect(rewrite.negativePrompt).toBe("dusty");
+  });
+
   test("classifyRepairOutcome reports improved, unchanged, and regressed", () => {
     expect(classifyRepairOutcome(5.1, 6.2)).toBe("improved");
     expect(classifyRepairOutcome(6.2, 6.2)).toBe("unchanged");
