@@ -28,6 +28,7 @@ export interface ScriptGenerationParams {
   character?: Character;
   novelMeta?: NovelMeta;
   wikipediaContent?: WikipediaContent;
+  allowGuideCharacter?: boolean;
 }
 
 // ============================================================
@@ -50,7 +51,7 @@ const contentRegistry = new Map<ContentType, ContentTypeHandler>();
 
 /** 科普漫画 */
 contentRegistry.set("science", {
-  buildPrompt: (p) => buildScriptPrompt(p.topic, p.style, p.panelCount, p.character),
+  buildPrompt: (p) => buildScriptPrompt(p.topic, p.style, p.panelCount, p.character, p.allowGuideCharacter),
   parseResponse: parseScriptResponse,
 });
 
@@ -83,9 +84,9 @@ contentRegistry.set("wikipedia", {
   buildPrompt: (p) => {
     if (!p.wikipediaContent) {
       // 降级：无百科内容时用科普模式
-      return buildScriptPrompt(p.topic, p.style, p.panelCount);
+      return buildScriptPrompt(p.topic, p.style, p.panelCount, undefined, p.allowGuideCharacter);
     }
-    return buildWikipediaPrompt(p.wikipediaContent, p.style, p.panelCount);
+    return buildWikipediaPrompt(p.wikipediaContent, p.style, p.panelCount, p.allowGuideCharacter);
   },
   parseResponse: parseWikipediaResponse,
 });

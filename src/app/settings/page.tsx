@@ -429,6 +429,15 @@ export default function SettingsPage() {
         )}
       </div>
 
+      <div className="p-4 rounded-xl border bg-card space-y-3">
+        <h2 className="font-medium">模型分工</h2>
+        <div className="space-y-2 text-sm text-muted-foreground">
+          <p><span className="font-medium text-foreground">LLM</span> 负责理解主题、规划叙事、生成分镜脚本与对白。</p>
+          <p><span className="font-medium text-foreground">文生图</span> 负责把每格的 imagePrompt 生成为实际漫画画面。</p>
+          <p><span className="font-medium text-foreground">VLM</span> 负责看图评分、发现视觉问题，并驱动视觉复检与自动返工判断。</p>
+        </div>
+      </div>
+
       {/* LLM 配置区 */}
       <div className="p-6 rounded-xl border bg-card space-y-4">
         <div className="flex items-center justify-between">

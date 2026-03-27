@@ -8,6 +8,7 @@ import { evaluateVisualQuality } from "@/lib/vlmScorer";
 import { generateNarrativeOutline, buildOutlineGuidance } from "@/lib/director";
 import { shouldAutoRetry, generatePromptPatch, applyPromptPatch, buildPanelReview, buildTaskReviewStatus } from "@/lib/vlmRetry";
 import { getStyleModifier, getStyleNegativePrompt, STYLE_META } from "@/lib/config/styles";
+import { stripDisallowedGuideCharacterFromScript } from "@/lib/guideCharacterPolicy";
 import { urlToBase64 } from "@/lib/utils";
 import { withConcurrency } from "@/lib/concurrency";
 import { withRetry } from "@/lib/retryQueue";
@@ -171,7 +172,13 @@ async function runAutomaticVisualRetryCycle(
 
       const patch = generatePromptPatch(panelScore);
       const refinedPrompt = applyPromptPatch(panel.imagePrompt, patch);
-      if (refinedPrompt === panel.imagePrompt && patch.negative.length === 0) {
+      const mergedConfig = mergeReferenceImage(imageConfig, freshTask.script!, panel, panelScore.panelIndex);
+      const existingNeg = mergedConfig?.extraBody?.negative_prompt || "";
+      const hasNewNegative = patch.negative.some(
+        (item) => !existingNeg.toLowerCase().includes(item.toLowerCase()),
+      );
+
+      if (refinedPrompt === panel.imagePrompt && !hasNewNegative) {
         return [];
       }
 
@@ -219,6 +226,7 @@ async function runAutomaticVisualRetryCycle(
   let hasFailure = false;
 
   for (const { panelScore, panel, patch, refinedPrompt } of retryCandidates) {
+    const originalPrompt = panel.imagePrompt;
     if (panel.imageUrl?.startsWith("data:image")) {
       pushImageVersion(panel, panel.imageUrl);
     }
@@ -271,6 +279,7 @@ async function runAutomaticVisualRetryCycle(
     } catch (err) {
       hasFailure = true;
       console.warn(`[VLM-Retry] Panel ${panelScore.panelIndex + 1} retry failed:`, err);
+      panel.imagePrompt = originalPrompt;
       panel.status = "completed";
       if (panel.imageVersions?.length) {
         panel.imageUrl = panel.imageVersions[panel.imageVersions.length - 1].imageUrl;
@@ -400,6 +409,7 @@ async function processScripting(taskId: string, request: GenerateRequest) {
       imageModel: request.imageConfig?.model,
       imageProvider: request.imageConfig?.endpointType,
       quality: request.quality,
+      allowGuideCharacter: request.allowGuideCharacter,
       generatedAt: new Date().toISOString(),
     };
 
@@ -573,6 +583,7 @@ async function processScripting(taskId: string, request: GenerateRequest) {
         controller.signal,
         request.novelMeta,
         request.wikipediaContent,
+        request.allowGuideCharacter,
       );
     } catch (streamErr) {
       if (controller.signal.aborted) throw streamErr;
@@ -592,10 +603,15 @@ async function processScripting(taskId: string, request: GenerateRequest) {
         character,
         request.novelMeta,
         request.wikipediaContent,
+        request.allowGuideCharacter,
       );
     }
 
     task.streamText = undefined;
+
+    if (request.allowGuideCharacter === false && !character) {
+      script = stripDisallowedGuideCharacterFromScript(script);
+    }
 
     if (request.referenceImage) {
       script.referenceImage = request.referenceImage;
@@ -703,6 +719,7 @@ export async function regenerateScript(
     controlMode,
     referenceEntries,
     characterIds: task.character ? [task.character.id] : undefined,
+    allowGuideCharacter: task.generationConfig?.allowGuideCharacter,
   };
 
   // Reset task state to scripting

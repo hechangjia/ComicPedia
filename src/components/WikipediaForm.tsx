@@ -10,6 +10,7 @@ import { CharacterPicker } from "./CharacterPicker";
 import { ErrorAlert } from "./ErrorAlert";
 import { Spinner } from "./ui/Spinner";
 import { QualitySelector } from "./QualitySelector";
+import { GuideCharacterToggle } from "./GuideCharacterToggle";
 import { MathText } from "./MathText";
 import { summarizeWikipediaContent } from "@/lib/llm";
 import { getStoredRequestConfigs } from "@/hooks/useAPIConfig";
@@ -59,6 +60,8 @@ export function WikipediaForm() {
     {
       contentType: "wikipedia",
       defaultStyle: "flat",
+      showGuideCharacterToggle: true,
+      defaultAllowGuideCharacter: false,
       emptyInputMessage: "请先搜索并选择一篇 Wikipedia 文章",
     },
     useCallback(() => topic, [topic]),
@@ -451,6 +454,14 @@ export function WikipediaForm() {
             />
 
             <QualitySelector value={form.quality} onChange={form.setQuality} disabled={form.isLoading} />
+
+            {form.showGuideCharacterToggle && (
+              <GuideCharacterToggle
+                checked={form.allowGuideCharacter}
+                onChange={form.setAllowGuideCharacter}
+                disabled={form.isLoading}
+              />
+            )}
 
             <CharacterPicker
               selectedIds={form.selectedCharacterIds}

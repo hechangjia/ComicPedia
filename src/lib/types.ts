@@ -305,6 +305,8 @@ export interface GenerateRequest {
   quality?: GenerationQuality;
   /** 难度等级（影响 prompt 用词和知识深度） */
   difficulty?: DifficultyLevel;
+  /** Whether the model may add a generic guide/narrator/explorer character */
+  allowGuideCharacter?: boolean;
 }
 
 /** 生成任务状态 */
@@ -380,6 +382,7 @@ export interface GenerateTask {
     imageModel?: string;
     imageProvider?: string;
     quality?: string;
+    allowGuideCharacter?: boolean;
     generatedAt?: string;
   };
   createdAt: Date;

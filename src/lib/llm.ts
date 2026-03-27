@@ -305,13 +305,14 @@ export async function generateScriptStream(
   signal?: AbortSignal,
   novelMeta?: NovelMeta,
   wikipediaContent?: WikipediaContent,
+  allowGuideCharacter?: boolean,
 ): Promise<ComicScript> {
   const config = getLLMConfig(llmOverrides);
 
   // Use contentRegistry for prompt building
   const handler = getContentHandler(contentType);
   const prompt = handler.buildPrompt({
-    topic, style, panelCount, poetryGenre, poetryMeta, character, novelMeta, wikipediaContent,
+    topic, style, panelCount, poetryGenre, poetryMeta, character, novelMeta, wikipediaContent, allowGuideCharacter,
   });
 
   let response: string;
@@ -353,13 +354,14 @@ export async function generateScript(
   character?: Character,
   novelMeta?: NovelMeta,
   wikipediaContent?: WikipediaContent,
+  allowGuideCharacter?: boolean,
 ): Promise<ComicScript> {
   const config = getLLMConfig(llmOverrides);
 
   // Use contentRegistry for prompt building
   const handler = getContentHandler(contentType);
   const prompt = handler.buildPrompt({
-    topic, style, panelCount, poetryGenre, poetryMeta, character, novelMeta, wikipediaContent,
+    topic, style, panelCount, poetryGenre, poetryMeta, character, novelMeta, wikipediaContent, allowGuideCharacter,
   });
 
   let response: string;
