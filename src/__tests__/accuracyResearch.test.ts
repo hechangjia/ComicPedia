@@ -422,6 +422,55 @@ describe("accuracy research", () => {
     );
   });
 
+  it("extracts a mechanism reaction fact for thunder topics and avoids cloud fragment noise", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "雷",
+      extract: "雷（thunder）古代亦写作“靁”，因雷云内部电荷分布不平均，产生高电位形成的带电云层，是静电释放的反应，因光热使空气迅速膨胀所产生的自然现象。",
+      lang: "zh",
+      sections: ["机制"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E9%9B%B7",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "为什么会打雷",
+      contentType: "science",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+          object: expect.stringMatching(/静电释放的反应/),
+        }),
+      ]),
+    );
+    expect(result.factPack.hardFacts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+          object: "雷形成的带电云层",
+        }),
+        expect.objectContaining({
+          claimType: "term",
+          object: expect.stringMatching(/雷形成的声波/),
+        }),
+      ]),
+    );
+  });
+
   it("ignores noisy late years outside core factual context for biography topics", async () => {
     const { runAccuracyResearch } = await import("@/lib/accuracy/research");
 
@@ -458,6 +507,46 @@ describe("accuracy research", () => {
     expect(result.factPack.hardFacts).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ claimType: "date", object: "2005" }),
+      ]),
+    );
+  });
+
+  it("prefers the canonical Gregorian birth year over the adjacent Julian year in mixed-calendar leads", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "牛顿",
+      extract: "艾萨克·牛顿（儒略历：1642年12月25日—1727年3月20日，格里历：1643年1月4日—1727年3月31日），英国物理学家。1687年他发表《自然哲学的数学原理》。",
+      lang: "zh",
+      sections: ["生平"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E7%89%9B%E9%A1%BF",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "牛顿",
+      contentType: "wikipedia",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ claimType: "date", object: "1643" }),
+        expect.objectContaining({ claimType: "date", object: "1727" }),
+      ]),
+    );
+    expect(result.factPack.hardFacts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ claimType: "date", object: "1642" }),
       ]),
     );
   });

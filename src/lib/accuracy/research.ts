@@ -127,7 +127,7 @@ function isLikelyNoisyPlace(value: string): boolean {
 }
 
 function isLikelyWeakTermClause(value: string): boolean {
-  return /(职业神|所祀奉|民间信仰中的神祇)/.test(value);
+  return /(职业神|所祀奉|民间信仰中的神祇|形成的带电云层|形成的声波)/.test(value);
 }
 
 function extractAdditionalTermClauses(topic: string, excerpt: string): string[] {
@@ -181,6 +181,10 @@ function extractAdditionalTermClauses(topic: string, excerpt: string): string[] 
       regex: /(?:是|属于)([^，。；]*声波[^，。；]*)/g,
       build: (match) => `${normalizedTopic}是${cleanCapturedText(match[1])}`,
     },
+    {
+      regex: /(?:是|属于)([^，。；]*(?:反应|现象))/g,
+      build: (match) => `${normalizedTopic}是${cleanCapturedText(match[1])}`,
+    },
   ];
   chinesePatterns.forEach(({ regex, build }) => {
     for (const match of excerpt.matchAll(regex)) {
@@ -200,6 +204,19 @@ function firstSentence(text: string): string {
 function collectDateEvidenceChunks(excerpt: string): string[] {
   const DATE_CONTEXT_REGEX = /(出生|生于|卒于|逝世|发表|发明|提出|记载|记录|首次|发现|实验|描述|出版|阐述)/;
   return splitEvidenceSentences(excerpt).filter((chunk, index) => index === 0 || DATE_CONTEXT_REGEX.test(chunk));
+}
+
+function normalizeYearCandidates(text: string, years: string[]): string[] {
+  const filtered = new Set(years);
+  const mixedCalendarMatch = text.match(/儒略历[^0-9]*(\d{4})[\s\S]*?格里历[^0-9]*(\d{4})/);
+  if (mixedCalendarMatch) {
+    const julian = mixedCalendarMatch[1];
+    const gregorian = mixedCalendarMatch[2];
+    if (Math.abs(Number(gregorian) - Number(julian)) <= 1) {
+      filtered.delete(julian);
+    }
+  }
+  return [...filtered];
 }
 
 function trimExcerpt(excerpt: string): string {
@@ -330,7 +347,10 @@ function extractHardFacts(topic: string, sourceEntries: AccuracySourceEntry[]): 
     });
 
     const dateEvidenceText = collectDateEvidenceChunks(entry.excerpt).join(" ");
-    const years = Array.from(new Set(dateEvidenceText.match(/\b(1[0-9]{3}|20[0-9]{2})\b/g) || []));
+    const years = normalizeYearCandidates(
+      dateEvidenceText,
+      Array.from(new Set(dateEvidenceText.match(/\b(1[0-9]{3}|20[0-9]{2})\b/g) || [])),
+    );
     years.forEach((year) => {
       pushHardFact(facts, seen, {
         claimType: "date",
