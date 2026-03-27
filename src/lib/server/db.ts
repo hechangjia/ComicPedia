@@ -144,6 +144,7 @@ function taskToRow(task: GenerateTask) {
   if (task.accuracyErrorSummary) metadata.accuracyErrorSummary = task.accuracyErrorSummary;
   if (task.narrativeOutline) metadata.narrativeOutline = task.narrativeOutline;
   if (task.generationConfig) metadata.generationConfig = task.generationConfig;
+  if (task.visualRepairExecution) metadata.visualRepairExecution = task.visualRepairExecution;
 
   return {
     id: task.id,
@@ -419,6 +420,7 @@ function rowToTask(row: Record<string, unknown>): GenerateTask {
     accuracyErrorSummary: meta.accuracyErrorSummary as GenerateTask["accuracyErrorSummary"],
     narrativeOutline: meta.narrativeOutline as GenerateTask["narrativeOutline"],
     generationConfig: meta.generationConfig as GenerateTask["generationConfig"],
+    visualRepairExecution: meta.visualRepairExecution as GenerateTask["visualRepairExecution"],
     createdAt: new Date(row.created_at as string),
     updatedAt: new Date(row.updated_at as string),
   };
