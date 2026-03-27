@@ -1,6 +1,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
+import Database from "better-sqlite3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Character, GenerateTask } from "@/lib/types";
 
@@ -86,6 +87,55 @@ function makeTask(): GenerateTask {
       outcomes: [{ panelIndex: 0, status: "failed" }],
     },
     lastReviewAt: "2026-03-27T01:00:00.000Z",
+    visualDiagnosisReport: {
+      schemaVersion: 1,
+      generatedAt: "2026-03-27T01:10:00.000Z",
+      sourceEvaluatedAt: "2026-03-27T01:00:00.000Z",
+      model: {
+        provider: "openai-compatible",
+        model: "gpt-4o",
+      },
+      summary: {
+        problemPanelCount: 1,
+        highSeverityCount: 1,
+        actionableCount: 1,
+        crossPanelIssueCount: 0,
+      },
+      panels: [
+        {
+          panelIndex: 0,
+          imageUrl: "data:image/png;base64,panel-1",
+          promptSnapshot: "Prompt 1",
+          status: "issues_found",
+          topIssueType: "composition_mismatch",
+          severity: "high",
+          issues: [
+            {
+              issueType: "composition_mismatch",
+              severity: "high",
+              affectedDimensions: ["compositionQuality", "textImageAlignment"],
+              evidence: "Main subject is cropped too tightly on the right edge.",
+              confidence: "high",
+              evidenceStrength: "strong",
+              falsePositiveRisk: "low",
+              actionability: "confirm_first",
+            },
+          ],
+          repair: {
+            recommendedMode: "rewrite",
+            rationale: "The framing issue changes the core scene layout.",
+            suggestedPrompt: "A wider shot that keeps the full subject inside the frame.",
+            suggestedNegativePrompt: "cropped subject, cut off body",
+            patchPositive: ["wide shot", "full body in frame"],
+            patchNegative: ["cropped subject"],
+            expectedImprovement: ["Keeps the main subject fully visible", "Improves scene readability"],
+          },
+        },
+      ],
+    },
+    visualDiagnosisState: "succeeded",
+    visualDiagnosisStale: false,
+    lastDiagnosisAt: "2026-03-27T01:10:00.000Z",
     generationConfig: {
       quality: "fine",
       generatedAt: "2026-03-27T00:00:00.000Z",
@@ -251,6 +301,10 @@ describe("server db review persistence", () => {
     expect(roundTripped?.panelReview).toEqual(task.panelReview);
     expect(roundTripped?.visualRetrySummary).toEqual(task.visualRetrySummary);
     expect(roundTripped?.lastReviewAt).toBe(task.lastReviewAt);
+    expect(roundTripped?.visualDiagnosisReport).toEqual(task.visualDiagnosisReport);
+    expect(roundTripped?.visualDiagnosisState).toBe(task.visualDiagnosisState);
+    expect(roundTripped?.visualDiagnosisStale).toBe(task.visualDiagnosisStale);
+    expect(roundTripped?.lastDiagnosisAt).toBe(task.lastDiagnosisAt);
     expect(roundTripped?.factPack).toEqual(task.factPack);
     expect(roundTripped?.researchBrief).toEqual(task.researchBrief);
     expect(roundTripped?.accuracyReview).toEqual(task.accuracyReview);
@@ -272,5 +326,37 @@ describe("server db review persistence", () => {
     expect(roundTripped?.lastReviewAt).toBe(character.lastReviewAt);
     expect(roundTripped?.createdAt).toBe(character.createdAt);
     expect(roundTripped?.updatedAt).toBe(character.updatedAt);
+  });
+
+  it("fails closed when persisted diagnosis metadata is malformed", async () => {
+    const dbModule = await loadIsolatedDb();
+    const task = makeTask();
+
+    dbModule.upsertTask(task);
+
+    const dbPath = path.join(tempDir!, "data", "comicpedia.db");
+    const sqlite = new Database(dbPath);
+    sqlite
+      .prepare("UPDATE tasks SET metadata = ? WHERE id = ?")
+      .run(JSON.stringify({
+        visualDiagnosisState: "running-but-wrong",
+        visualDiagnosisStale: "nope",
+        lastDiagnosisAt: 42,
+        visualDiagnosisReport: {
+          schemaVersion: 1,
+          generatedAt: "2026-03-27T01:10:00.000Z",
+          sourceEvaluatedAt: "2026-03-27T01:00:00.000Z",
+          panels: [{ panelIndex: "0" }],
+        },
+      }), task.id);
+    sqlite.close();
+
+    const roundTripped = dbModule.getTaskById(task.id);
+
+    expect(roundTripped).not.toBeNull();
+    expect(roundTripped?.visualDiagnosisReport).toBeUndefined();
+    expect(roundTripped?.visualDiagnosisState).toBeUndefined();
+    expect(roundTripped?.visualDiagnosisStale).toBeUndefined();
+    expect(roundTripped?.lastDiagnosisAt).toBeUndefined();
   });
 });

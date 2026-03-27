@@ -58,6 +58,8 @@ export default function ResultPage() {
   const {
     handleSaveQualityScore,
     handleSaveVisualQualityScore,
+    handleSaveVisualDiagnosisReport,
+    handleSaveVisualDiagnosisFailure,
     handlePanelUpdate,
     handleRegenerate,
     handleCancel,
@@ -562,8 +564,13 @@ export default function ResultPage() {
           script={task.script}
           cachedScore={task.qualityScore}
           cachedVisualScore={task.visualQualityScore}
+          cachedVisualDiagnosisReport={task.visualDiagnosisReport}
+          cachedVisualDiagnosisState={task.visualDiagnosisState}
+          cachedVisualDiagnosisStale={task.visualDiagnosisStale}
           onSaveQualityScore={handleSaveQualityScore}
           onSaveVisualQualityScore={handleSaveVisualQualityScore}
+          onSaveVisualDiagnosisReport={handleSaveVisualDiagnosisReport}
+          onSaveVisualDiagnosisFailure={handleSaveVisualDiagnosisFailure}
           onRetryPanels={handleVlmRetry}
         />
       )}
