@@ -167,6 +167,12 @@ It may optionally be stored in task metadata for:
 - review
 - regeneration with preserved rhythm
 
+Recommended phase-1 placement:
+
+- persist a compact summary in task metadata
+- avoid introducing a brand-new table or standalone persisted entity
+- use logs only as supplemental debugging output, not as the canonical inspection surface
+
 But it should not become a required new first-class persisted domain object in phase 1.
 
 ## 7. Internal Rhythm Templates
@@ -365,6 +371,16 @@ Repair should be local:
 - information overload -> split or redistribute the panel’s knowledge payload
 
 The system should preserve already-good panels whenever possible.
+
+### 11.3 Precedence rule
+
+If validator guidance conflicts with the original `NarrativeBeatPlan`, validator findings take precedence for the affected local repair pass.
+
+However:
+
+- repair should try to preserve the higher-level template intent
+- if repeated repairs keep fighting the same beat-plan assumption, the system should prefer regenerating the local beat assignment rather than blindly forcing the original plan
+- the planner should treat validator output as the final quality gate, not the beat plan itself
 
 ## 12. User-Facing Product Surface
 
