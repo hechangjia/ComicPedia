@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ComicScript, VisualDiagnosisPanel, VisualQualityScore } from "@/lib/types";
 import {
+  buildDiagnosisRepairExecution,
   buildDiagnosisPrompt,
   deriveIssueTrust,
   deriveRepairMode,
@@ -181,6 +182,90 @@ describe("parseDiagnosisResponse", () => {
     expect(parsed.issues[0].confidence).toBe("high");
     expect(parsed.repair.recommendedMode).toBe("rewrite");
     expect(parsed.repair.suggestedPrompt).toContain("wider shot");
+  });
+});
+
+describe("buildDiagnosisRepairExecution", () => {
+  it("creates an executable patch payload from diagnosis repair data", () => {
+    const payload = buildDiagnosisRepairExecution({
+      panel: {
+        panelIndex: 1,
+        imageUrl: "data:image/png;base64,panel-2",
+        promptSnapshot: "Prompt 2",
+        status: "issues_found",
+        topIssueType: "artifact_defect",
+        severity: "medium",
+        issues: [
+          {
+            issueType: "artifact_defect",
+            severity: "medium",
+            affectedDimensions: ["artifactScore"],
+            evidence: "Hands look blurry",
+            confidence: "high",
+            evidenceStrength: "strong",
+            falsePositiveRisk: "low",
+            actionability: "apply_directly",
+          },
+        ],
+        repair: {
+          recommendedMode: "patch",
+          rationale: "A focused fix can correct the blurry anatomy issue.",
+          patchPositive: ["sharp focus", "clear hands"],
+          patchNegative: ["blurry hands"],
+          expectedImprovement: ["Improves local clarity"],
+        },
+      },
+      currentPrompt: "hero portrait",
+      mode: "patch",
+    });
+
+    expect(payload).toEqual({
+      mode: "patch",
+      prompt: "hero portrait, sharp focus, clear hands",
+      negativeTerms: ["blurry hands"],
+    });
+  });
+
+  it("returns the confirmed rewrite payload and optional negative prompt terms", () => {
+    const payload = buildDiagnosisRepairExecution({
+      panel: {
+        panelIndex: 1,
+        imageUrl: "data:image/png;base64,panel-2",
+        promptSnapshot: "Prompt 2",
+        status: "issues_found",
+        topIssueType: "composition_mismatch",
+        severity: "high",
+        issues: [
+          {
+            issueType: "composition_mismatch",
+            severity: "high",
+            affectedDimensions: ["compositionQuality"],
+            evidence: "Main subject is cropped out of frame",
+            confidence: "high",
+            evidenceStrength: "strong",
+            falsePositiveRisk: "low",
+            actionability: "confirm_first",
+          },
+        ],
+        repair: {
+          recommendedMode: "rewrite",
+          rationale: "The scene needs a wider framing instruction.",
+          suggestedPrompt: "A wide shot that keeps the full subject visible.",
+          suggestedNegativePrompt: "cropped subject, cut off body",
+          expectedImprovement: ["Keeps the main subject in frame"],
+        },
+      },
+      currentPrompt: "old prompt",
+      mode: "rewrite",
+      confirmedPrompt: "edited rewrite prompt",
+      includeSuggestedNegativePrompt: true,
+    });
+
+    expect(payload).toEqual({
+      mode: "rewrite",
+      prompt: "edited rewrite prompt",
+      negativeTerms: ["cropped subject", "cut off body"],
+    });
   });
 });
 

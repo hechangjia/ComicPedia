@@ -1,11 +1,21 @@
 "use client";
 
 import React from "react";
-import type { VisualDiagnosisPanel } from "@/lib/types";
+import type { VisualDiagnosisPanel, VisualRepairExecutionMode, VisualRepairExecutionStatus } from "@/lib/types";
 import { VisualDiagnosisPromptDiff } from "./VisualDiagnosisPromptDiff";
+
+export interface VisualDiagnosisRepairStatusView {
+  panelIndex: number;
+  mode: Extract<VisualRepairExecutionMode, "patch" | "rewrite">;
+  status: VisualRepairExecutionStatus;
+  message: string;
+}
 
 interface VisualDiagnosisAuditCardProps {
   panel: VisualDiagnosisPanel;
+  onApplyPatch?: (panel: VisualDiagnosisPanel) => void;
+  onApplyRewrite?: (panel: VisualDiagnosisPanel) => void;
+  repairStatus?: VisualDiagnosisRepairStatusView | null;
 }
 
 function actionabilityMeta(value: VisualDiagnosisPanel["issues"][number]["actionability"]) {
@@ -27,8 +37,17 @@ function actionabilityMeta(value: VisualDiagnosisPanel["issues"][number]["action
   };
 }
 
-export function VisualDiagnosisAuditCard({ panel }: VisualDiagnosisAuditCardProps) {
+export function VisualDiagnosisAuditCard({
+  panel,
+  onApplyPatch,
+  onApplyRewrite,
+  repairStatus,
+}: VisualDiagnosisAuditCardProps) {
   const hasHighRiskIssue = panel.issues.some((issue) => issue.falsePositiveRisk === "high");
+  const hasManualOnlyIssue = panel.issues.some((issue) => issue.actionability === "manual_only");
+  const isPatch = panel.repair.recommendedMode === "patch";
+  const isRewrite = panel.repair.recommendedMode === "rewrite";
+  const isRunning = repairStatus?.panelIndex === panel.panelIndex && repairStatus.status === "running";
 
   return React.createElement("div", { className: "rounded-xl border bg-card p-3 space-y-3" }, [
     React.createElement("div", { key: "header", className: "flex items-center justify-between gap-2" }, [
@@ -77,6 +96,49 @@ export function VisualDiagnosisAuditCard({ panel }: VisualDiagnosisAuditCardProp
       originalPrompt: panel.promptSnapshot,
       suggestedPrompt: panel.repair.suggestedPrompt,
     }),
+    hasManualOnlyIssue
+      ? React.createElement(
+          "div",
+          {
+            key: "manual-note",
+            className: "rounded-lg border border-amber-300/60 bg-amber-50/70 p-2 text-[11px] text-amber-700 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300",
+          },
+          "该问题建议人工确认后再修改，当前不提供直接执行按钮。",
+        )
+      : React.createElement("div", { key: "actions", className: "flex flex-wrap gap-2" }, [
+          isPatch && onApplyPatch
+            ? React.createElement("button", {
+                key: "apply-patch",
+                type: "button",
+                disabled: isRunning,
+                onClick: () => onApplyPatch(panel),
+                className: "rounded-lg border border-green-300 px-3 py-2 text-xs font-medium text-green-700 transition-colors hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-green-900 dark:text-green-300 dark:hover:bg-green-950/20",
+              }, isRunning ? "修复中..." : "应用 patch")
+            : null,
+          isRewrite && onApplyRewrite
+            ? React.createElement("button", {
+                key: "apply-rewrite",
+                type: "button",
+                disabled: isRunning,
+                onClick: () => onApplyRewrite(panel),
+                className: "rounded-lg border border-blue-300 px-3 py-2 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-blue-900 dark:text-blue-300 dark:hover:bg-blue-950/20",
+              }, isRunning ? "处理中..." : "应用重写版")
+            : null,
+        ]),
+    repairStatus?.panelIndex === panel.panelIndex
+      ? React.createElement(
+          "div",
+          {
+            key: "repair-status",
+            className: repairStatus.status === "failed"
+              ? "rounded-lg border border-red-300/60 bg-red-50/70 p-2 text-[11px] text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300"
+              : repairStatus.status === "completed"
+                ? "rounded-lg border border-emerald-300/60 bg-emerald-50/70 p-2 text-[11px] text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-300"
+                : "rounded-lg border border-sky-300/60 bg-sky-50/70 p-2 text-[11px] text-sky-700 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-300",
+          },
+          repairStatus.message,
+        )
+      : null,
     hasHighRiskIssue
       ? React.createElement(
           "div",

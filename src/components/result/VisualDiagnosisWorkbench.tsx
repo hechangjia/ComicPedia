@@ -2,12 +2,15 @@
 
 import React, { useMemo, useState } from "react";
 import type { VisualDiagnosisPanel, VisualDiagnosisReport } from "@/lib/types";
-import { VisualDiagnosisAuditCard } from "./VisualDiagnosisAuditCard";
+import { VisualDiagnosisAuditCard, type VisualDiagnosisRepairStatusView } from "./VisualDiagnosisAuditCard";
 
 interface VisualDiagnosisWorkbenchProps {
   visualScoreOverall: number;
   report: VisualDiagnosisReport;
   stale?: boolean;
+  onApplyPatch?: (panel: VisualDiagnosisPanel) => void;
+  onApplyRewrite?: (panel: VisualDiagnosisPanel) => void;
+  repairStatus?: VisualDiagnosisRepairStatusView | null;
 }
 
 const SEVERITY_RANK = {
@@ -20,6 +23,9 @@ export function VisualDiagnosisWorkbench({
   visualScoreOverall,
   report,
   stale = false,
+  onApplyPatch,
+  onApplyRewrite,
+  repairStatus,
 }: VisualDiagnosisWorkbenchProps) {
   const prioritizedPanels = useMemo(
     () => [...report.panels].sort((a, b) => {
@@ -78,7 +84,13 @@ export function VisualDiagnosisWorkbench({
         })),
       ]),
       selectedPanel
-        ? React.createElement(VisualDiagnosisAuditCard, { key: "audit", panel: selectedPanel })
+        ? React.createElement(VisualDiagnosisAuditCard, {
+            key: "audit",
+            panel: selectedPanel,
+            onApplyPatch,
+            onApplyRewrite,
+            repairStatus,
+          })
         : null,
     ]),
   ]);

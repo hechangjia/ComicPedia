@@ -75,6 +75,54 @@ function makeReport(): VisualDiagnosisReport {
   };
 }
 
+function makeSinglePanelReport(mode: "patch" | "rewrite"): VisualDiagnosisReport {
+  return {
+    schemaVersion: 1,
+    generatedAt: "2026-03-27T01:10:00.000Z",
+    sourceEvaluatedAt: "2026-03-27T01:00:00.000Z",
+    model: {
+      provider: "openai-compatible",
+      model: "gpt-4o",
+    },
+    summary: {
+      problemPanelCount: 1,
+      highSeverityCount: 1,
+      actionableCount: 1,
+      crossPanelIssueCount: 0,
+    },
+    panels: [
+      {
+        panelIndex: 0,
+        imageUrl: "data:image/png;base64,panel-1",
+        promptSnapshot: "Prompt 1",
+        status: "issues_found",
+        topIssueType: mode === "patch" ? "artifact_defect" : "composition_mismatch",
+        severity: "high",
+        issues: [
+          {
+            issueType: mode === "patch" ? "artifact_defect" : "composition_mismatch",
+            severity: "high",
+            affectedDimensions: [mode === "patch" ? "artifactScore" : "compositionQuality"],
+            evidence: mode === "patch" ? "Hands look blurry" : "Main subject is cropped out of frame",
+            confidence: "high",
+            evidenceStrength: "strong",
+            falsePositiveRisk: "low",
+            actionability: mode === "patch" ? "apply_directly" : "confirm_first",
+          },
+        ],
+        repair: {
+          recommendedMode: mode,
+          rationale: mode === "patch" ? "A local patch can fix clarity." : "The scene needs a wider framing instruction.",
+          suggestedPrompt: mode === "rewrite" ? "A wider shot that keeps the main subject fully visible." : undefined,
+          patchPositive: mode === "patch" ? ["sharp focus"] : undefined,
+          patchNegative: mode === "patch" ? ["blurry hands"] : undefined,
+          expectedImprovement: ["Improves the panel"],
+        },
+      },
+    ],
+  };
+}
+
 describe("VisualDiagnosisWorkbench", () => {
   it("renders the diagnosis summary strip", () => {
     const html = renderToStaticMarkup(React.createElement(VisualDiagnosisWorkbench, {
@@ -122,5 +170,28 @@ describe("VisualDiagnosisWorkbench", () => {
     }));
 
     expect(html).toContain("诊断结果已过期");
+  });
+
+  it("renders a direct patch action for patch-eligible panels", () => {
+    const html = renderToStaticMarkup(React.createElement(VisualDiagnosisWorkbench, {
+      visualScoreOverall: 5.8,
+      report: makeSinglePanelReport("patch"),
+      stale: false,
+      onApplyPatch: () => {},
+    }));
+
+    expect(html).toContain("应用 patch");
+  });
+
+  it("suppresses direct actions for manual-only panels", () => {
+    const html = renderToStaticMarkup(React.createElement(VisualDiagnosisWorkbench, {
+      visualScoreOverall: 6.4,
+      report: makeReport(),
+      stale: false,
+      onApplyRewrite: () => {},
+    }));
+
+    expect(html).toContain("该问题建议人工确认后再修改");
+    expect(html).not.toContain("应用重写版");
   });
 });

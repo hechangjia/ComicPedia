@@ -129,6 +129,26 @@ function getLLMConfig(llmId?: string): PartialLLMConfig | undefined {
   return getStoredRequestConfigs(llmId || undefined, undefined).llmConfig;
 }
 
+function mergeNegativeTermsIntoImageConfig(
+  imageConfig: PartialImageGenConfig | undefined,
+  negativeTerms: string[] | undefined,
+): PartialImageGenConfig | undefined {
+  const additions = (negativeTerms ?? []).map((term) => term.trim()).filter(Boolean);
+  if (additions.length === 0) return imageConfig;
+
+  const existingNegative = imageConfig?.extraBody?.negative_prompt || "";
+  const mergedAdditions = additions.filter((term) => !existingNegative.toLowerCase().includes(term.toLowerCase()));
+  if (mergedAdditions.length === 0) return imageConfig;
+
+  return {
+    ...imageConfig,
+    extraBody: {
+      ...imageConfig?.extraBody,
+      negative_prompt: existingNegative ? `${existingNegative}, ${mergedAdditions.join(", ")}` : mergedAdditions.join(", "),
+    },
+  };
+}
+
 /**
  * 封装结果页面所有操作回调。
  * 所有 handler 均使用 useCallback 避免子组件无谓重渲染。
@@ -231,6 +251,50 @@ export function useTaskActions(
         });
       } catch (err) {
         console.error("Visual diagnosis failure persistence failed:", err);
+        throw err;
+      }
+    },
+    [persistTaskUpdate],
+  );
+
+  const handleBeginVisualRepairExecution = useCallback(
+    async (params: { panelIndices: number[]; mode: VisualRepairExecutionMode; startedAt: string }) => {
+      try {
+        await persistTaskUpdate((task) => {
+          beginVisualRepairExecution(task, params);
+        });
+      } catch (err) {
+        console.error("Visual repair start persistence failed:", err);
+        showError(`修复状态保存失败: ${err instanceof Error ? err.message : "未知错误"}`);
+        throw err;
+      }
+    },
+    [persistTaskUpdate, showError],
+  );
+
+  const handleCompleteVisualRepairExecution = useCallback(
+    async (visualQualityScore: VisualQualityScore, outcome: VisualRepairExecutionOutcome, finishedAt: string) => {
+      try {
+        await persistTaskUpdate((task) => {
+          completeVisualRepairExecution(task, visualQualityScore, outcome, finishedAt);
+        });
+      } catch (err) {
+        console.error("Visual repair completion persistence failed:", err);
+        showError(`修复结果保存失败: ${err instanceof Error ? err.message : "未知错误"}`);
+        throw err;
+      }
+    },
+    [persistTaskUpdate, showError],
+  );
+
+  const handleFailVisualRepairExecution = useCallback(
+    async (finishedAt: string) => {
+      try {
+        await persistTaskUpdate((task) => {
+          failVisualRepairExecution(task, finishedAt);
+        });
+      } catch (err) {
+        console.error("Visual repair failure persistence failed:", err);
         throw err;
       }
     },
@@ -467,21 +531,8 @@ export function useTaskActions(
         // 然后逐面板重新生成（注入 negative patch 到 imageConfig）
         const baseImageConfig = getSelectedImageConfig();
         for (const idx of panelIndices) {
-          let imageConfig = baseImageConfig;
           const patch = patches?.get(idx);
-          if (patch && patch.negative.length > 0) {
-            const existingNeg = imageConfig?.extraBody?.negative_prompt || "";
-            const newNeg = patch.negative.filter(n => !existingNeg.toLowerCase().includes(n.toLowerCase())).join(", ");
-            if (newNeg) {
-              imageConfig = {
-                ...imageConfig,
-                extraBody: {
-                  ...imageConfig?.extraBody,
-                  negative_prompt: existingNeg ? `${existingNeg}, ${newNeg}` : newNeg,
-                },
-              };
-            }
-          }
+          const imageConfig = mergeNegativeTermsIntoImageConfig(baseImageConfig, patch?.negative);
           await regeneratePanel(taskId, idx, imageConfig);
         }
       } catch (err) {
@@ -494,11 +545,51 @@ export function useTaskActions(
     [taskId, showError, getSelectedImageConfig, persistDiagnosisInvalidation],
   );
 
+  const handleRunDiagnosisRepair = useCallback(
+    async (
+      panelIndices: number[],
+      promptUpdates: Map<number, string>,
+      negativeTermsByPanel?: Map<number, string[]>,
+    ): Promise<GenerateTask> => {
+      setGeneratingAll(true);
+      try {
+        for (const [idx, prompt] of promptUpdates) {
+          await updatePanel(taskId, idx, { imagePrompt: prompt });
+        }
+
+        const baseImageConfig = getSelectedImageConfig();
+        for (const idx of panelIndices) {
+          const imageConfig = mergeNegativeTermsIntoImageConfig(baseImageConfig, negativeTermsByPanel?.get(idx));
+          await regeneratePanel(taskId, idx, imageConfig);
+        }
+
+        const refreshedTask = await getTask(taskId);
+        if (!refreshedTask) {
+          throw new Error("任务不存在");
+        }
+
+        setTask(refreshedTask);
+        notifyListeners(refreshedTask);
+        return refreshedTask;
+      } catch (err) {
+        console.error("Diagnosis repair failed:", err);
+        showError(`诊断修复失败: ${err instanceof Error ? err.message : "未知错误"}`);
+        throw err;
+      } finally {
+        setGeneratingAll(false);
+      }
+    },
+    [taskId, getSelectedImageConfig, setTask, showError],
+  );
+
   return {
     handleSaveQualityScore,
     handleSaveVisualQualityScore,
     handleSaveVisualDiagnosisReport,
     handleSaveVisualDiagnosisFailure,
+    handleBeginVisualRepairExecution,
+    handleCompleteVisualRepairExecution,
+    handleFailVisualRepairExecution,
     handlePanelUpdate,
     handleRegenerate,
     handleCancel,
@@ -516,6 +607,7 @@ export function useTaskActions(
     handleChangeStyle,
     handleReorder,
     handleVlmRetry,
+    handleRunDiagnosisRepair,
     generatingAll,
     actionError,
     clearActionError,
