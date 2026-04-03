@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { getRelationById, upsertRelation, deleteRelation } from "@/lib/server/db";
 import type { CharacterRelation } from "@/lib/types";
 
+const VALID_RELATION_TYPES = new Set([
+  "friend", "rival", "mentor", "lover", "family", "ally", "enemy",
+]);
+
+const ALLOWED_UPDATE_FIELDS = new Set([
+  "type", "label", "strength", "bidirectional", "evolution",
+]);
+
 /** GET /api/relations/[id] — 获取单个关系 */
 export async function GET(
   _request: NextRequest,
@@ -33,9 +41,31 @@ export async function PUT(
     }
 
     const body = await request.json();
+
+    // Whitelist allowed fields
+    const patch: Partial<CharacterRelation> = {};
+    for (const key of Object.keys(body)) {
+      if (ALLOWED_UPDATE_FIELDS.has(key)) {
+        (patch as Record<string, unknown>)[key] = body[key];
+      }
+    }
+
+    // Validate type if provided
+    if (patch.type !== undefined && !VALID_RELATION_TYPES.has(patch.type)) {
+      return NextResponse.json(
+        { error: `无效的关系类型: ${patch.type}` },
+        { status: 400 },
+      );
+    }
+
+    // Clamp strength if provided
+    if (patch.strength !== undefined) {
+      patch.strength = Math.max(0, Math.min(1, patch.strength));
+    }
+
     const updated: CharacterRelation = {
       ...existing,
-      ...body,
+      ...patch,
       id, // prevent ID change
       updatedAt: Date.now(),
     };

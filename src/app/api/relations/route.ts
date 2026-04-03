@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAllRelations, upsertRelation } from "@/lib/server/db";
 import type { CharacterRelation } from "@/lib/types";
 
+const VALID_RELATION_TYPES = new Set([
+  "friend", "rival", "mentor", "lover", "family", "ally", "enemy",
+]);
+
 /** GET /api/relations — 获取所有角色关系 */
 export async function GET() {
   try {
@@ -19,9 +23,22 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const relation = body as Partial<CharacterRelation>;
 
-    if (!relation.fromId || !relation.toId || !relation.type) {
+    if (
+      !relation.fromId ||
+      typeof relation.fromId !== "string" ||
+      !relation.toId ||
+      typeof relation.toId !== "string" ||
+      !relation.type
+    ) {
       return NextResponse.json(
         { error: "缺少必要字段: fromId, toId, type" },
+        { status: 400 },
+      );
+    }
+
+    if (!VALID_RELATION_TYPES.has(relation.type)) {
+      return NextResponse.json(
+        { error: `无效的关系类型: ${relation.type}` },
         { status: 400 },
       );
     }
@@ -33,7 +50,7 @@ export async function POST(request: NextRequest) {
       toId: relation.toId,
       type: relation.type,
       label: relation.label ?? "",
-      strength: relation.strength ?? 0.5,
+      strength: Math.max(0, Math.min(1, relation.strength ?? 0.5)),
       bidirectional: relation.bidirectional ?? true,
       evolution: relation.evolution ?? [],
       createdAt: relation.createdAt ?? now,
