@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
-import type { GenerateTask, Character, UserAPIConfigV2 } from "@/lib/types";
+import type { GenerateTask, Character, CharacterRelation, UserAPIConfigV2 } from "@/lib/types";
 import type { Series } from "@/lib/series";
 
 // ============================================================
@@ -87,6 +87,21 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_trash_deleted ON trash(deleted_at);
 
+  CREATE TABLE IF NOT EXISTS character_relations (
+    id TEXT PRIMARY KEY,
+    from_id TEXT NOT NULL,
+    to_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    label TEXT DEFAULT '',
+    strength REAL DEFAULT 0.5,
+    bidirectional INTEGER DEFAULT 1,
+    evolution TEXT DEFAULT '[]',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_relations_from ON character_relations(from_id);
+  CREATE INDEX IF NOT EXISTS idx_relations_to ON character_relations(to_id);
+
 `);
 
 
@@ -104,6 +119,7 @@ function runAddColumnMigration(table: string, columnDDL: string) {
 // ── Schema migration: add extensible metadata column ──
 runAddColumnMigration("tasks", "metadata TEXT");
 runAddColumnMigration("characters", "metadata TEXT");
+runAddColumnMigration("characters", "personality TEXT");
 
 // ============================================================
 // Tasks CRUD
@@ -468,9 +484,9 @@ export function getAllTaskIds(): string[] {
 
 const stmtInsertChar = db.prepare(`
   INSERT OR REPLACE INTO characters
-    (id, name, description, appearance, style, avatar_url, reference_entries, tags, variants, metadata, created_at, updated_at)
+    (id, name, description, appearance, style, avatar_url, reference_entries, tags, variants, personality, metadata, created_at, updated_at)
   VALUES
-    (@id, @name, @description, @appearance, @style, @avatar_url, @reference_entries, @tags, @variants, @metadata, @created_at, @updated_at)
+    (@id, @name, @description, @appearance, @style, @avatar_url, @reference_entries, @tags, @variants, @personality, @metadata, @created_at, @updated_at)
 `);
 
 const stmtGetChar = db.prepare("SELECT * FROM characters WHERE id = ?");
@@ -523,6 +539,7 @@ function charToRow(c: Character) {
     reference_entries: JSON.stringify(c.referenceEntries),
     tags: JSON.stringify(c.tags),
     variants: c.variants ? JSON.stringify(c.variants) : null,
+    personality: c.personality ? JSON.stringify(c.personality) : null,
     metadata: Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
     created_at: c.createdAt,
     updated_at: c.updatedAt,
@@ -542,6 +559,7 @@ function rowToChar(row: Record<string, unknown>): Character {
     referenceEntries: safeJsonParse(row.reference_entries as string) ?? [],
     tags: safeJsonParse(row.tags as string) ?? [],
     variants: safeJsonParse(row.variants as string | null),
+    personality: safeJsonParse(row.personality as string | null),
     visualScore: parseCharacterVisualScore(meta.visualScore),
     reviewStatus: parseReviewStatus(meta.reviewStatus),
     lastReviewAt: typeof meta.lastReviewAt === "string" ? meta.lastReviewAt : undefined,
@@ -797,6 +815,89 @@ function autoSeedDemo(): void {
 }
 
 autoSeedDemo();
+
+// ============================================================
+// Character Relations CRUD
+// ============================================================
+
+const stmtUpsertRelation = db.prepare(`
+  INSERT OR REPLACE INTO character_relations
+    (id, from_id, to_id, type, label, strength, bidirectional, evolution, created_at, updated_at)
+  VALUES
+    (@id, @from_id, @to_id, @type, @label, @strength, @bidirectional, @evolution, @created_at, @updated_at)
+`);
+
+const stmtGetRelation = db.prepare("SELECT * FROM character_relations WHERE id = ?");
+const stmtGetRelationsFrom = db.prepare("SELECT * FROM character_relations WHERE from_id = ?");
+const stmtGetRelationsTo = db.prepare("SELECT * FROM character_relations WHERE to_id = ?");
+const stmtGetAllRelations = db.prepare("SELECT * FROM character_relations ORDER BY updated_at DESC");
+const stmtDeleteRelation = db.prepare("DELETE FROM character_relations WHERE id = ?");
+const stmtDeleteRelationsForChar = db.prepare("DELETE FROM character_relations WHERE from_id = ? OR to_id = ?");
+
+function rowToRelation(row: Record<string, unknown>): CharacterRelation {
+  return {
+    id: row.id as string,
+    fromId: row.from_id as string,
+    toId: row.to_id as string,
+    type: row.type as CharacterRelation["type"],
+    label: (row.label as string) ?? "",
+    strength: (row.strength as number) ?? 0.5,
+    bidirectional: (row.bidirectional as number) === 1,
+    evolution: safeJsonParse(row.evolution as string) ?? [],
+    createdAt: row.created_at as number,
+    updatedAt: row.updated_at as number,
+  };
+}
+
+export function upsertRelation(r: CharacterRelation): void {
+  stmtUpsertRelation.run({
+    id: r.id,
+    from_id: r.fromId,
+    to_id: r.toId,
+    type: r.type,
+    label: r.label,
+    strength: r.strength,
+    bidirectional: r.bidirectional ? 1 : 0,
+    evolution: JSON.stringify(r.evolution),
+    created_at: r.createdAt,
+    updated_at: r.updatedAt,
+  });
+}
+
+export function getRelationById(id: string): CharacterRelation | null {
+  const row = stmtGetRelation.get(id) as Record<string, unknown> | undefined;
+  return row ? rowToRelation(row) : null;
+}
+
+export function getRelationsForCharacter(charId: string): CharacterRelation[] {
+  const fromRows = stmtGetRelationsFrom.all(charId) as Record<string, unknown>[];
+  const toRows = stmtGetRelationsTo.all(charId) as Record<string, unknown>[];
+  const seen = new Set<string>();
+  const results: CharacterRelation[] = [];
+  for (const row of [...fromRows, ...toRows]) {
+    const id = row.id as string;
+    if (!seen.has(id)) {
+      seen.add(id);
+      results.push(rowToRelation(row));
+    }
+  }
+  return results;
+}
+
+export function getAllRelations(): CharacterRelation[] {
+  const rows = stmtGetAllRelations.all() as Record<string, unknown>[];
+  return rows.map(rowToRelation);
+}
+
+export function deleteRelation(id: string): boolean {
+  const result = stmtDeleteRelation.run(id);
+  return result.changes > 0;
+}
+
+export function deleteRelationsForCharacter(charId: string): number {
+  const result = stmtDeleteRelationsForChar.run(charId, charId);
+  return result.changes;
+}
 
 // ============================================================
 // Batch operations (for migration)

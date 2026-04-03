@@ -538,8 +538,61 @@ export interface Character {
   lastReviewAt?: string;
   /** Custom display order (lower = earlier). Characters without this sort by updatedAt. */
   sortOrder?: number;
+  /** Character personality profile */
+  personality?: CharacterPersonality;
   createdAt: string;
   updatedAt: string;
+}
+
+// --- Character Relations ---
+export type RelationType = "friend" | "rival" | "mentor" | "lover" | "family" | "ally" | "enemy";
+
+export interface CharacterRelation {
+  id: string;
+  fromId: string;
+  toId: string;
+  type: RelationType;
+  label: string;
+  strength: number; // 0-1
+  bidirectional: boolean;
+  evolution: RelationEvent[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface RelationEvent {
+  episodeNumber: number;
+  change: string;
+  newStrength: number;
+  newType?: RelationType;
+}
+
+// --- Character Personality ---
+export interface PersonalityTrait {
+  dimension: string;
+  value: number; // -1 to 1
+  label: string;
+}
+
+export interface EmotionalState {
+  primary: string;
+  intensity: number; // 0-1
+  trigger?: string;
+}
+
+export interface CharacterArc {
+  seriesId: string;
+  startState: string;
+  endState?: string;
+  currentState?: string;
+  turningPoints: { episodeNumber: number; event: string; stateAfter: string }[];
+}
+
+export interface CharacterPersonality {
+  traits: PersonalityTrait[];
+  speechStyle: string;
+  emotionalState: EmotionalState;
+  arc?: CharacterArc;
 }
 
 /** 文生图适配器接口 */
