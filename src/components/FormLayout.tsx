@@ -7,8 +7,9 @@ import { useConfigCheck } from "@/hooks/useAPIConfig";
 import { OnboardingGuide } from "@/components/OnboardingGuide";
 import { ScienceForm } from "@/components/ScienceForm";
 import { TemplatePanel } from "@/components/TemplatePanel";
+import { InspirationSquare } from "@/components/InspirationSquare";
 import { Spinner } from "@/components/ui/Spinner";
-import type { ContentType } from "@/lib/types";
+import type { ContentType, BuiltinContentType } from "@/lib/types";
 import type { ComicTemplate } from "@/lib/config/templates";
 import { getSeries } from "@/lib/client/db";
 import { getSeriesContinuationContext, type Series } from "@/lib/series";
@@ -83,6 +84,11 @@ export function FormLayout({ defaultTab = "wikipedia" }: FormLayoutProps) {
     setFormKey((k) => k + 1);
   }, []);
 
+  const handleInspirationSelect = useCallback((topic: string) => {
+    setTemplateTopic(topic);
+    setFormKey((k) => k + 1);
+  }, []);
+
   const currentTab = TABS.find((t) => t.value === activeTab)!;
 
   return (
@@ -133,6 +139,12 @@ export function FormLayout({ defaultTab = "wikipedia" }: FormLayoutProps) {
         onSelect={handleTemplateSelect}
       />
 
+      {/* 灵感广场 */}
+      <InspirationSquare
+        contentType={activeTab as BuiltinContentType}
+        onSelect={handleInspirationSelect}
+      />
+
       {/* 连载上下文提示 */}
       {seriesInfo && (
         <div className="p-3 rounded-lg border bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
@@ -154,7 +166,7 @@ export function FormLayout({ defaultTab = "wikipedia" }: FormLayoutProps) {
       )}
 
       {/* 表单区域 */}
-      {activeTab === "wikipedia" && <WikipediaForm key={`wiki-${formKey}`} />}
+      {activeTab === "wikipedia" && <WikipediaForm key={`wiki-${formKey}`} initialTopic={templateTopic} />}
       {activeTab === "science" && <ScienceForm key={`science-${formKey}`} initialTopic={templateTopic} />}
       {activeTab === "poetry" && <PoetryForm key={`poetry-${formKey}`} initialContent={templateTopic} />}
       {activeTab === "novel" && <NovelForm key={`novel-${formKey}`} initialContent={templateTopic} />}

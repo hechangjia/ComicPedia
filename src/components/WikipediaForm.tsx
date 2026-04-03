@@ -37,8 +37,8 @@ const EXAMPLE_TOPICS = [
   "人工智能",
 ];
 
-export function WikipediaForm() {
-  const [searchQuery, setSearchQuery] = useState("");
+export function WikipediaForm({ initialTopic = "" }: { initialTopic?: string }) {
+  const [searchQuery, setSearchQuery] = useState(initialTopic);
   const [lang, setLang] = useState("zh");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
