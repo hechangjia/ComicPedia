@@ -21,6 +21,9 @@ import { PanelGrid } from "@/components/result/PanelGrid";
 import { QualityScorePanel } from "@/components/result/QualityScorePanel";
 import { PipelineSummary } from "@/components/result/PipelineSummary";
 import { AccuracySummary } from "@/components/result/AccuracySummary";
+import { CompositeScore } from "@/components/result/CompositeScore";
+import { DetailTabs } from "@/components/result/DetailTabs";
+import { StickyActionBar } from "@/components/result/StickyActionBar";
 import "@/app/result/print.css";
 
 const QuizPanel = dynamic(() =>
@@ -191,7 +194,7 @@ export default function ResultPage() {
 
   // ── 渲染：主页面 ──
   return (
-    <div className="max-w-4xl mx-auto space-y-6 sm:space-y-8 print-container">
+    <div className="max-w-4xl mx-auto space-y-6 sm:space-y-8 pb-20 print-container">
       {/* 返回按钮 */}
       <Link
         href="/"
@@ -233,11 +236,11 @@ export default function ResultPage() {
           </div>
         )}
 
+        {/* Composite score bar */}
+        {isCompleted && <CompositeScore task={task} />}
+
         {/* Agent Pipeline Summary */}
         {(isCompleted || isScriptReady) && <PipelineSummary task={task} />}
-
-        {/* Accuracy summary */}
-        {(isCompleted || isScriptReady || task.accuracyErrorSummary) && <AccuracySummary task={task} />}
 
         {/* Topic research result */}
         {task.topicResearch && (
@@ -454,9 +457,53 @@ export default function ResultPage() {
         />
       )}
 
-      {/* 脚本质量检查警告 */}
-      {isScriptReady && task.scriptValidation && task.scriptValidation.warnings.length > 0 && (
-        <ScriptValidationPanel validation={task.scriptValidation} repairRounds={task.scriptRepairRounds} />
+      {/* Detail tabs: Accuracy / Script Validation / Quality Score */}
+      {(isScriptReady || isCompleted) && (
+        <DetailTabs tabs={[
+          {
+            id: "accuracy",
+            label: "准确性",
+            badge: (task.accuracyReview?.status === "repair_required" || task.accuracyReview?.status === "blocked")
+              ? (task.accuracyReview.repairableIssueCount ?? 0) + (task.accuracyReview.blockingIssueCount ?? 0)
+              : undefined,
+            content: <AccuracySummary task={task} />,
+            visible: !!(task.researchBrief || task.accuracyReview || task.accuracyErrorSummary),
+          },
+          {
+            id: "validation",
+            label: "脚本校验",
+            badge: task.scriptValidation?.warnings.filter(w => w.severity === "critical" || w.severity === "warning").length,
+            content: task.scriptValidation ? (
+              <ScriptValidationPanel validation={task.scriptValidation} repairRounds={task.scriptRepairRounds} />
+            ) : null,
+            visible: !!(task.scriptValidation && task.scriptValidation.warnings.length > 0),
+          },
+          {
+            id: "quality",
+            label: "质量评分",
+            badge: task.visualDiagnosisReport?.summary.highSeverityCount,
+            content: isCompleted && task.script ? (
+              <QualityScorePanel
+                script={task.script}
+                cachedScore={task.qualityScore}
+                cachedVisualScore={task.visualQualityScore}
+                cachedVisualDiagnosisReport={task.visualDiagnosisReport}
+                cachedVisualDiagnosisState={task.visualDiagnosisState}
+                cachedVisualDiagnosisStale={task.visualDiagnosisStale}
+                onSaveQualityScore={handleSaveQualityScore}
+                onSaveVisualQualityScore={handleSaveVisualQualityScore}
+                onSaveVisualDiagnosisReport={handleSaveVisualDiagnosisReport}
+                onSaveVisualDiagnosisFailure={handleSaveVisualDiagnosisFailure}
+                onBeginVisualRepairExecution={handleBeginVisualRepairExecution}
+                onCompleteVisualRepairExecution={handleCompleteVisualRepairExecution}
+                onFailVisualRepairExecution={handleFailVisualRepairExecution}
+                onRetryPanels={handleVlmRetry}
+                onRunDiagnosisRepair={handleRunDiagnosisRepair}
+              />
+            ) : null,
+            visible: isCompleted && !!task.script,
+          },
+        ]} />
       )}
 
       {/* 失败面板重试提示 */}
@@ -552,36 +599,6 @@ export default function ResultPage() {
       )}
 
       {/* VLM 评审进行中提示 */}
-      {isCompleted && task.generationConfig?.quality === "fine" && !task.visualQualityScore && task.script && (
-        <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground animate-pulse no-print">
-          <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-          </svg>
-          AI 视觉评审中...
-        </div>
-      )}
-
-      {/* AI 质量评分 */}
-      {isCompleted && task.script && (
-        <QualityScorePanel
-          script={task.script}
-          cachedScore={task.qualityScore}
-          cachedVisualScore={task.visualQualityScore}
-          cachedVisualDiagnosisReport={task.visualDiagnosisReport}
-          cachedVisualDiagnosisState={task.visualDiagnosisState}
-          cachedVisualDiagnosisStale={task.visualDiagnosisStale}
-          onSaveQualityScore={handleSaveQualityScore}
-          onSaveVisualQualityScore={handleSaveVisualQualityScore}
-          onSaveVisualDiagnosisReport={handleSaveVisualDiagnosisReport}
-          onSaveVisualDiagnosisFailure={handleSaveVisualDiagnosisFailure}
-          onBeginVisualRepairExecution={handleBeginVisualRepairExecution}
-          onCompleteVisualRepairExecution={handleCompleteVisualRepairExecution}
-          onFailVisualRepairExecution={handleFailVisualRepairExecution}
-          onRetryPanels={handleVlmRetry}
-          onRunDiagnosisRepair={handleRunDiagnosisRepair}
-        />
-      )}
 
       {/* 知识测验 */}
       {isCompleted && task.script && (
@@ -617,6 +634,14 @@ export default function ResultPage() {
           onExportMarkdown={handleExportMarkdown}
         />
       )}
+
+      {/* Sticky bottom action bar */}
+      <StickyActionBar
+        task={task}
+        onExportMarkdown={handleExportMarkdown}
+        onRegenerateScript={handleRegenerateScript}
+        generatingAll={generatingAll}
+      />
     </div>
   );
 }
