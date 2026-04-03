@@ -24,6 +24,7 @@ import { AccuracySummary } from "@/components/result/AccuracySummary";
 import { CompositeScore } from "@/components/result/CompositeScore";
 import { DetailTabs } from "@/components/result/DetailTabs";
 import { StickyActionBar } from "@/components/result/StickyActionBar";
+import { ScriptEditor } from "@/components/editor/ScriptEditor";
 import "@/app/result/print.css";
 
 const QuizPanel = dynamic(() =>
@@ -90,6 +91,16 @@ export default function ResultPage() {
   } = useTaskActions(taskId, setTask, selectedImageId, selectedLLMId);
 
   const [viewMode, setViewMode] = useState<"edit" | "read" | "play">("edit");
+
+  // Script editor save handler
+  const handleScriptEditorSave = useCallback((panels: import("@/lib/types").ComicPanel[]) => {
+    setTask((prev) => {
+      if (!prev?.script) return prev;
+      const updated = { ...prev, script: { ...prev.script, panels }, updatedAt: new Date() };
+      saveTask(updated).catch(console.error);
+      return updated;
+    });
+  }, [setTask]);
 
   // 持久化测验/延伸阅读结果
   const handleQuizGenerated = useCallback((questions: QuizQuestion[]) => {
@@ -577,6 +588,8 @@ export default function ResultPage() {
       {/* 漫画面板 */}
       {task.script?.panels && viewMode === "play" ? (
         <DynamicPlayer panels={task.script.panels} title={task.script.title} />
+      ) : task.script?.panels && isScriptReady && viewMode === "edit" ? (
+        <ScriptEditor script={task.script} onSave={handleScriptEditorSave} />
       ) : task.script?.panels && (
         <PanelGrid
           panels={task.script.panels}
