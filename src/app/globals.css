@@ -3,6 +3,10 @@
 @tailwind utilities;
 
 :root {
+  --font-cn: var(--font-noto-sans-sc), 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-body: var(--font-dm-sans), var(--font-cn);
+  --font-mono: var(--font-jetbrains-mono), 'Fira Code', monospace;
+
   --background: 0 0% 100%;
   --foreground: 222.2 84% 4.9%;
   --card: 0 0% 100%;
@@ -59,7 +63,7 @@
 body {
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: var(--font-body);
 }
 
 /* ============================================================

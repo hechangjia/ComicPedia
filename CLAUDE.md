@@ -561,6 +561,12 @@ ComicPedia 当前采用"轻量 ship"流程，而不是强依赖独立 `VERSION` 
 - **添加新准确性 Provider**: 在 `providerClients.ts` 添加调用适配 + `providerConfig.ts` 添加 vendor 归一化
 - **添加新 VLM 修复规则**: 在 `vlmRetry.ts` 的 `ISSUE_PATTERNS` 数组中添加新的 keywords -> patch 映射
 
+## Design System
+Always read DESIGN.md before making any visual or UI decisions.
+All font choices, colors, spacing, and aesthetic direction are defined there.
+Do not deviate without explicit user approval.
+In QA mode, flag any code that doesn't match DESIGN.md.
+
 ## Skill routing
 
 When the user's request matches an available skill, ALWAYS invoke it using the Skill
