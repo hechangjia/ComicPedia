@@ -1,4 +1,4 @@
-import { GenerateRequest, GenerateTask, ComicStyle, PartialImageGenConfig, PartialLLMConfig } from "@/lib/types";
+import { GenerateRequest, GenerateTask, ComicStyle, PartialImageGenConfig, PartialLLMConfig, CharacterRelation } from "@/lib/types";
 import { getStyleModifier } from "@/lib/config/styles";
 import { saveTask, getTask } from "./db";
 import { notifyListeners } from "./eventBus";
@@ -74,6 +74,8 @@ async function processScripting(taskId: string, request: GenerateRequest) {
       quality: request.quality,
       allowGuideCharacter: request.allowGuideCharacter,
       generatedAt: new Date().toISOString(),
+      seriesId: request.seriesId,
+      characterIds: request.characterIds,
     };
 
     await saveTask(task);
@@ -240,5 +242,66 @@ export async function generateAllImages(
     await saveTask(task);
     notifyListeners(task);
     runQualityPhase(taskId, llmConfig, task.script, imageConfig, task.generationConfig?.quality);
+  }
+
+  // ── Evolution Timeline auto-update (fire-and-forget) ──
+  if (allCompleted) {
+    updateRelationEvolution(task).catch((err) =>
+      console.warn("[Evolution] Auto-update failed (non-fatal):", err),
+    );
+  }
+}
+
+// ============================================================
+// Post-completion: auto-update relation evolution timelines
+// ============================================================
+
+/**
+ * After a task completes, append evolution entries to relations
+ * involving the task's characters. Fire-and-forget, non-blocking.
+ */
+async function updateRelationEvolution(task: GenerateTask): Promise<void> {
+  const charIds = task.generationConfig?.characterIds;
+  const seriesId = task.generationConfig?.seriesId;
+  if (!charIds || charIds.length < 2 || !seriesId || !task.script) return;
+
+  // Fetch series to determine episode number
+  let episodeNumber = 1;
+  try {
+    const seriesRes = await fetch(`/api/series/${seriesId}`);
+    if (seriesRes.ok) {
+      const series = await seriesRes.json();
+      episodeNumber = series.episodes?.length ?? 1;
+    }
+  } catch { return; }
+
+  // Fetch relations for these characters
+  let relations: CharacterRelation[] = [];
+  try {
+    const relRes = await fetch("/api/relations");
+    if (!relRes.ok) return;
+    const all: CharacterRelation[] = await relRes.json();
+    const idSet = new Set(charIds);
+    relations = all.filter(r => idSet.has(r.fromId) && idSet.has(r.toId));
+  } catch { return; }
+
+  if (relations.length === 0) return;
+
+  // Build a brief summary from the script title
+  const change = `Episode "${task.script.title}": characters appeared together`;
+
+  // Update each relation's evolution
+  for (const rel of relations) {
+    const newEvolution = [
+      ...rel.evolution,
+      { episodeNumber, change, newStrength: rel.strength },
+    ];
+    try {
+      await fetch(`/api/relations/${rel.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ evolution: newEvolution }),
+      });
+    } catch { /* individual relation update failure is non-fatal */ }
   }
 }

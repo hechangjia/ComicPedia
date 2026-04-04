@@ -40,10 +40,21 @@ interface RelationGraphProps {
   onAddRelation: (rel: Partial<CharacterRelation>) => Promise<CharacterRelation>;
   onDeleteRelation: (id: string) => Promise<void>;
   onUpdateRelation: (id: string, patch: Partial<CharacterRelation>) => Promise<CharacterRelation>;
+  onRelationTypeChanged?: (rel: CharacterRelation, oldType: RelationType, newType: RelationType) => void;
 }
 
 const ALL_TYPES: RelationType[] = ["friend", "rival", "mentor", "lover", "family", "ally", "enemy"];
 const NODE_RADIUS = 40;
+const STALE_THRESHOLD = 3;
+
+/** A relation is "stale" if it has 3+ evolution events with no type change */
+function isRelationStale(rel: CharacterRelation): boolean {
+  if (rel.evolution.length < STALE_THRESHOLD) return false;
+  const lastTypeChange = [...rel.evolution].reverse().find(e => e.newType != null);
+  if (!lastTypeChange) return rel.evolution.length >= STALE_THRESHOLD;
+  const lastChangeIdx = rel.evolution.indexOf(lastTypeChange);
+  return rel.evolution.length - lastChangeIdx - 1 >= STALE_THRESHOLD;
+}
 
 export function RelationGraph({
   characters,
@@ -51,6 +62,7 @@ export function RelationGraph({
   onAddRelation,
   onDeleteRelation,
   onUpdateRelation,
+  onRelationTypeChanged,
 }: RelationGraphProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const simRef = useRef<ReturnType<typeof forceSimulation<GraphNode>> | null>(null);
@@ -260,6 +272,10 @@ export function RelationGraph({
 
   const handleSaveRelation = async (patch: Partial<CharacterRelation>) => {
     if (!selectedRelation) return;
+    // Detect relation type change and notify parent
+    if (patch.type && patch.type !== selectedRelation.type && onRelationTypeChanged) {
+      onRelationTypeChanged(selectedRelation, selectedRelation.type, patch.type);
+    }
     await onUpdateRelation(selectedRelation.id, patch);
     setSelectedRelation(null);
   };
@@ -351,6 +367,13 @@ export function RelationGraph({
                 highlighted={hl}
                 dimmed={!!selectedNodeId && !hl}
                 onClick={() => handleEdgeClick(l.relation)}
+                episodeCount={l.relation.evolution.length}
+                stale={isRelationStale(l.relation)}
+                lastEventSummary={
+                  l.relation.evolution.length > 0
+                    ? l.relation.evolution[l.relation.evolution.length - 1].change
+                    : undefined
+                }
               />
             );
           })}

@@ -34,6 +34,12 @@ interface RelationEdgeProps {
   highlighted: boolean;
   dimmed: boolean;
   onClick?: () => void;
+  /** Number of episodes both characters co-appear in */
+  episodeCount?: number;
+  /** Whether this relationship is "stale" (3+ episodes without type change) */
+  stale?: boolean;
+  /** Most recent evolution event summary for tooltip */
+  lastEventSummary?: string;
 }
 
 export function RelationEdge({
@@ -47,19 +53,25 @@ export function RelationEdge({
   highlighted,
   dimmed,
   onClick,
+  episodeCount,
+  stale,
+  lastEventSummary,
 }: RelationEdgeProps) {
   const color = TYPE_COLORS[type] ?? "#6b7280";
   const width = 1 + strength * 4;
-  const opacity = dimmed ? 0.12 : highlighted ? 1 : 0.7;
+  const baseOpacity = stale ? 0.25 : dimmed ? 0.12 : highlighted ? 1 : 0.7;
+  const opacity = baseOpacity;
   const mx = (x1 + x2) / 2;
   const my = (y1 + y2) / 2;
   const displayLabel = label || TYPE_LABELS[type] || type;
+  const dashArray = stale ? "6 4" : undefined;
 
   return (
     <g
       style={{ cursor: "pointer", transition: "opacity 0.2s" }}
       onClick={onClick}
     >
+      {lastEventSummary && <title>{lastEventSummary}</title>}
       <line
         x1={x1}
         y1={y1}
@@ -69,6 +81,8 @@ export function RelationEdge({
         strokeWidth={highlighted ? width + 2 : width}
         strokeOpacity={opacity}
         strokeLinecap="round"
+        strokeDasharray={dashArray}
+        style={{ transition: "stroke 0.6s ease, stroke-opacity 0.3s ease" }}
       />
       {/* Invisible wider line for easier click target */}
       <line
@@ -101,6 +115,30 @@ export function RelationEdge({
       >
         {displayLabel}
       </text>
+      {/* Episode count badge */}
+      {episodeCount != null && episodeCount > 0 && (
+        <>
+          <circle
+            cx={mx + displayLabel.length * 6 + 8}
+            cy={my}
+            r={9}
+            fill={color}
+            fillOpacity={0.9}
+          />
+          <text
+            x={mx + displayLabel.length * 6 + 8}
+            y={my}
+            textAnchor="middle"
+            dominantBaseline="central"
+            fill="#fff"
+            fontSize={9}
+            fontWeight={700}
+            style={{ pointerEvents: "none", userSelect: "none" }}
+          >
+            {episodeCount}
+          </text>
+        </>
+      )}
     </g>
   );
 }

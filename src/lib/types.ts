@@ -390,6 +390,8 @@ export interface GenerateRequest {
   difficulty?: DifficultyLevel;
   /** Whether the model may add a generic guide/narrator/explorer character */
   allowGuideCharacter?: boolean;
+  /** Series ID for continuity context (arc snapshots + episode numbering) */
+  seriesId?: string;
 }
 
 /** 生成任务状态 */
@@ -490,6 +492,8 @@ export interface GenerateTask {
     quality?: string;
     allowGuideCharacter?: boolean;
     generatedAt?: string;
+    seriesId?: string;
+    characterIds?: string[];
   };
   visualRepairExecution?: {
     status: VisualRepairExecutionStatus;
