@@ -20,12 +20,15 @@ import { CompletedActions } from "@/components/result/CompletedActions";
 import { PanelGrid } from "@/components/result/PanelGrid";
 import { QualityScorePanel } from "@/components/result/QualityScorePanel";
 import { PipelineSummary } from "@/components/result/PipelineSummary";
+import { PipelineTimeline } from "@/components/result/PipelineTimeline";
 import { AccuracySummary } from "@/components/result/AccuracySummary";
 import { CompositeScore } from "@/components/result/CompositeScore";
 import { DetailTabs } from "@/components/result/DetailTabs";
 import { StickyActionBar } from "@/components/result/StickyActionBar";
 import { ScriptEditor } from "@/components/editor/ScriptEditor";
 import "@/app/result/print.css";
+import { AlertTriangle, ChevronLeft, RefreshCw, X } from "lucide-react";
+
 
 const QuizPanel = dynamic(() =>
   import("@/components/result/QuizPanel").then((m) => ({ default: m.QuizPanel }))
@@ -211,15 +214,13 @@ export default function ResultPage() {
         href="/"
         className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground no-print min-h-[44px]"
       >
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-        </svg>
+        <ChevronLeft className="w-4 h-4" />
         返回
       </Link>
 
       {/* 标题 */}
       <div className="text-center space-y-2 print-title">
-        <h1 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+        <h1 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-[#3d8b84] to-[#5cb8ae] bg-clip-text text-transparent">
           {task.script?.title || "生成中..."}
         </h1>
         {task.script?.topic && (
@@ -250,8 +251,12 @@ export default function ResultPage() {
         {/* Composite score bar */}
         {isCompleted && <CompositeScore task={task} />}
 
-        {/* Agent Pipeline Summary */}
-        {(isCompleted || isScriptReady) && <PipelineSummary task={task} />}
+        {/* Agent Pipeline Timeline / Summary */}
+        {task.pipelineTrace && task.pipelineTrace.length > 0 ? (
+          <PipelineTimeline trace={task.pipelineTrace} />
+        ) : (
+          (isCompleted || isScriptReady) && <PipelineSummary task={task} />
+        )}
 
         {/* Topic research result */}
         {task.topicResearch && (
@@ -438,9 +443,7 @@ export default function ResultPage() {
                 onClick={() => cancelGeneration(taskId, -1)}
                 className="px-4 py-2 text-sm border border-red-300 text-red-600 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors flex items-center gap-2 min-h-[40px]"
               >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <X className="w-4 h-4" />
                 取消生成
               </button>
             </div>
@@ -522,9 +525,7 @@ export default function ResultPage() {
         <div className="p-4 rounded-xl border bg-amber-50 dark:bg-amber-900/20 no-print">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <svg className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-              </svg>
+              <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
               <p className="text-sm text-amber-800 dark:text-amber-200">
                 {failedPanels} 个面板未完成（已完成 {completedPanels}/{totalPanels}）
               </p>
@@ -534,9 +535,7 @@ export default function ResultPage() {
               disabled={generatingAll}
               className="px-4 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-50 flex items-center gap-1.5 min-h-[40px] shrink-0"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
+              <RefreshCw className="w-4 h-4" />
               {generatingAll ? "重试中..." : `重试失败面板 (${failedPanels})`}
             </button>
           </div>
@@ -578,9 +577,7 @@ export default function ResultPage() {
             onClick={clearActionError}
             className="ml-2 p-1 rounded hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <X className="w-4 h-4" />
           </button>
         </div>
       )}

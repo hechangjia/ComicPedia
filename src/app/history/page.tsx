@@ -12,6 +12,8 @@ import { formatDate } from "@/lib/utils";
 import type { ExportProgress } from "@/lib/exportImport";
 import { StorageIndicator } from "@/components/StorageIndicator";
 import { Spinner } from "@/components/ui/Spinner";
+import { ChevronLeft, Clock, Download, Image as ImageIcon, Trash2, Upload, X } from "lucide-react";
+
 
 /** 从 STYLE_DESCRIPTIONS 提取简短中文名称 */
 const styleNames: Record<string, string> = Object.fromEntries(
@@ -78,9 +80,7 @@ const HistoryCard = memo(function HistoryCard({
           </>
         ) : (
           <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
-            <svg className="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
+            <ImageIcon className="w-12 h-12" strokeWidth={1} />
           </div>
         )}
         {/* 选中复选框 */}
@@ -130,9 +130,7 @@ const HistoryCard = memo(function HistoryCard({
             className="absolute top-2 left-2 w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center sm:opacity-0 sm:group-hover:opacity-100 transition-opacity hover:bg-black/70"
             title="删除"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <X className="w-4 h-4" />
           </button>
         )}
       </div>
@@ -376,9 +374,7 @@ export default function HistoryPage() {
             href="/"
             className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
+            <ChevronLeft className="w-4 h-4" />
             返回
           </Link>
           <h1 className="text-2xl font-bold">历史记录</h1>
@@ -401,9 +397,7 @@ export default function HistoryPage() {
               disabled={selectedIds.size === 0}
               className="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center gap-1.5"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
+              <Download className="w-4 h-4" />
               导出 {selectedIds.size} 个
             </button>
             <button
@@ -422,9 +416,7 @@ export default function HistoryPage() {
               className="px-3 py-2 text-sm rounded-lg border hover:bg-accent transition-colors flex items-center gap-1.5"
               title="选择并导出"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
+              <Download className="w-4 h-4" />
               <span className="hidden sm:inline">导出</span>
             </button>
             {/* 全部导出 */}
@@ -443,9 +435,7 @@ export default function HistoryPage() {
               className="px-3 py-2 text-sm rounded-lg border hover:bg-accent transition-colors flex items-center gap-1.5"
               title="导入漫画数据（支持 ZIP 和 JSON）"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m4-8l-4-4m0 0L16 8m4-4v12" />
-              </svg>
+              <Upload className="w-4 h-4" />
               <span className="hidden sm:inline">导入</span>
             </button>
             {/* 清空 */}
@@ -465,9 +455,7 @@ export default function HistoryPage() {
               className="px-3 py-2 text-sm rounded-lg border hover:bg-accent transition-colors flex items-center gap-1.5"
               title="回收站"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
+              <Trash2 className="w-4 h-4" />
               <span className="hidden sm:inline">回收站</span>
             </Link>
           </div>
@@ -478,9 +466,7 @@ export default function HistoryPage() {
       {history.length === 0 && (
         <div className="text-center py-16 space-y-4">
           <div className="w-16 h-16 mx-auto rounded-full bg-muted flex items-center justify-center">
-            <svg className="w-8 h-8 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+            <Clock className="w-8 h-8 text-muted-foreground" />
           </div>
           <p className="text-muted-foreground">暂无历史记录</p>
           <div className="flex items-center justify-center gap-3">
@@ -496,9 +482,7 @@ export default function HistoryPage() {
               onClick={() => importFileRef.current?.click()}
               className="px-4 py-2 text-sm rounded-lg border hover:bg-accent transition-colors flex items-center gap-1.5"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m4-8l-4-4m0 0L16 8m4-4v12" />
-              </svg>
+              <Upload className="w-4 h-4" />
               导入
             </button>
           </div>

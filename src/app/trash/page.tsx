@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Spinner } from "@/components/ui/Spinner";
 import { formatDate } from "@/lib/utils";
+import { ChevronLeft, Image as ImageIcon, Trash2, Undo2, User } from "lucide-react";
+
 
 interface TrashItemSummary {
   id: string;
@@ -107,9 +109,7 @@ export default function TrashPage() {
             href="/"
             className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
+            <ChevronLeft className="w-4 h-4" />
             返回
           </Link>
           <h1 className="text-2xl font-bold">回收站</h1>
@@ -147,9 +147,7 @@ export default function TrashPage() {
       {!loading && items.length === 0 && (
         <div className="text-center py-16 space-y-4">
           <div className="w-16 h-16 mx-auto rounded-full bg-muted flex items-center justify-center">
-            <svg className="w-8 h-8 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
+            <Trash2 className="w-8 h-8 text-muted-foreground" />
           </div>
           <p className="text-muted-foreground">回收站是空的</p>
         </div>
@@ -159,9 +157,7 @@ export default function TrashPage() {
       {tasks.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold flex items-center gap-2">
-            <svg className="w-5 h-5 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14" />
-            </svg>
+            <ImageIcon className="w-5 h-5 text-muted-foreground" />
             漫画 ({tasks.length})
           </h2>
           <div className="space-y-2">
@@ -182,9 +178,7 @@ export default function TrashPage() {
       {characters.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold flex items-center gap-2">
-            <svg className="w-5 h-5 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-            </svg>
+            <User className="w-5 h-5 text-muted-foreground" />
             角色 ({characters.length})
           </h2>
           <div className="space-y-2">
@@ -233,9 +227,7 @@ function TrashRow({
           {busy ? (
             <Spinner size="sm" />
           ) : (
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-            </svg>
+            <Undo2 className="w-4 h-4" />
           )}
           恢复
         </button>
@@ -245,9 +237,7 @@ function TrashRow({
           className="px-3 py-1.5 text-sm rounded-lg border text-red-600 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50 transition-colors flex items-center gap-1.5"
           title="永久删除（不可恢复）"
         >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-          </svg>
+          <Trash2 className="w-4 h-4" />
           永久删除
         </button>
       </div>

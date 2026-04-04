@@ -76,3 +76,4 @@ openspec/
 .superpowers/
 docs/superpowers/
 .worktrees/
+.gstack/
