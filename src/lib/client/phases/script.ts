@@ -1,4 +1,4 @@
-import { GenerateRequest, GenerateTask, ComicScript, Character } from "@/lib/types";
+import { GenerateRequest, GenerateTask, ComicScript, Character, CharacterRelation } from "@/lib/types";
 import { generateScript, generateScriptStream, StreamChunkCallback } from "@/lib/llm";
 import { validateScript, applyCanonicalCharacterDesc } from "@/lib/scriptValidator";
 import { repairScript } from "@/lib/scriptRepair";
@@ -56,9 +56,45 @@ export async function runScriptPhase(
     task.character = character;
   }
 
-  // Build multi-character context block
-  // TODO: fetch relations via API when relation API is available on client
-  const charContext = buildCharacterContext(characters, []);
+  // Build multi-character context block with relations from API
+  let relations: CharacterRelation[] = [];
+  if (characters.length > 0) {
+    try {
+      const relRes = await fetch('/api/relations');
+      if (relRes.ok) {
+        const allRelations: CharacterRelation[] = await relRes.json();
+        const charIds = new Set(characters.map(c => c.id));
+        relations = allRelations.filter(r => charIds.has(r.fromId) || charIds.has(r.toId));
+      }
+    } catch { /* relations are optional enrichment — degrade gracefully */ }
+  }
+
+  // Fetch arc snapshots for series continuity
+  let seriesContext: { episodeNumber: number; seriesTitle: string; previousRecap?: string } | undefined;
+  if (request.seriesId && characters.length > 0) {
+    try {
+      const names = characters.map(c => c.name).join(",");
+      const snapRes = await fetch(`/api/series/${request.seriesId}/arc-snapshots?characterNames=${encodeURIComponent(names)}`);
+      if (snapRes.ok) {
+        const snapshots = await snapRes.json();
+        const seriesRes = await fetch(`/api/series/${request.seriesId}`);
+        if (seriesRes.ok) {
+          const series = await seriesRes.json();
+          const recap = snapshots
+            .map((s: { episodeNumber: number; title: string; characterSummary: string }) =>
+              `Episode ${s.episodeNumber} "${s.title}": ${s.characterSummary}`)
+            .join("\n");
+          seriesContext = {
+            episodeNumber: (series.episodes?.length ?? 0) + 1,
+            seriesTitle: series.title,
+            previousRecap: recap || undefined,
+          };
+        }
+      }
+    } catch { /* series context is optional enrichment */ }
+  }
+
+  const charContext = buildCharacterContext(characters, relations, seriesContext);
   const characterContextText = charContext.text;
 
   // Inject multi-character context into topic for LLM prompt

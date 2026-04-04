@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
-import type { GenerateTask, Character, CharacterRelation, UserAPIConfigV2 } from "@/lib/types";
+import type { GenerateTask, Character, CharacterRelation, UserAPIConfigV2, ComicScript } from "@/lib/types";
 import type { Series } from "@/lib/series";
 
 // ============================================================
@@ -920,6 +920,84 @@ export function deleteRelation(id: string): boolean {
 export function deleteRelationsForCharacter(charId: string): number {
   const result = stmtDeleteRelationsForChar.run(charId, charId);
   return result.changes;
+}
+
+// ============================================================
+// Arc Snapshot Extraction (for series continuity)
+// ============================================================
+
+export interface ArcSnapshot {
+  episodeNumber: number;
+  taskId: string;
+  title: string;
+  characterSummary: string;
+}
+
+/**
+ * Extract character appearance summaries from completed episodes in a series.
+ * Parses script JSON from each task, finds panels where specified characters appear,
+ * and produces a token-budgeted text summary per episode.
+ *
+ * @param taskIds - task IDs from series.episodes (in episode order)
+ * @param characterNames - character names to search for in panels
+ * @param maxEpisodes - max episodes to include (default 5)
+ * @param tokensPerEpisode - approximate token budget per episode (default 200)
+ */
+export function getEpisodeArcSnapshots(
+  taskIds: string[],
+  characterNames: string[],
+  maxEpisodes: number = 5,
+  tokensPerEpisode: number = 200,
+): ArcSnapshot[] {
+  if (taskIds.length === 0 || characterNames.length === 0) return [];
+
+  const snapshots: ArcSnapshot[] = [];
+  // Process most recent episodes first, then reverse for chronological order
+  const recentTaskIds = taskIds.slice(-maxEpisodes);
+
+  for (let i = 0; i < recentTaskIds.length; i++) {
+    const taskId = recentTaskIds[i];
+    const row = stmtGetTask.get(taskId) as Record<string, unknown> | undefined;
+    if (!row) continue;
+    if (row.status !== "completed") continue;
+
+    let script: ComicScript | undefined;
+    try {
+      script = safeJsonParse<ComicScript>(row.script as string | null);
+    } catch { continue; }
+    if (!script?.panels) continue;
+
+    const relevantPanels: { scene: string; dialogue: string }[] = [];
+    for (const panel of script.panels) {
+      const combined = `${panel.scene || ""} ${panel.dialogue || ""}`.toLowerCase();
+      const hasCharacter = characterNames.some(name => combined.includes(name.toLowerCase()));
+      if (hasCharacter) {
+        relevantPanels.push({ scene: panel.scene || "", dialogue: panel.dialogue || "" });
+      }
+    }
+
+    if (relevantPanels.length === 0) continue;
+
+    // Build summary within token budget (~4 chars per token)
+    const charLimit = tokensPerEpisode * 4;
+    let summary = "";
+    for (const p of relevantPanels) {
+      const line = p.dialogue
+        ? `[${p.scene}] ${p.dialogue}`
+        : `[${p.scene}]`;
+      if (summary.length + line.length + 2 > charLimit) break;
+      summary += (summary ? "; " : "") + line;
+    }
+
+    snapshots.push({
+      episodeNumber: taskIds.indexOf(taskId) + 1,
+      taskId,
+      title: script.title || `Episode ${taskIds.indexOf(taskId) + 1}`,
+      characterSummary: summary,
+    });
+  }
+
+  return snapshots;
 }
 
 // ============================================================

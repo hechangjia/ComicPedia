@@ -927,6 +927,9 @@ describe("taskLifecycle scripting director beat plan", () => {
       if (url.startsWith("/api/wikipedia")) {
         return mockJsonResponse({ results: [] }, false);
       }
+      if (url.startsWith("/api/relations")) {
+        return mockJsonResponse([]);
+      }
       throw new Error(`Unexpected fetch: ${url}`);
     });
   });
