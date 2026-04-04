@@ -240,6 +240,8 @@ export interface ComicPanel {
     enhanced: string;
     layers: { name: string; action: string }[];
   };
+  /** 本面板中出场的角色名称列表（自动推断） */
+  appearingCharacters?: string[];
 }
 
 /** 单张参考图的完整记录 */
@@ -391,6 +393,17 @@ export interface GenerateRequest {
 }
 
 /** 生成任务状态 */
+/** Pipeline stage trace entry for observability */
+export interface PipelineStageTrace {
+  stage: "research" | "director" | "script" | "validate" | "repair" | "accuracy" | "images" | "vlm" | "quality";
+  status: "pending" | "running" | "completed" | "failed" | "skipped";
+  startedAt?: number;
+  completedAt?: number;
+  tokenUsage?: { prompt: number; completion: number };
+  retryCount: number;
+  error?: string;
+}
+
 export interface GenerateTask {
   id: string;
   status: "pending" | "scripting" | "script_ready" | "generating" | "completed" | "failed";
@@ -488,6 +501,12 @@ export interface GenerateTask {
     startedAt: string;
     finishedAt?: string;
   };
+  /** Pipeline stage trace for observability */
+  pipelineTrace?: PipelineStageTrace[];
+  /** User-assigned tags for organization */
+  tags?: string[];
+  /** Whether the user has favorited this task */
+  favorited?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

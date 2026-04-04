@@ -28,6 +28,8 @@ export interface ScriptGenerationParams {
   poetryGenre?: PoetryGenre;
   poetryMeta?: PoetryMeta;
   character?: Character;
+  characters?: Character[];
+  characterContext?: string;
   novelMeta?: NovelMeta;
   wikipediaContent?: WikipediaContent;
   allowGuideCharacter?: boolean;

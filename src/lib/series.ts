@@ -1,4 +1,4 @@
-import { ComicStyle, ContentType } from "./types";
+import { CharacterArc, CharacterPersonality, ComicStyle, ContentType } from "./types";
 
 // ============================================================
 // 连载模式数据模型
@@ -108,4 +108,37 @@ export function getSeriesContinuationContext(series: Series, previousEnding?: st
     parts.push("Continue the story naturally from this point.");
   }
   return parts.join("\n");
+}
+
+/** Update a character's arc after a story event in a series episode */
+export function updateCharacterArc(
+  personality: CharacterPersonality,
+  seriesId: string,
+  episodeNumber: number,
+  event: string,
+  stateAfter: string,
+): CharacterPersonality {
+  const arc: CharacterArc = personality.arc ?? {
+    seriesId,
+    startState: personality.emotionalState?.primary ?? "neutral",
+    turningPoints: [],
+  };
+  return {
+    ...personality,
+    arc: {
+      ...arc,
+      currentState: stateAfter,
+      turningPoints: [...arc.turningPoints, { episodeNumber, event, stateAfter }],
+    },
+  };
+}
+
+/** Produce a human-readable summary of a character arc */
+export function getArcSummary(arc: CharacterArc): string {
+  const parts = [`Started as "${arc.startState}"`];
+  for (const tp of arc.turningPoints) {
+    parts.push(`Episode ${tp.episodeNumber}: ${tp.event} → "${tp.stateAfter}"`);
+  }
+  if (arc.currentState) parts.push(`Currently: "${arc.currentState}"`);
+  return parts.join(". ");
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTaskById, upsertTask, deleteTask } from "@/lib/server/db";
+import { getTaskById, upsertTask, deleteTask, patchTask } from "@/lib/server/db";
 import { extractTaskImagesAsync, trashTaskImages, restoreFileRefs, fileRefsToUrls } from "@/lib/server/imageExtractor";
 import type { GenerateTask } from "@/lib/types";
 
@@ -59,6 +59,36 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       { error: "更新任务失败" },
       { status: 500 },
     );
+  }
+}
+
+/** PATCH /api/tasks/[id] — 部分更新任务（tags, favorited） */
+export async function PATCH(request: NextRequest, { params }: RouteParams) {
+  try {
+    const { id } = await params;
+    const body = await request.json();
+    const patch: { tags?: string[]; favorited?: boolean } = {};
+
+    if (Array.isArray(body.tags)) {
+      patch.tags = body.tags.filter((t: unknown) => typeof t === "string");
+    }
+    if (typeof body.favorited === "boolean") {
+      patch.favorited = body.favorited;
+    }
+
+    if (Object.keys(patch).length === 0) {
+      return NextResponse.json({ error: "无有效更新字段" }, { status: 400 });
+    }
+
+    const updated = patchTask(id, patch);
+    if (!updated) {
+      return NextResponse.json({ error: "任务不存在" }, { status: 404 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("[API /tasks/[id] PATCH]", error);
+    return NextResponse.json({ error: "更新任务失败" }, { status: 500 });
   }
 }
 

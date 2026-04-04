@@ -118,6 +118,8 @@ function runAddColumnMigration(table: string, columnDDL: string) {
 
 // ── Schema migration: add extensible metadata column ──
 runAddColumnMigration("tasks", "metadata TEXT");
+runAddColumnMigration("tasks", "tags TEXT DEFAULT '[]'");
+runAddColumnMigration("tasks", "favorited INTEGER DEFAULT 0");
 runAddColumnMigration("characters", "metadata TEXT");
 runAddColumnMigration("characters", "personality TEXT");
 
@@ -126,8 +128,8 @@ runAddColumnMigration("characters", "personality TEXT");
 // ============================================================
 
 const stmtInsertTask = db.prepare(`
-  INSERT OR REPLACE INTO tasks (id, status, progress, script, character, error, metadata, created_at, updated_at)
-  VALUES (@id, @status, @progress, @script, @character, @error, @metadata, @created_at, @updated_at)
+  INSERT OR REPLACE INTO tasks (id, status, progress, script, character, error, metadata, tags, favorited, created_at, updated_at)
+  VALUES (@id, @status, @progress, @script, @character, @error, @metadata, @tags, @favorited, @created_at, @updated_at)
 `);
 
 const stmtGetTask = db.prepare("SELECT * FROM tasks WHERE id = ?");
@@ -137,6 +139,9 @@ const stmtCountTasks = db.prepare("SELECT COUNT(*) as total FROM tasks");
 const stmtGetAllTaskIds = db.prepare("SELECT id FROM tasks");
 const stmtDeleteTask = db.prepare("DELETE FROM tasks WHERE id = ?");
 const stmtClearTasks = db.prepare("DELETE FROM tasks");
+
+const stmtPatchTaskTags = db.prepare("UPDATE tasks SET tags = @tags, updated_at = @updated_at WHERE id = @id");
+const stmtPatchTaskFavorited = db.prepare("UPDATE tasks SET favorited = @favorited, updated_at = @updated_at WHERE id = @id");
 
 function taskToRow(task: GenerateTask) {
   // Pack non-core fields into a single metadata JSON column
@@ -170,6 +175,8 @@ function taskToRow(task: GenerateTask) {
     character: task.character ? JSON.stringify(task.character) : null,
     error: task.error ?? null,
     metadata: Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
+    tags: JSON.stringify(task.tags ?? []),
+    favorited: task.favorited ? 1 : 0,
     created_at: task.createdAt instanceof Date ? task.createdAt.toISOString() : String(task.createdAt),
     updated_at: task.updatedAt instanceof Date ? task.updatedAt.toISOString() : String(task.updatedAt),
   };
@@ -437,6 +444,8 @@ function rowToTask(row: Record<string, unknown>): GenerateTask {
     narrativeOutline: meta.narrativeOutline as GenerateTask["narrativeOutline"],
     generationConfig: meta.generationConfig as GenerateTask["generationConfig"],
     visualRepairExecution: meta.visualRepairExecution as GenerateTask["visualRepairExecution"],
+    tags: safeJsonParse<string[]>(row.tags as string | null) ?? [],
+    favorited: (row.favorited as number) === 1,
     createdAt: new Date(row.created_at as string),
     updatedAt: new Date(row.updated_at as string),
   };
@@ -476,6 +485,20 @@ export function clearAllTasks(): number {
 export function getAllTaskIds(): string[] {
   const rows = stmtGetAllTaskIds.all() as { id: string }[];
   return rows.map((r) => r.id);
+}
+
+export function patchTask(id: string, patch: { tags?: string[]; favorited?: boolean }): boolean {
+  const now = new Date().toISOString();
+  let changed = false;
+  if (patch.tags !== undefined) {
+    const r = stmtPatchTaskTags.run({ id, tags: JSON.stringify(patch.tags), updated_at: now });
+    if (r.changes > 0) changed = true;
+  }
+  if (patch.favorited !== undefined) {
+    const r = stmtPatchTaskFavorited.run({ id, favorited: patch.favorited ? 1 : 0, updated_at: now });
+    if (r.changes > 0) changed = true;
+  }
+  return changed;
 }
 
 // ============================================================
