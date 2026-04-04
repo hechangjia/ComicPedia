@@ -2,7 +2,7 @@ import { GenerateRequest, GenerateTask } from "@/lib/types";
 import { generateTopicResearch, buildEnhancedTopicFromResearch } from "@/lib/llm";
 import { generateNarrativeOutline } from "@/lib/director";
 import { QUALITY_PRESETS } from "@/lib/config/quality";
-import { notifyListeners } from "./shared";
+import { notifyListeners, traceStart, traceEnd, traceSkip } from "./shared";
 
 export interface ResearchResult {
   enhancedTopic: string;
@@ -118,6 +118,7 @@ export async function runResearchPhase(task: GenerateTask, request: GenerateRequ
 
   // ── Phase 0.7: Director Outline ──
   if (qualityLevel === "fine" || qualityLevel === "standard") {
+    traceStart(task, "director");
     try {
       task.streamText = "正在规划叙事大纲...";
       notifyListeners(task);
@@ -135,9 +136,13 @@ export async function runResearchPhase(task: GenerateTask, request: GenerateRequ
         task.narrativeOutline = outline;
         console.log(`[Director] Outline generated: ${outline.totalPanels} panels, arc: ${outline.narrativeArc}`);
       }
+      traceEnd(task, "director");
     } catch (dirErr) {
+      traceEnd(task, "director", dirErr instanceof Error ? dirErr.message : "Director failed");
       console.warn("[Director] Outline generation failed (non-fatal):", dirErr);
     }
+  } else {
+    traceSkip(task, "director");
   }
 
   return {

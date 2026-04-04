@@ -2,7 +2,7 @@ import { GenerateTask, PartialLLMConfig } from "@/lib/types";
 import { evaluateQuality } from "@/lib/qualityScore";
 import { evaluateVisualQuality } from "@/lib/vlmScorer";
 import { getStoredRequestConfigs } from "@/hooks/useAPIConfig";
-import { saveTask, getTask, notifyListeners } from "./shared";
+import { saveTask, getTask, notifyListeners, traceStart, traceEnd } from "./shared";
 import { runAutomaticVisualRetryCycle } from "./vlm";
 import type { PartialImageGenConfig } from "@/lib/types";
 
@@ -25,6 +25,7 @@ export function runQualityPhase(
       if (freshTask) {
         freshTask.qualityScore = quality;
         freshTask.updatedAt = new Date();
+        traceEnd(freshTask, "quality");
         await saveTask(freshTask);
         notifyListeners(freshTask);
         console.log(`[QualityGate] Score: ${quality.overall}/10, suggestions: ${quality.suggestions.length}`);

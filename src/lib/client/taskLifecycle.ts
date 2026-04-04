@@ -8,6 +8,18 @@ import { runResearchPhase } from "./phases/research";
 import { runScriptPhase } from "./phases/script";
 import { runImageGenPhase } from "./phases/imageGen";
 import { runQualityPhase } from "./phases/quality";
+import { traceStart as traceStartShared, traceEnd as traceEndShared } from "./phases/shared";
+
+// ============================================================
+// Pipeline trace helpers
+// ============================================================
+
+function initTrace(task: GenerateTask): void {
+  task.pipelineTrace = [];
+}
+
+const traceStart = traceStartShared;
+const traceEnd = traceEndShared;
 
 // ============================================================
 // 阶段 1：仅生成分镜脚本（停在 script_ready）
@@ -51,6 +63,7 @@ async function processScripting(taskId: string, request: GenerateRequest) {
   try {
     task.status = "scripting";
     task.progress = 5;
+    initTrace(task);
 
     // ── 配置快照：记录生成时使用的模型 ──
     task.generationConfig = {
@@ -67,10 +80,24 @@ async function processScripting(taskId: string, request: GenerateRequest) {
     notifyListeners(task);
 
     // ── Phase 0 + 0.5 + 0.7: Research ──
-    const { enhancedTopic } = await runResearchPhase(task, request);
+    traceStart(task, "research");
+    try {
+      var { enhancedTopic } = await runResearchPhase(task, request);
+      traceEnd(task, "research");
+    } catch (err) {
+      traceEnd(task, "research", err instanceof Error ? err.message : "Unknown error");
+      throw err;
+    }
 
     // ── Phase 1 + validation + repair + accuracy: Script ──
-    await runScriptPhase(task, request, enhancedTopic, controller.signal);
+    traceStart(task, "script");
+    try {
+      await runScriptPhase(task, request, enhancedTopic, controller.signal);
+      traceEnd(task, "script");
+    } catch (err) {
+      traceEnd(task, "script", err instanceof Error ? err.message : "Unknown error");
+      throw err;
+    }
 
   } catch (error) {
     task.status = "failed";
@@ -194,10 +221,24 @@ export async function generateAllImages(
   await saveTask(task);
   notifyListeners(task);
 
-  const allCompleted = await runImageGenPhase(task, imageConfig, forceAll);
+  traceStart(task, "images");
+  let allCompleted: boolean;
+  try {
+    allCompleted = await runImageGenPhase(task, imageConfig, forceAll);
+    traceEnd(task, "images");
+  } catch (err) {
+    traceEnd(task, "images", err instanceof Error ? err.message : "Unknown error");
+    throw err;
+  }
 
   // ── Quality Gate + VLM ──
   if (allCompleted && llmConfig) {
+    traceStart(task, "quality");
+    if (task.generationConfig?.quality === "fine") {
+      traceStart(task, "vlm");
+    }
+    await saveTask(task);
+    notifyListeners(task);
     runQualityPhase(taskId, llmConfig, task.script, imageConfig, task.generationConfig?.quality);
   }
 }

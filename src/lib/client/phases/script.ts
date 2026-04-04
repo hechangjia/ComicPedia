@@ -1,4 +1,4 @@
-import { GenerateRequest, GenerateTask, ComicScript } from "@/lib/types";
+import { GenerateRequest, GenerateTask, ComicScript, Character } from "@/lib/types";
 import { generateScript, generateScriptStream, StreamChunkCallback } from "@/lib/llm";
 import { validateScript, applyCanonicalCharacterDesc } from "@/lib/scriptValidator";
 import { repairScript } from "@/lib/scriptRepair";
@@ -6,7 +6,8 @@ import { reviewPanelClaims } from "@/lib/accuracy/claimReview";
 import { repairAccuracyIssues } from "@/lib/accuracy/repair";
 import { stripDisallowedGuideCharacterFromScript } from "@/lib/guideCharacterPolicy";
 import { QUALITY_PRESETS } from "@/lib/config/quality";
-import { getCharacter, saveTask, notifyListeners } from "./shared";
+import { buildCharacterContext, inferAppearingCharacters } from "@/lib/characterContext";
+import { getCharacter, saveTask, notifyListeners, traceStart, traceEnd, traceSkip } from "./shared";
 
 /**
  * Phase 1: Script Generation + validation + repair + accuracy review.
@@ -39,19 +40,31 @@ export async function runScriptPhase(
     ? `${enhancedTopic}\n\n[Generation quality requirement: ${qualityPreset.promptHint}]`
     : enhancedTopic;
 
-  // Resolve character from characterIds
-  let character = undefined;
+  // Resolve characters from characterIds (load ALL, not just first)
+  const characters: Character[] = [];
   if (request.characterIds && request.characterIds.length > 0) {
-    try {
-      const char = await getCharacter(request.characterIds[0]);
-      if (char) {
-        character = char;
-        task.character = char;
-      }
-    } catch (charErr) {
-      console.warn("[Generator] Failed to load character, proceeding without:", charErr);
+    for (const id of request.characterIds) {
+      try {
+        const char = await getCharacter(id);
+        if (char) characters.push(char);
+      } catch { /* skip unavailable characters */ }
     }
   }
+  // Backward compat: set task.character to the first character
+  const character = characters.length > 0 ? characters[0] : undefined;
+  if (character) {
+    task.character = character;
+  }
+
+  // Build multi-character context block
+  // TODO: fetch relations via API when relation API is available on client
+  const charContext = buildCharacterContext(characters, []);
+  const characterContextText = charContext.text;
+
+  // Inject multi-character context into topic for LLM prompt
+  const topicWithCharacters = characterContextText
+    ? `${finalTopic}\n\n${characterContextText}`
+    : finalTopic;
 
   try {
     if (!task.streamText) {
@@ -60,7 +73,7 @@ export async function runScriptPhase(
     }
 
     script = await generateScriptStream(
-      finalTopic,
+      topicWithCharacters,
       request.style,
       request.panelCount ?? undefined,
       request.llmConfig,
@@ -84,7 +97,7 @@ export async function runScriptPhase(
     notifyListeners(task);
 
     script = await generateScript(
-      finalTopic,
+      topicWithCharacters,
       request.style,
       request.panelCount ?? undefined,
       request.llmConfig,
@@ -119,7 +132,19 @@ export async function runScriptPhase(
   task.script = script;
   task.progress = 30;
 
+  // ── Post-processing: infer appearing characters per panel ──
+  if (charContext.characterNames.length > 0 && script.panels) {
+    for (const panel of script.panels) {
+      panel.appearingCharacters = inferAppearingCharacters(
+        panel.scene || "",
+        panel.dialogue || "",
+        charContext.characterNames,
+      );
+    }
+  }
+
   // ── 脚本后校验：纯规则，零 LLM 调用 ──
+  traceStart(task, "validate");
   let validation = validateScript(script, {
     contentType: request.contentType,
     narrativeOutline: task.narrativeOutline,
@@ -127,7 +152,10 @@ export async function runScriptPhase(
 
   // ── P0: 脚本自修复 Agent ──
   const actionableWarnings = validation.warnings.filter(w => w.severity === "critical" || w.severity === "warning");
+  traceEnd(task, "validate");
+
   if (actionableWarnings.length > 0) {
+    traceStart(task, "repair");
     let repairRounds = 0;
     const MAX_REPAIR_ROUNDS = 2;
     let currentWarnings = actionableWarnings;
@@ -160,6 +188,9 @@ export async function runScriptPhase(
       task.scriptRepairRounds = repairRounds;
       console.log(`[ScriptRepair] ${repairRounds} round(s) completed, remaining actionable: ${currentWarnings.length}`);
     }
+    traceEnd(task, "repair");
+  } else {
+    traceSkip(task, "repair");
   }
 
   task.scriptValidation = validation;
@@ -172,6 +203,7 @@ export async function runScriptPhase(
   applyCanonicalCharacterDesc(script);
 
   if (task.factPack && (request.contentType === "science" || request.contentType === "wikipedia")) {
+    traceStart(task, "accuracy");
     let accuracyReview = reviewPanelClaims(script, task.factPack);
 
     let accuracyRepairRounds = 0;
@@ -187,6 +219,7 @@ export async function runScriptPhase(
     task.accuracyReview = accuracyReview;
 
     if (accuracyReview.status === "blocked") {
+      traceEnd(task, "accuracy", "高风险事实冲突，脚本未通过准确性校验");
       task.script = script;
       task.status = "failed";
       task.error = "高风险事实冲突，脚本未通过准确性校验";
@@ -202,6 +235,9 @@ export async function runScriptPhase(
       notifyListeners(task);
       return;
     }
+    traceEnd(task, "accuracy");
+  } else {
+    traceSkip(task, "accuracy");
   }
 
   task.status = "script_ready";

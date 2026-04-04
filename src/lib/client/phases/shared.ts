@@ -1,4 +1,4 @@
-import { GenerateTask } from "@/lib/types";
+import { GenerateTask, PipelineStageTrace } from "@/lib/types";
 import { shouldAutoRetry, generatePromptPatch, applyPromptPatch, buildPanelReview, buildTaskReviewStatus } from "@/lib/vlmRetry";
 
 // Re-export commonly needed deps for phase modules
@@ -7,6 +7,29 @@ export { notifyListeners, saveTaskThrottled, flushThrottledSave, cleanupTaskStat
 export { abortControllers, abortKey } from "../abortManager";
 export { pushImageVersion } from "../panelManager";
 export { buildEnhancedPrompt, buildEnhancedPromptWithLog, mergeReferenceImage } from "../promptEnhancer";
+
+// ============================================================
+// Pipeline trace helpers
+// ============================================================
+
+export function traceStart(task: GenerateTask, stage: PipelineStageTrace["stage"]): void {
+  if (!task.pipelineTrace) task.pipelineTrace = [];
+  task.pipelineTrace.push({ stage, status: "running", startedAt: Date.now(), retryCount: 0 });
+}
+
+export function traceEnd(task: GenerateTask, stage: PipelineStageTrace["stage"], error?: string): void {
+  const entry = task.pipelineTrace?.find(t => t.stage === stage && t.status === "running");
+  if (entry) {
+    entry.status = error ? "failed" : "completed";
+    entry.completedAt = Date.now();
+    if (error) entry.error = error;
+  }
+}
+
+export function traceSkip(task: GenerateTask, stage: PipelineStageTrace["stage"]): void {
+  if (!task.pipelineTrace) task.pipelineTrace = [];
+  task.pipelineTrace.push({ stage, status: "skipped", retryCount: 0 });
+}
 
 // ============================================================
 // 辅助函数
