@@ -10,47 +10,89 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: "hsl(var(--background))",
-        foreground: "hsl(var(--foreground))",
+        background: "var(--background)",
+        foreground: "var(--foreground)",
         primary: {
-          DEFAULT: "hsl(var(--primary))",
-          foreground: "hsl(var(--primary-foreground))",
+          DEFAULT: "var(--primary)",
+          foreground: "var(--primary-foreground)",
         },
         secondary: {
-          DEFAULT: "hsl(var(--secondary))",
-          foreground: "hsl(var(--secondary-foreground))",
+          DEFAULT: "var(--secondary)",
+          foreground: "var(--secondary-foreground)",
         },
         muted: {
-          DEFAULT: "hsl(var(--muted))",
-          foreground: "hsl(var(--muted-foreground))",
+          DEFAULT: "var(--muted)",
+          foreground: "var(--muted-foreground)",
         },
         accent: {
-          DEFAULT: "hsl(var(--accent))",
-          foreground: "hsl(var(--accent-foreground))",
+          DEFAULT: "var(--accent)",
+          foreground: "var(--accent-foreground)",
         },
         card: {
-          DEFAULT: "hsl(var(--card))",
-          foreground: "hsl(var(--card-foreground))",
+          DEFAULT: "var(--card)",
+          foreground: "var(--card-foreground)",
         },
-        border: "hsl(var(--border))",
-        ring: "hsl(var(--ring))",
+        border: "var(--border)",
+        ring: "var(--ring)",
+        teal: {
+          DEFAULT: "var(--teal)",
+          soft: "var(--teal-soft)",
+        },
+        coral: {
+          DEFAULT: "var(--coral)",
+          soft: "var(--coral-soft)",
+        },
+        ochre: {
+          DEFAULT: "var(--ochre)",
+          soft: "var(--ochre-soft)",
+        },
+        lavender: {
+          DEFAULT: "var(--lavender)",
+          soft: "var(--lavender-soft)",
+        },
+        sky: {
+          DEFAULT: "var(--sky)",
+          soft: "var(--sky-soft)",
+        },
         success: {
-          DEFAULT: "hsl(var(--success))",
-          foreground: "hsl(var(--success-foreground))",
+          DEFAULT: "var(--success)",
+          foreground: "var(--success-foreground)",
         },
         warning: {
-          DEFAULT: "hsl(var(--warning))",
-          foreground: "hsl(var(--warning-foreground))",
+          DEFAULT: "var(--warning)",
+          foreground: "var(--warning-foreground)",
+        },
+        error: {
+          DEFAULT: "var(--error)",
+          foreground: "var(--error-foreground)",
         },
         info: {
-          DEFAULT: "hsl(var(--info))",
-          foreground: "hsl(var(--info-foreground))",
+          DEFAULT: "var(--info)",
+          foreground: "var(--info-foreground)",
+        },
+        surface: {
+          DEFAULT: "var(--surface)",
+          warm: "var(--surface-warm)",
+          raised: "var(--surface-raised)",
         },
       },
+      textColor: {
+        "primary-text": "var(--text-primary)",
+        "secondary-text": "var(--text-secondary)",
+        "muted-text": "var(--text-muted)",
+      },
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        sm: "6px",
+        md: "10px",
+        lg: "14px",
+        xl: "20px",
+        full: "9999px",
+      },
+      boxShadow: {
+        subtle: "var(--shadow-subtle)",
+        soft: "var(--shadow-soft)",
+        float: "var(--shadow-float)",
+        glow: "var(--shadow-glow)",
       },
     },
   },
