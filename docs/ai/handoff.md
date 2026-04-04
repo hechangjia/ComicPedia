@@ -1,100 +1,91 @@
 # Handoff
 
 ## 当前目标
-- 当前活跃任务是 `VLM Diagnosis Repair Flow Phase 2` 的收尾验证，不是继续编码。
-- 目标是在真实桌面浏览器完成 Phase 2 手动 QA，确认功能可交付。
+
+"Relationship-Driven Episodes" 功能已交付。角色关系数据注入生成管线，连载弧光上下文自动注入脚本，关系类型变更触发剧集提议，图谱可视化增强（badge/tooltip/stale/animation）。
 
 ## 今天已完成内容
-- 重启后按顺序读取并恢复上下文：
-  - `~/.claude/CLAUDE.md`
-  - 项目 `CLAUDE.md`
-  - `docs/ai/handoff.md`
-  - 当前任务 plan / design
-- 确认当前状态：
-  - Phase 2 代码已完成并本地合并到 `dev`
-  - 当前没有进行中的代码改动
-  - 下一步应做真实浏览器 QA，不应直接继续实现
+
+### CEO Review 扩展全部交付 (8/8)
+
+| 编号 | 内容 | 提交 |
+|------|------|------|
+| E7 | Content Type + Style 继承（修复硬编码 bug） | `1eb3d1c` |
+| E6 | Toast 成功/失败通知 | `1eb3d1c` |
+| F3 | characterContext 测试（已有 14 tests，无需新增） | 验证通过 |
+| E1 | Evolution Timeline 自动更新（fire-and-forget） | `1eb3d1c` |
+| E2 | Episode Count Badge（关系边上的圆形计数） | `1eb3d1c` |
+| E5 | Stale 关系检测（虚线 + 降低透明度） | `1eb3d1c` |
+| E4 | SVG `<title>` 悬停 tooltip 显示最近事件 | `1eb3d1c` |
+| E3 | CSS stroke transition 颜色过渡动画 | `1eb3d1c` |
+
+### 基础设施层提交
+
+| 内容 | 提交 |
+|------|------|
+| Arc snapshot API + 查询函数 + 脚本关系注入 + 测试 | `7ae76d2` |
+
+### 前一会话已完成
+
+- 3 个核心交付物（关系注入脚本、弧光快照查询、转折点剧集提议）
+- `/office-hours` 设计文档 + `/plan-eng-review` 架构评审 + `/plan-ceo-review` CEO 审查
+- Health Stack 配置
 
 ## 当前进行中的内容
-- 无代码实现进行中。
-- 待执行真实浏览器手动 QA。
+
+无。全部已提交。
 
 ## 剩余工作
-- 在真实浏览器验证 4 条用户流：
-  - 单格 `patch`
-  - 单格 `rewrite`
-  - 列表 batch `patch`
-  - repair 后 `diagnosis stale` 和“未改善”反馈
-- 若 QA 通过：
-  - 记录结论
-  - 评估是否补 release note / release docs
-  - 决定下一阶段优先级
-- 若 QA 失败：
-  - 回到结果页 repair 链路定位并修复
+
+### 建议修复（非阻塞）
+- [ ] 7 个 pre-existing TS 错误：test 文件中 `ComicPanel.id` 类型 `string` -> `number`（`aiEditor/quizGenerator/relatedTopics/shareCard.test.ts`）+ `characterContext.test.ts` 缺少 `gender` 字段
+- [ ] `shareCard.test.ts` 有 1 个无用的 `@ts-expect-error`
+- [ ] `CharacterDialog.tsx` 35 个 `react-hooks/refs` lint 警告（pre-existing）
+
+### 建议 QA
+- [ ] 浏览器 QA：`/characters/relations` 页面测试完整流程（类型变更 -> 模态框 -> 生成跳转）
+- [ ] 验证 evolution auto-update：生成完成后检查关系的 evolution 数组是否自动追加
+- [ ] 验证 stale 边样式：创建 3+ evolution 事件无 type 变更的关系，确认虚线渲染
 
 ## 关键决策和约束
-- `patch`：
-  - 直接覆盖当前 prompt
-  - 自动重生图
-  - negative prompt 自动 merge + dedupe
-- `rewrite`：
-  - 必须先弹确认框
-  - 可编辑 `suggestedPrompt`
-  - 可选是否应用 `suggestedNegativePrompt`
-  - 确认后覆盖 prompt 并自动重生图
-- repair 后：
-  - 只自动重跑 `visual score`
-  - 不自动重跑 diagnosis
-  - diagnosis 必须保持 `stale`
-- 若 repair 后评分未提升：
-  - 保留新图
-  - 显示“未改善”反馈
-  - 不回滚
-- Phase 2 范围固定：
-  - audit card：单格 `patch` + `rewrite`
-  - list：batch `patch`
-  - 不做 batch `rewrite`
+
+- **客户端调用 Relations API**：`script.ts` 通过 `fetch('/api/relations')` 获取，不直接导入 server 模块
+- **弧光快照 token 预算**：200 tokens/集 x 最多 5 集 = 1000 tokens 上限，按需计算不持久化
+- **Evolution 自动更新**：fire-and-forget 模式，失败不影响任务状态，与 quality phase 同模式
+- **Stale 阈值**：3+ 连续 evolution 事件无 `newType` 变更 -> 标记为 stale
+- **Content Type 继承**：从 `Series.contentType` / `Series.style` 读取，fallback `"science"` / `"flat"`
+- **关系过滤**：`charIds.has(fromId) && charIds.has(toId)` 双向匹配
 
 ## 重要文件路径
-- `docs/ai/handoff.md`
-- `docs/superpowers/plans/2026-03-27-vlm-diagnosis-repair-flow-phase-2.md`
-- `docs/superpowers/specs/2026-03-27-vlm-diagnosis-repair-flow-phase-2-design.md`
-- `src/components/result/QualityScorePanel.tsx`
-- `src/components/result/VisualDiagnosisAuditCard.tsx`
-- `src/components/result/VisualDiagnosisWorkbench.tsx`
-- `src/components/result/VisualRewriteConfirmDialog.tsx`
-- `src/hooks/useTaskActions.ts`
-- `src/lib/vlmDiagnosis.ts`
-- `src/lib/vlmRetry.ts`
-- `src/lib/types.ts`
-- `src/lib/server/db.ts`
-- `src/app/result/[id]/page.tsx`
-- `src/__tests__/visualDiagnosisRepair.test.ts`
-- `src/__tests__/VisualRewriteConfirmDialog.test.ts`
-- `src/__tests__/VisualDiagnosisWorkbench.test.ts`
-- `src/__tests__/useTaskActions.test.ts`
-- `src/__tests__/vlmDiagnosis.test.ts`
-- `src/__tests__/serverDbReviewPersistence.test.ts`
-- `src/__tests__/vlmRetry.test.ts`
+
+| 文件 | 职责 |
+|------|------|
+| `src/lib/client/taskLifecycle.ts` | 管线核心 + `updateRelationEvolution()` |
+| `src/lib/client/phases/script.ts` | 关系获取 + 弧光上下文注入 |
+| `src/lib/server/db.ts` | `getEpisodeArcSnapshots()` |
+| `src/app/api/series/[id]/arc-snapshots/route.ts` | Arc snapshot API |
+| `src/components/characters/RelationGraph.tsx` | 图谱渲染 + `isRelationStale()` + 类型变更检测 |
+| `src/components/characters/RelationEdge.tsx` | 边渲染（badge/tooltip/stale/animation） |
+| `src/components/characters/EpisodeProposalModal.tsx` | 剧集提议模态框 |
+| `src/app/characters/relations/page.tsx` | 关系页面（toast + 提议流程） |
 
 ## 当前阻塞和风险
-- 代码层没有已知阻塞。
-- 当前缺口是浏览器级证据，不是构建或测试失败。
-- 当前 CLI/headless Chromium 环境不可靠：
-  - 本地服务可启动
-  - API 注入测试任务可用
-  - 但结果页客户端主体 hydration 不稳定，无法作为可信手动 QA 依据
-- design 文档头部状态仍写 `awaiting written spec review`，与当前“已开发并合并”状态不完全同步。
+
+- **无阻塞**
+- **低风险**：`/api/relations` 返回全量关系，大角色库场景可能需要分页
+- **低风险**：SVG `<title>` tooltip 在移动端不可见，后续可改为自定义 tooltip 组件
 
 ## 下次启动后优先执行的 3 个步骤
-1. 在真实桌面浏览器打开 `dev` 结果页，跑完 Phase 2 的 4 条交互流。
-2. 如果 QA 通过，更新 handoff 并决定是否直接进入下一阶段。
-3. 如果 QA 失败，优先检查 `QualityScorePanel`、`useTaskActions`、`VisualDiagnosisWorkbench` 这条链。
+
+1. 修复 pre-existing TS 错误（5 个 test 文件，~10 分钟）
+2. 浏览器 QA：`/characters/relations` 完整流程验证
+3. 考虑下一个功能方向（关系图移动端适配 / 关系推荐 / 批量关系导入）
 
 ## 当前验证状态
-- Phase 2 目标测试集：`8 files`, `76 passed`
-- 合并后 `dev` 全量测试：`311 passed, 1 skipped`
-- 类型检查：`pnpm exec tsc --noEmit` 通过
-- 生产构建：`pnpm build` 通过
-- 真实浏览器手动 QA：未完成
-- headless 浏览器 QA：不作为可信结论
+
+| 指标 | 状态 |
+|------|------|
+| 测试 | 493/493 passed, 1 skipped |
+| 类型检查 | 0 errors (本次改动), 7 pre-existing (test 文件) |
+| Git | 2 commits on `dev`: `1eb3d1c`, `7ae76d2` |
+| 浏览器 QA | 未执行 |
