@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import { ComicPanel, ComicScript } from "@/lib/types";
+import { Download, ChevronDown, Check, X, Image, Archive, FileText, FileDown, LayoutGrid, Layers, Video, PackageOpen } from "lucide-react";
 import {
   downloadSingleImage,
   downloadComicAsImage,
@@ -80,33 +81,11 @@ export function DownloadMenu({ panels, title, script }: DownloadMenuProps) {
         className="px-6 py-2 rounded-lg border hover:bg-accent flex items-center gap-2 min-h-[44px]"
         disabled={validPanels.length === 0}
       >
-        <svg
-          className="w-4 h-4"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-          />
-        </svg>
+        <Download className="w-4 h-4" />
         下载
-        <svg
+        <ChevronDown
           className={`w-4 h-4 transition-transform ${isOpen ? "rotate-180" : ""}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M19 9l-7 7-7-7"
-          />
-        </svg>
+        />
       </button>
 
       {/* 下拉菜单：桌面端绝对定位，移动端固定底部全宽 */}
@@ -131,14 +110,10 @@ export function DownloadMenu({ panels, title, script }: DownloadMenuProps) {
                   <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
                 )}
                 {status === "success" && (
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
+                  <Check className="w-4 h-4" />
                 )}
                 {status === "error" && (
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
+                  <X className="w-4 h-4" />
                 )}
                 {statusMessage}
               </div>
@@ -157,9 +132,7 @@ export function DownloadMenu({ panels, title, script }: DownloadMenuProps) {
               disabled={status === "loading"}
               className="w-full px-3 py-2 text-left text-sm rounded-md hover:bg-accent flex items-center gap-3 disabled:opacity-50"
             >
-              <svg className="w-5 h-5 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
+              <Image className="w-5 h-5 text-[#3d8b84]" />
               <div>
                 <div className="font-medium">合成大图</div>
                 <div className="text-xs text-muted-foreground">将所有面板拼接为一张 PNG</div>
@@ -174,9 +147,7 @@ export function DownloadMenu({ panels, title, script }: DownloadMenuProps) {
               disabled={status === "loading"}
               className="w-full px-3 py-2 text-left text-sm rounded-md hover:bg-accent flex items-center gap-3 disabled:opacity-50"
             >
-              <svg className="w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-              </svg>
+              <Archive className="w-5 h-5 text-blue-500" />
               <div>
                 <div className="font-medium">ZIP 打包</div>
                 <div className="text-xs text-muted-foreground">包含所有图片和说明文档</div>
@@ -194,9 +165,7 @@ export function DownloadMenu({ panels, title, script }: DownloadMenuProps) {
               disabled={status === "loading"}
               className="w-full px-3 py-2 text-left text-sm rounded-md hover:bg-accent flex items-center gap-3 disabled:opacity-50"
             >
-              <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-              </svg>
+              <FileText className="w-5 h-5 text-red-500" />
               <div>
                 <div className="font-medium">PDF 导出</div>
                 <div className="text-xs text-muted-foreground">漫画排版 A4 多页 PDF</div>
@@ -214,9 +183,7 @@ export function DownloadMenu({ panels, title, script }: DownloadMenuProps) {
               disabled={status === "loading"}
               className="w-full px-3 py-2 text-left text-sm rounded-md hover:bg-accent flex items-center gap-3 disabled:opacity-50"
             >
-              <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
+              <FileDown className="w-5 h-5 text-green-500" />
               <div>
                 <div className="font-medium">MD + 图片</div>
                 <div className="text-xs text-muted-foreground">Markdown 文档 + 图片打包</div>
@@ -241,9 +208,7 @@ export function DownloadMenu({ panels, title, script }: DownloadMenuProps) {
               disabled={status === "loading"}
               className="w-full px-3 py-2 text-left text-sm rounded-md hover:bg-accent flex items-center gap-3 disabled:opacity-50"
             >
-              <svg className="w-5 h-5 text-pink-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
-              </svg>
+              <LayoutGrid className="w-5 h-5 text-[#c4756a]" />
               <div>
                 <div className="font-medium">竖版长图</div>
                 <div className="text-xs text-muted-foreground">3:4 比例，适合单图笔记</div>
@@ -261,9 +226,7 @@ export function DownloadMenu({ panels, title, script }: DownloadMenuProps) {
               disabled={status === "loading"}
               className="w-full px-3 py-2 text-left text-sm rounded-md hover:bg-accent flex items-center gap-3 disabled:opacity-50"
             >
-              <svg className="w-5 h-5 text-pink-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-              </svg>
+              <Layers className="w-5 h-5 text-[#c4756a]" />
               <div>
                 <div className="font-medium">多图分页</div>
                 <div className="text-xs text-muted-foreground">每格独立图片，ZIP 打包</div>
@@ -290,9 +253,7 @@ export function DownloadMenu({ panels, title, script }: DownloadMenuProps) {
                   disabled={status === "loading"}
                   className="w-full px-3 py-2 text-left text-sm rounded-md hover:bg-accent flex items-center gap-3 disabled:opacity-50"
                 >
-                  <svg className="w-5 h-5 text-cyan-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  </svg>
+                  <Video className="w-5 h-5 text-cyan-500" />
                   <div>
                     <div className="font-medium">Seedance JSON</div>
                     <div className="text-xs text-muted-foreground">结构化分段脚本</div>
@@ -310,9 +271,7 @@ export function DownloadMenu({ panels, title, script }: DownloadMenuProps) {
                   disabled={status === "loading"}
                   className="w-full px-3 py-2 text-left text-sm rounded-md hover:bg-accent flex items-center gap-3 disabled:opacity-50"
                 >
-                  <svg className="w-5 h-5 text-cyan-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
+                  <FileDown className="w-5 h-5 text-cyan-500" />
                   <div>
                     <div className="font-medium">Seedance TXT</div>
                     <div className="text-xs text-muted-foreground">纯文本，可直接粘贴</div>
@@ -330,9 +289,7 @@ export function DownloadMenu({ panels, title, script }: DownloadMenuProps) {
                   disabled={status === "loading"}
                   className="w-full px-3 py-2 text-left text-sm rounded-md hover:bg-accent flex items-center gap-3 disabled:opacity-50"
                 >
-                  <svg className="w-5 h-5 text-cyan-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-                  </svg>
+                  <PackageOpen className="w-5 h-5 text-cyan-500" />
                   <div>
                     <div className="font-medium">Seedance ZIP</div>
                     <div className="text-xs text-muted-foreground">脚本 + 参考图打包</div>
@@ -391,9 +348,7 @@ export function SinglePanelDownload({
       {downloading ? (
         <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
       ) : (
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-        </svg>
+        <Download className="w-4 h-4" />
       )}
     </button>
   );

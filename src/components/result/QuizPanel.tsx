@@ -4,6 +4,8 @@ import { useState, useCallback } from "react";
 import { ComicScript, DifficultyLevel, QuizQuestion, PartialLLMConfig } from "@/lib/types";
 import { generateQuiz } from "@/lib/quizGenerator";
 import { Spinner } from "@/components/ui/Spinner";
+import { ClipboardList } from "lucide-react";
+
 
 interface QuizPanelProps {
   script: ComicScript;
@@ -120,9 +122,7 @@ export function QuizPanel({ script, difficulty = "medium", llmConfig, onQuizGene
     <div className="p-4 rounded-xl border bg-card space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-medium flex items-center gap-2">
-          <svg className="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-          </svg>
+          <ClipboardList className="w-4 h-4 text-primary" />
           知识测验
         </h3>
         <button

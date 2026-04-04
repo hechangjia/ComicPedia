@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ReferenceImageEntry, ReferenceGenMode, Character } from "@/lib/types";
+import { ChevronRight, Paperclip, Users, Save } from "lucide-react";
 import { Lightbox } from "./ref/RefShared";
 import { RefImageCard } from "./ref/RefImageCard";
 import { RefEditor } from "./ref/RefEditor";
@@ -9,6 +10,7 @@ import { RefImg2Img } from "./ref/RefImg2Img";
 import { RefAIGenerator, RefAIGenerateButton, parseCharacterNames } from "./ref/RefAIGenerator";
 import { RefCharacterPicker } from "./ref/RefCharacterPicker";
 import { RefUploader } from "./ref/RefUploader";
+
 
 /** 参考图面板组件 Props */
 interface ReferenceImagePanelProps {
@@ -306,12 +308,8 @@ export function ReferenceImagePanel(props: ReferenceImagePanelProps) {
 
       <details className="p-4 rounded-xl border bg-muted/30 no-print group">
         <summary className="flex items-center gap-2 text-sm font-medium cursor-pointer list-none [&::-webkit-details-marker]:hidden">
-          <svg className={`w-3 h-3 text-muted-foreground transition-transform group-open:rotate-90`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-          <svg className="w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-          </svg>
+          <ChevronRight className={`w-3 h-3 text-muted-foreground transition-transform group-open:rotate-90`} />
+          <Paperclip className="w-4 h-4 text-muted-foreground" />
           参考图（可选，支持多张）
           {hasImages && (
             <span className="text-xs text-muted-foreground font-normal">
@@ -416,9 +414,7 @@ export function ReferenceImagePanel(props: ReferenceImagePanelProps) {
                 : "border-blue-200 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20"
             }`}
           >
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
+            <Users className="w-3 h-3" />
             角色库
           </button>
 
@@ -439,9 +435,7 @@ export function ReferenceImagePanel(props: ReferenceImagePanelProps) {
               }}
               className="px-3 py-1.5 text-xs border border-green-200 text-green-600 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors min-h-[36px] flex items-center gap-1.5"
             >
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-              </svg>
+              <Save className="w-3 h-3" />
               保存
             </button>
           )}

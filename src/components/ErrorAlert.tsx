@@ -1,6 +1,7 @@
 "use client";
 
 import { ErrorSeverity } from "@/lib/errors";
+import { X } from "lucide-react";
 
 interface ErrorAlertProps {
   /** 消息内容 */
@@ -51,9 +52,7 @@ export function ErrorAlert({
           className="shrink-0 hover:opacity-70 transition-opacity"
           aria-label="关闭"
         >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          <X className="w-4 h-4" />
         </button>
       )}
     </div>

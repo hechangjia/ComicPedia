@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { CheckCircle, ChevronDown } from "lucide-react";
+
 
 interface ValidationWarning {
   severity: "critical" | "warning" | "info";
@@ -52,9 +54,7 @@ export function ScriptValidationPanel({ validation, repairRounds }: ScriptValida
         className="w-full p-3 flex items-center justify-between hover:bg-accent/50 transition-colors"
       >
         <div className="flex items-center gap-2">
-          <svg className="w-4 h-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
+          <CheckCircle className="w-4 h-4 text-amber-500" />
           <span className="text-sm font-medium">
             脚本质量检查
             {repairRounds ? <span className="text-xs text-green-600 dark:text-green-400 ml-1.5">（已自动修复 {repairRounds} 轮）</span> : null}
@@ -65,9 +65,7 @@ export function ScriptValidationPanel({ validation, repairRounds }: ScriptValida
             {infoCount > 0 && <span className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{infoCount} 建议</span>}
           </span>
         </div>
-        <svg className={`w-4 h-4 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
+        <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`} />
       </button>
 
       {expanded && (

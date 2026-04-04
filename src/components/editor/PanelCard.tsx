@@ -2,6 +2,9 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { ComicPanel, ComicStyle } from "@/lib/types";
+import { MoreVertical, X } from "lucide-react";
+
+
 
 interface PanelCardProps {
   panel: ComicPanel;
@@ -102,9 +105,7 @@ export function PanelCard({
               className="p-1.5 rounded-md hover:bg-muted transition-colors text-muted-foreground"
               aria-label="更多操作"
             >
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M10 6a2 2 0 110-4 2 2 0 010 4zm0 6a2 2 0 110-4 2 2 0 010 4zm0 6a2 2 0 110-4 2 2 0 010 4z" />
-              </svg>
+              <MoreVertical className="w-4 h-4" />
             </button>
             {menuOpen && (
               <>
@@ -148,9 +149,7 @@ export function PanelCard({
               className="p-1.5 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors text-muted-foreground hover:text-red-600"
               aria-label="删除面板"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              <X className="w-4 h-4" />
             </button>
           )}
         </div>

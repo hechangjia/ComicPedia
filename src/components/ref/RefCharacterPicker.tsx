@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Character } from "@/lib/types";
 import { getAllCharacters } from "@/lib/client/db";
+import { X } from "lucide-react";
+
 
 interface RefCharacterPickerProps {
   show: boolean;
@@ -55,9 +57,7 @@ export function RefCharacterPicker({ show, onClose, onImport }: RefCharacterPick
           onClick={onClose}
           className="w-5 h-5 flex items-center justify-center rounded-full hover:bg-accent text-muted-foreground"
         >
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          <X className="w-3 h-3" />
         </button>
       </div>
 

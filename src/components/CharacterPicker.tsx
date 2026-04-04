@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Character, ReferenceImageEntry, ComicStyle } from "@/lib/types";
 import { getAllCharacters } from "@/lib/client/db";
+import { ChevronDown, Users, X } from "lucide-react";
+
 
 interface CharacterPickerProps {
   /** 当前已选中的角色 ID 列表 */
@@ -101,9 +103,7 @@ export function CharacterPicker({
           disabled={disabled}
           className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
         >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
+          <Users className="w-4 h-4" />
           从角色库选择（可选）
         </button>
       </div>
@@ -119,21 +119,16 @@ export function CharacterPicker({
           disabled={disabled}
           className="flex items-center gap-2 text-sm font-medium hover:text-foreground transition-colors disabled:opacity-50"
         >
-          <svg className="w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
+          <Users className="w-4 h-4 text-muted-foreground" />
           角色库
           {selectedIds.length > 0 && (
             <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
               {selectedIds.length} 已选
             </span>
           )}
-          <svg
+          <ChevronDown
             className={`w-3 h-3 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`}
-            fill="none" viewBox="0 0 24 24" stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
+          />
         </button>
         {selectedIds.length > 0 && (
           <button
@@ -171,9 +166,7 @@ export function CharacterPicker({
                 disabled={disabled}
                 className="w-4 h-4 flex items-center justify-center rounded-full hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-500 transition-colors"
               >
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <X className="w-3 h-3" />
               </button>
             </div>
           ))}

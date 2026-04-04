@@ -5,6 +5,8 @@ import type { ComicPanel, ComicScript } from "@/lib/types";
 import { useScriptEditor } from "@/hooks/useScriptEditor";
 import { PanelCard } from "./PanelCard";
 import { EditorPreview } from "./EditorPreview";
+import { Redo2, Undo2 } from "lucide-react";
+
 
 interface ScriptEditorProps {
   script: ComicScript;
@@ -54,9 +56,7 @@ export function ScriptEditor({ script, onSave }: ScriptEditorProps) {
           className="px-3 py-1.5 text-xs border rounded-lg hover:bg-muted disabled:opacity-40 transition-colors flex items-center gap-1"
           title="撤销 (Ctrl+Z)"
         >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a5 5 0 015 5v2M3 10l4-4M3 10l4 4" />
-          </svg>
+          <Undo2 className="w-3.5 h-3.5" />
           撤销
         </button>
         <button
@@ -66,9 +66,7 @@ export function ScriptEditor({ script, onSave }: ScriptEditorProps) {
           title="重做 (Ctrl+Shift+Z)"
         >
           重做
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10H11a5 5 0 00-5 5v2m15-7l-4-4m4 4l-4 4" />
-          </svg>
+          <Redo2 className="w-3.5 h-3.5" />
         </button>
         <span className="text-xs text-muted-foreground ml-auto">{panels.length} 个面板</span>
       </div>

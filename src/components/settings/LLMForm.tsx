@@ -3,6 +3,8 @@ import { APIProvider } from "@/lib/types";
 import { LLM_PRESETS, type LLMPreset } from "@/lib/config/presets";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { useModelDiscovery } from "@/hooks/useModelDiscovery";
+import { RefreshCw } from "lucide-react";
+
 
 export interface LLMFormFields {
   name: string;
@@ -42,10 +44,10 @@ const VARIANT_STYLES = {
     modelPlaceholder: "gpt-4o-mini",
   },
   vlm: {
-    border: "border-violet-400/40 bg-violet-500/5",
-    active: "border-violet-500 bg-violet-500/10 ring-2 ring-violet-500",
-    hover: "hover:border-violet-500/50",
-    btn: "bg-violet-600 text-white",
+    border: "border-[#a99ad0]/40 bg-[#8b7eb5]/5",
+    active: "border-[#8b7eb5] bg-[#8b7eb5]/10 ring-2 ring-[#8b7eb5]",
+    hover: "hover:border-[#8b7eb5]/50",
+    btn: "bg-[#8b7eb5] text-white",
     label: "VLM",
     placeholder: "如：GPT-4o Vision、Qwen-VL",
     modelPlaceholder: "gpt-4o",
@@ -199,9 +201,7 @@ export function LLMForm({ fields, isEditing, onChange, onProviderChange, onSave,
                   </>
                 ) : (
                   <>
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
+                    <RefreshCw className="w-3 h-3" />
                     获取模型列表
                   </>
                 )}
