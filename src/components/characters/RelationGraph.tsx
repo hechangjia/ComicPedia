@@ -16,6 +16,8 @@ import type { Character, CharacterRelation, RelationType } from "@/lib/types";
 import { CharacterNode } from "./CharacterNode";
 import { RelationEdge, TYPE_COLORS, TYPE_LABELS } from "./RelationEdge";
 import { RelationDetailPanel } from "./RelationDetailPanel";
+import { Plus } from "lucide-react";
+
 import {
   RelationTimelineSlider,
   filterRelationsAtEpisode,
@@ -308,9 +310,7 @@ export function RelationGraph({
               : "bg-card/80 backdrop-blur hover:bg-accent border shadow-sm"
           }`}
         >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
+          <Plus className="w-3.5 h-3.5" />
           {addMode
             ? addFirst
               ? "点击第二个角色"
