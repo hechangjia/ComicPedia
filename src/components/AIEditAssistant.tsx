@@ -78,7 +78,7 @@ export function AIEditAssistant({ panel, script, panelIndex, llmConfig, onApply 
         )}
       </div>
 
-      {error && <p className="text-xs text-red-500">{error}</p>}
+      {error && <p className="text-xs text-error">{error}</p>}
 
       {suggestion && (
         <div className="p-3 rounded-lg bg-[#e8f4f2] dark:bg-[#3d8b84]/10 border border-[#3d8b84]/30 dark:border-[#3d8b84]/30 space-y-2">

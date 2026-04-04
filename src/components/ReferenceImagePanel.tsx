@@ -411,7 +411,7 @@ export function ReferenceImagePanel(props: ReferenceImagePanelProps) {
             className={`px-3 py-1.5 text-xs border rounded-lg transition-colors min-h-[36px] flex items-center gap-1.5 ${
               showCharacterPicker
                 ? "border-primary bg-primary/10 text-primary"
-                : "border-blue-200 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                : "border-info/20 text-info hover:bg-info/5"
             }`}
           >
             <Users className="w-3 h-3" />
@@ -433,7 +433,7 @@ export function ReferenceImagePanel(props: ReferenceImagePanelProps) {
               onClick={() => {
                 images.forEach((img, i) => saveToFileSystem(img, i));
               }}
-              className="px-3 py-1.5 text-xs border border-green-200 text-green-600 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors min-h-[36px] flex items-center gap-1.5"
+              className="px-3 py-1.5 text-xs border border-success/20 text-success rounded-lg hover:bg-success/5 transition-colors min-h-[36px] flex items-center gap-1.5"
             >
               <Save className="w-3 h-3" />
               保存
@@ -444,7 +444,7 @@ export function ReferenceImagePanel(props: ReferenceImagePanelProps) {
           {hasImages && (
             <button
               onClick={clearAll}
-              className="px-3 py-1.5 text-xs border border-red-200 text-red-600 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors min-h-[36px]"
+              className="px-3 py-1.5 text-xs border border-error/20 text-error rounded-lg hover:bg-error/5 transition-colors min-h-[36px]"
             >
               清除全部
             </button>
@@ -505,7 +505,7 @@ export function ReferenceImagePanel(props: ReferenceImagePanelProps) {
 
         {/* AI 生成错误提示 */}
         {aiError && (
-          <p className="text-xs text-red-500">{aiError}</p>
+          <p className="text-xs text-error">{aiError}</p>
         )}
         </div>
       </details>

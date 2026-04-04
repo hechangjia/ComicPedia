@@ -35,7 +35,7 @@ export function AccuracyProviderForm({
   onCancel,
 }: AccuracyProviderFormProps) {
   return (
-    <div className="p-4 rounded-lg border border-dashed border-amber-400/40 bg-amber-500/5 space-y-4">
+    <div className="p-4 rounded-lg border border-dashed border-warning/40 bg-warning/5 space-y-4">
       <h3 className="text-sm font-medium">
         {isEditing ? "编辑 Accuracy Provider" : "添加 Accuracy Provider"}
       </h3>
@@ -75,8 +75,8 @@ export function AccuracyProviderForm({
                 onClick={() => onChange({ kind: option.value })}
                 className={`p-2 rounded-lg border text-sm transition-all ${
                   fields.kind === option.value
-                    ? "border-amber-500 bg-amber-500/10 ring-2 ring-amber-500"
-                    : "hover:border-amber-500/50"
+                    ? "border-warning bg-warning/10 ring-2 ring-warning"
+                    : "hover:border-warning/50"
                 }`}
               >
                 {option.label}
@@ -101,8 +101,8 @@ export function AccuracyProviderForm({
                 })}
                 className={`p-2 rounded-lg border text-sm transition-all ${
                   fields.vendor === option.value
-                    ? "border-amber-500 bg-amber-500/10 ring-2 ring-amber-500"
-                    : "hover:border-amber-500/50"
+                    ? "border-warning bg-warning/10 ring-2 ring-warning"
+                    : "hover:border-warning/50"
                 }`}
               >
                 {option.label}
@@ -147,7 +147,7 @@ export function AccuracyProviderForm({
       <div className="flex items-center gap-2">
         <button
           onClick={onSave}
-          className="px-4 py-2 text-sm rounded-lg bg-amber-600 text-white hover:opacity-90 transition-opacity"
+          className="px-4 py-2 text-sm rounded-lg bg-warning text-white hover:opacity-90 transition-opacity"
         >
           {isEditing ? "保存修改" : "添加 Provider"}
         </button>

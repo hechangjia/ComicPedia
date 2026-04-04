@@ -420,7 +420,7 @@ export default function CharactersPage() {
                 onClick={handleClearAll}
                 className={`px-4 py-2 text-sm rounded-lg transition-colors ${
                   confirmClear
-                    ? "bg-red-600 text-white hover:bg-red-700"
+                    ? "bg-error text-white hover:bg-error/90"
                     : "border hover:bg-accent"
                 }`}
               >

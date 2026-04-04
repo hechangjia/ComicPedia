@@ -99,10 +99,10 @@ export function DownloadMenu({ panels, title, script }: DownloadMenuProps) {
             <div
               className={`px-4 py-2 text-sm border-b ${
                 status === "loading"
-                  ? "bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400"
+                  ? "bg-info/5 text-info bg-info/10 text-info"
                   : status === "success"
-                  ? "bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400"
-                  : "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400"
+                  ? "bg-success/5 text-success bg-success/10 text-success"
+                  : "bg-error/5 text-error bg-error/10 text-error"
               }`}
             >
               <div className="flex items-center gap-2">
@@ -147,7 +147,7 @@ export function DownloadMenu({ panels, title, script }: DownloadMenuProps) {
               disabled={status === "loading"}
               className="w-full px-3 py-2 text-left text-sm rounded-md hover:bg-accent flex items-center gap-3 disabled:opacity-50"
             >
-              <Archive className="w-5 h-5 text-blue-500" />
+              <Archive className="w-5 h-5 text-info" />
               <div>
                 <div className="font-medium">ZIP 打包</div>
                 <div className="text-xs text-muted-foreground">包含所有图片和说明文档</div>
@@ -165,7 +165,7 @@ export function DownloadMenu({ panels, title, script }: DownloadMenuProps) {
               disabled={status === "loading"}
               className="w-full px-3 py-2 text-left text-sm rounded-md hover:bg-accent flex items-center gap-3 disabled:opacity-50"
             >
-              <FileText className="w-5 h-5 text-red-500" />
+              <FileText className="w-5 h-5 text-error" />
               <div>
                 <div className="font-medium">PDF 导出</div>
                 <div className="text-xs text-muted-foreground">漫画排版 A4 多页 PDF</div>
@@ -183,7 +183,7 @@ export function DownloadMenu({ panels, title, script }: DownloadMenuProps) {
               disabled={status === "loading"}
               className="w-full px-3 py-2 text-left text-sm rounded-md hover:bg-accent flex items-center gap-3 disabled:opacity-50"
             >
-              <FileDown className="w-5 h-5 text-green-500" />
+              <FileDown className="w-5 h-5 text-success" />
               <div>
                 <div className="font-medium">MD + 图片</div>
                 <div className="text-xs text-muted-foreground">Markdown 文档 + 图片打包</div>

@@ -22,18 +22,18 @@ function actionabilityMeta(value: VisualDiagnosisPanel["issues"][number]["action
   if (value === "apply_directly") {
     return {
       label: "可直接执行",
-      tone: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+      tone: "bg-success/10 text-success",
     };
   }
   if (value === "confirm_first") {
     return {
       label: "建议确认后执行",
-      tone: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
+      tone: "bg-warning/10 text-warning",
     };
   }
   return {
     label: "高误判风险",
-    tone: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+    tone: "bg-error/10 text-error",
   };
 }
 
@@ -77,7 +77,7 @@ export function VisualDiagnosisAuditCard({
           React.createElement("p", { key: "evidence", className: "text-xs leading-relaxed" }, issue.evidence),
           React.createElement("p", { key: "dimensions", className: "text-[11px] text-muted-foreground" }, `影响维度：${issue.affectedDimensions.join(", ")}`),
           issue.falsePositiveRisk === "high"
-            ? React.createElement("p", { key: "risk", className: "text-[11px] text-red-600 dark:text-red-300" }, "高误判风险：建议人工确认后再做修改。")
+            ? React.createElement("p", { key: "risk", className: "text-[11px] text-error" }, "高误判风险：建议人工确认后再做修改。")
             : null,
         ]);
       }),
@@ -101,7 +101,7 @@ export function VisualDiagnosisAuditCard({
           "div",
           {
             key: "manual-note",
-            className: "rounded-lg border border-amber-300/60 bg-amber-50/70 p-2 text-[11px] text-amber-700 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300",
+            className: "rounded-lg border border-warning/30 bg-warning/5 p-2 text-[11px] text-warning",
           },
           "该问题建议人工确认后再修改，当前不提供直接执行按钮。",
         )
@@ -112,7 +112,7 @@ export function VisualDiagnosisAuditCard({
                 type: "button",
                 disabled: isRunning,
                 onClick: () => onApplyPatch(panel),
-                className: "rounded-lg border border-green-300 px-3 py-2 text-xs font-medium text-green-700 transition-colors hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-green-900 dark:text-green-300 dark:hover:bg-green-950/20",
+                className: "rounded-lg border border-success/30 px-3 py-2 text-xs font-medium text-success transition-colors hover:bg-success/5 disabled:cursor-not-allowed disabled:opacity-50",
               }, isRunning ? "修复中..." : "应用 patch")
             : null,
           isRewrite && onApplyRewrite
@@ -121,7 +121,7 @@ export function VisualDiagnosisAuditCard({
                 type: "button",
                 disabled: isRunning,
                 onClick: () => onApplyRewrite(panel),
-                className: "rounded-lg border border-blue-300 px-3 py-2 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-blue-900 dark:text-blue-300 dark:hover:bg-blue-950/20",
+                className: "rounded-lg border border-info/30 px-3 py-2 text-xs font-medium text-info transition-colors hover:bg-info/5 disabled:cursor-not-allowed disabled:opacity-50",
               }, isRunning ? "处理中..." : "应用重写版")
             : null,
         ]),
@@ -131,9 +131,9 @@ export function VisualDiagnosisAuditCard({
           {
             key: "repair-status",
             className: repairStatus.status === "failed"
-              ? "rounded-lg border border-red-300/60 bg-red-50/70 p-2 text-[11px] text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300"
+              ? "rounded-lg border border-error/30 bg-error/5 p-2 text-[11px] text-error"
               : repairStatus.status === "completed"
-                ? "rounded-lg border border-emerald-300/60 bg-emerald-50/70 p-2 text-[11px] text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-300"
+                ? "rounded-lg border border-success/30 bg-success/5 p-2 text-[11px] text-success"
                 : "rounded-lg border border-sky-300/60 bg-sky-50/70 p-2 text-[11px] text-sky-700 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-300",
           },
           repairStatus.message,
@@ -144,7 +144,7 @@ export function VisualDiagnosisAuditCard({
           "div",
           {
             key: "summary-risk",
-            className: "rounded-lg border border-red-300/60 bg-red-50/60 p-2 text-[11px] text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300",
+            className: "rounded-lg border border-error/30 bg-error/5 p-2 text-[11px] text-error",
           },
           "高误判风险",
         )

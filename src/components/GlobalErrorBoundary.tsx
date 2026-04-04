@@ -42,8 +42,8 @@ export class GlobalErrorBoundary extends React.Component<
       return (
         <div className="min-h-[60vh] flex items-center justify-center p-8">
           <div className="max-w-md w-full space-y-6 text-center">
-            <div className="w-16 h-16 mx-auto rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-              <AlertTriangle className="w-8 h-8 text-red-600 dark:text-red-400" />
+            <div className="w-16 h-16 mx-auto rounded-full bg-error/10 flex items-center justify-center">
+              <AlertTriangle className="w-8 h-8 text-error" />
             </div>
 
             <div className="space-y-2">

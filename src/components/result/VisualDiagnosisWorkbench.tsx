@@ -93,9 +93,9 @@ export function VisualDiagnosisWorkbench({
               {
                 key: "batch-status",
                 className: batchRepairStatus.status === "failed"
-                  ? "rounded-lg border border-red-300/60 bg-red-50/70 p-2 text-[11px] text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300"
+                  ? "rounded-lg border border-error/30 bg-error/5 p-2 text-[11px] text-error"
                   : batchRepairStatus.status === "completed"
-                    ? "rounded-lg border border-emerald-300/60 bg-emerald-50/70 p-2 text-[11px] text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-300"
+                    ? "rounded-lg border border-success/30 bg-success/5 p-2 text-[11px] text-success"
                     : "rounded-lg border border-sky-300/60 bg-sky-50/70 p-2 text-[11px] text-sky-700 dark:border-sky-900 dark:bg-sky-950/20 dark:text-sky-300",
               },
               batchRepairStatus.message,
@@ -103,9 +103,9 @@ export function VisualDiagnosisWorkbench({
           : null,
         React.createElement("div", { key: "items", className: "space-y-2" }, prioritizedPanels.map((panel: VisualDiagnosisPanel) => {
           const tone = panel.severity === "high"
-            ? "border-red-300 bg-red-50/70 text-red-700 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300"
+            ? "border-error/30 bg-error/5 text-error"
             : panel.severity === "medium"
-              ? "border-yellow-300 bg-yellow-50/70 text-yellow-700 dark:border-yellow-900 dark:bg-yellow-950/20 dark:text-yellow-300"
+              ? "border-warning/30 bg-warning/5 text-warning"
               : "border-slate-300 bg-slate-50/70 text-slate-700 dark:border-slate-700 dark:bg-slate-900/20 dark:text-slate-300";
           const selected = selectedPanel?.panelIndex === panel.panelIndex;
 

@@ -72,7 +72,7 @@ const GalleryCard = memo(function GalleryCard({ task, validPanels, featured, onO
           title={task.favorited ? "取消收藏" : "收藏"}
         >
           <svg
-            className={`w-4 h-4 ${task.favorited ? "text-red-500" : "text-white"}`}
+            className={`w-4 h-4 ${task.favorited ? "text-error" : "text-white"}`}
             viewBox="0 0 24 24"
             fill={task.favorited ? "currentColor" : "none"}
             stroke="currentColor"
@@ -662,7 +662,7 @@ export default function GalleryPage() {
           <button
             onClick={handleBatchDelete}
             disabled={selectedIds.size === 0 || batchDeleting}
-            className="px-3 py-1.5 text-xs border border-red-200 text-red-600 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
+            className="px-3 py-1.5 text-xs border border-error/20 text-error rounded-lg hover:bg-error/5 disabled:opacity-50"
           >
             {batchDeleting ? "删除中..." : `删除 (${selectedIds.size})`}
           </button>

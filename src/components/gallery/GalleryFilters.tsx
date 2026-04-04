@@ -122,7 +122,7 @@ export default function GalleryFilters({ filters, onFiltersChange, availableTags
           onClick={() => update({ favoritesOnly: !filters.favoritesOnly })}
           className={`px-3 py-1.5 text-xs rounded-lg border transition-colors min-h-[36px] flex items-center gap-1 ${
             filters.favoritesOnly
-              ? "bg-red-50 border-red-200 text-red-600 dark:bg-red-900/20 dark:border-red-800"
+              ? "bg-error/5 border-error/20 text-error bg-error/10 border-error/20"
               : "hover:bg-accent"
           }`}
           title="仅显示收藏"

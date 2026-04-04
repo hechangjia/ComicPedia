@@ -133,7 +133,7 @@ export function PoetryForm({ initialContent = "" }: { initialContent?: string })
           </div>
         </div>
 
-        <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 p-2 rounded">
+        <p className="text-xs text-warning bg-warning/5 p-2 rounded">
           提示：填写作者和时代可确保人物服饰、发型符合历史背景（如近现代人物穿中山装而非古装）
         </p>
 

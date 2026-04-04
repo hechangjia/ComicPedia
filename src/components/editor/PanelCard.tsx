@@ -132,7 +132,7 @@ export function PanelCard({
             <div className="flex items-center gap-1 text-xs">
               <button
                 onClick={() => { onDelete(index); setConfirmDelete(false); }}
-                className="px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700"
+                className="px-2 py-1 rounded bg-error text-white hover:bg-error/90"
               >
                 确认
               </button>
@@ -146,7 +146,7 @@ export function PanelCard({
           ) : (
             <button
               onClick={() => setConfirmDelete(true)}
-              className="p-1.5 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors text-muted-foreground hover:text-red-600"
+              className="p-1.5 rounded-md hover:bg-error/10 transition-colors text-muted-foreground hover:text-error"
               aria-label="删除面板"
             >
               <X className="w-4 h-4" />

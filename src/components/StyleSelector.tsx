@@ -77,7 +77,7 @@ export const StyleSelector = memo(function StyleSelector({
             onClick={() => setActiveGroup("recommended")}
             className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
               activeGroup === "recommended"
-                ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-300 dark:ring-emerald-700"
+                ? "bg-success/10 text-success ring-1 ring-success/30"
                 : "bg-muted text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -120,7 +120,7 @@ export const StyleSelector = memo(function StyleSelector({
                 <span className="text-lg">{meta.icon}</span>
                 <span className="font-medium text-sm">{meta.label}</span>
                 {isRecommended && activeGroup !== "recommended" && (
-                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-1 py-0.5 rounded">
+                  <span className="text-[10px] text-success bg-success/5 px-1 py-0.5 rounded">
                     荐
                   </span>
                 )}

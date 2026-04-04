@@ -22,8 +22,8 @@ const CHARACTER_REVIEW_LABELS = {
 
 const CHARACTER_REVIEW_BADGES = {
   unreviewed: "bg-slate-100/90 text-slate-700",
-  reviewed: "bg-emerald-100/90 text-emerald-700",
-  needs_repair: "bg-amber-100/90 text-amber-700",
+  reviewed: "bg-success/10 text-success",
+  needs_repair: "bg-warning/10 text-warning",
 } as const;
 
 export function CharacterCard({
@@ -166,7 +166,7 @@ export function CharacterCard({
           </button>
           <button
             onClick={onDelete}
-            className="w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-red-600 transition-colors"
+            className="w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-error/90 transition-colors"
             title="\u5220\u9664"
           >
             <Trash2 className="w-4 h-4" />

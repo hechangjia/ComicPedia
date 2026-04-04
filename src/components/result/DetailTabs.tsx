@@ -36,7 +36,7 @@ export function DetailTabs({ tabs }: DetailTabsProps) {
           >
             {tab.label}
             {tab.badge !== undefined && tab.badge > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 text-[10px] font-medium leading-none">
+              <span className="px-1.5 py-0.5 rounded-full bg-error/10 text-error text-[10px] font-medium leading-none">
                 {tab.badge}
               </span>
             )}

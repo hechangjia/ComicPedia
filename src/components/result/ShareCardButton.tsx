@@ -50,7 +50,7 @@ export function ShareCardButton({ script }: ShareCardButtonProps) {
               <Spinner size="sm" /> 生成中...
             </div>
           ) : status === "success" || status === "error" ? (
-            <div className={`px-3 py-2 text-sm ${status === "success" ? "text-green-600" : "text-red-500"}`}>
+            <div className={`px-3 py-2 text-sm ${status === "success" ? "text-success" : "text-error"}`}>
               {statusMsg}
             </div>
           ) : (

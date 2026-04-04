@@ -221,12 +221,12 @@ export default function SeriesPage() {
                           {validEpisodes.length} 集
                         </span>
                         {missingCount > 0 && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-warning/10 text-warning">
                             {missingCount} 已删除
                           </span>
                         )}
                         {completedEps > 0 && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-success/10 text-success">
                             {completedEps} 完成
                           </span>
                         )}
@@ -251,7 +251,7 @@ export default function SeriesPage() {
                       )}
                       <button
                         onClick={() => handleDelete(series.id)}
-                        className="text-xs text-red-500 hover:text-red-600 ml-auto"
+                        className="text-xs text-error hover:text-error ml-auto"
                         aria-label={`删除连载"${series.title}"`}
                       >
                         删除

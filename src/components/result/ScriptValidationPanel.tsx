@@ -25,9 +25,9 @@ interface ScriptValidationPanelProps {
 }
 
 const SEVERITY_STYLES = {
-  critical: { bg: "bg-red-50 dark:bg-red-900/20", border: "border-red-200 dark:border-red-800", text: "text-red-700 dark:text-red-300", label: "严重" },
-  warning: { bg: "bg-amber-50 dark:bg-amber-900/20", border: "border-amber-200 dark:border-amber-800", text: "text-amber-700 dark:text-amber-300", label: "警告" },
-  info: { bg: "bg-blue-50 dark:bg-blue-900/20", border: "border-blue-200 dark:border-blue-800", text: "text-blue-700 dark:text-blue-300", label: "建议" },
+  critical: { bg: "bg-error/10", border: "border-error/20", text: "text-error", label: "严重" },
+  warning: { bg: "bg-warning/10", border: "border-warning/20", text: "text-warning", label: "警告" },
+  info: { bg: "bg-info/10", border: "border-info/20", text: "text-info", label: "建议" },
 };
 
 const DIMENSION_LABELS: Record<string, string> = {
@@ -54,15 +54,15 @@ export function ScriptValidationPanel({ validation, repairRounds }: ScriptValida
         className="w-full p-3 flex items-center justify-between hover:bg-accent/50 transition-colors"
       >
         <div className="flex items-center gap-2">
-          <CheckCircle className="w-4 h-4 text-amber-500" />
+          <CheckCircle className="w-4 h-4 text-warning" />
           <span className="text-sm font-medium">
             脚本质量检查
-            {repairRounds ? <span className="text-xs text-green-600 dark:text-green-400 ml-1.5">（已自动修复 {repairRounds} 轮）</span> : null}
+            {repairRounds ? <span className="text-xs text-success ml-1.5">（已自动修复 {repairRounds} 轮）</span> : null}
           </span>
           <span className="flex items-center gap-1.5 text-xs">
-            {criticalCount > 0 && <span className="px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">{criticalCount} 严重</span>}
-            {warningCount > 0 && <span className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">{warningCount} 警告</span>}
-            {infoCount > 0 && <span className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{infoCount} 建议</span>}
+            {criticalCount > 0 && <span className="px-1.5 py-0.5 rounded bg-error/10 text-error">{criticalCount} 严重</span>}
+            {warningCount > 0 && <span className="px-1.5 py-0.5 rounded bg-warning/10 text-warning">{warningCount} 警告</span>}
+            {infoCount > 0 && <span className="px-1.5 py-0.5 rounded bg-info/10 text-info">{infoCount} 建议</span>}
           </span>
         </div>
         <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`} />

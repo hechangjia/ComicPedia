@@ -158,7 +158,7 @@ export const EditablePanel = memo(function EditablePanel({
             <p className="text-xs text-muted-foreground z-10">生成中...</p>
             <button
               onClick={() => onCancel(index)}
-              className="px-3 py-1.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-600 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors z-10"
+              className="px-3 py-1.5 text-xs bg-error/10 text-error rounded-lg transition-colors z-10"
               aria-label={`取消第 ${index + 1} 格图片生成`}
             >
               取消
@@ -166,10 +166,10 @@ export const EditablePanel = memo(function EditablePanel({
           </div>
         ) : panel.status === "failed" ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-            <p className="text-red-500 text-sm">生成失败</p>
+            <p className="text-error text-sm">生成失败</p>
             <button
               onClick={() => onRegenerate(index)}
-              className="px-3 py-1.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-600 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/50"
+              className="px-3 py-1.5 text-xs bg-error/10 text-error rounded-lg"
               aria-label={`重试第 ${index + 1} 格图片生成`}
             >
               重试

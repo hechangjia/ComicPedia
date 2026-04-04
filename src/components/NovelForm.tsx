@@ -141,7 +141,7 @@ export function NovelForm({ initialContent = "" }: { initialContent?: string }) 
           </div>
         </div>
 
-        <p className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-400 p-2 rounded">
+        <p className="text-xs text-warning bg-warning/5 p-2 rounded">
           提示：填写作品信息可帮助 AI 更准确地还原人物形象和时代背景
         </p>
 

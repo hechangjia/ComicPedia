@@ -149,14 +149,14 @@ export function FormLayout({ defaultTab = "wikipedia" }: FormLayoutProps) {
 
       {/* 连载上下文提示 */}
       {seriesInfo && (
-        <div className="p-3 rounded-lg border bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
+        <div className="p-3 rounded-lg border bg-info/10 border-info/20">
           <div className="flex items-center gap-2">
-            <Layers className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+            <Layers className="w-4 h-4 text-info shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
+              <p className="text-sm font-medium text-info">
                 续写连载：{seriesInfo.title} · 第 {seriesInfo.episodes.length + 1} 集
               </p>
-              <p className="text-xs text-blue-600 dark:text-blue-300 mt-0.5">
+              <p className="text-xs text-info mt-0.5">
                 已有 {seriesInfo.episodes.length} 集 · {STYLE_META[seriesInfo.style]?.label} 风格
                 {seriesInfo.characterDescription && " · 角色已继承"}
               </p>

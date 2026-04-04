@@ -288,7 +288,7 @@ export function WikipediaForm({ initialTopic = "" }: { initialTopic?: string }) 
                             onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                           />
                         ) : (
-                          <div className="w-10 h-10 rounded bg-muted flex items-center justify-center flex-shrink-0 text-lg font-bold text-blue-500">
+                          <div className="w-10 h-10 rounded bg-muted flex items-center justify-center flex-shrink-0 text-lg font-bold text-info">
                             W
                           </div>
                         )}
@@ -324,7 +324,7 @@ export function WikipediaForm({ initialTopic = "" }: { initialTopic?: string }) 
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="font-medium text-sm flex items-center gap-2">
-                <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-blue-500 text-white text-xs font-bold">W</span>
+                <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-info/50 text-white text-xs font-bold">W</span>
                 {selectedArticle.title}
               </h3>
               <div className="flex items-center gap-3">
@@ -333,7 +333,7 @@ export function WikipediaForm({ initialTopic = "" }: { initialTopic?: string }) 
                     href={selectedArticle.pageUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-xs text-blue-500 hover:text-blue-600 hover:underline transition-colors"
+                    className="text-xs text-info hover:text-info hover:underline transition-colors"
                   >
                     查看 Wikipedia 原文
                   </a>
@@ -419,7 +419,7 @@ export function WikipediaForm({ initialTopic = "" }: { initialTopic?: string }) 
                 <button
                   onClick={handleSummarize}
                   disabled={form.isLoading || isSummarizing || editedContent.length < 500}
-                  className="text-xs px-2.5 py-1 rounded-md border border-blue-300 text-blue-600 hover:bg-blue-50 hover:border-blue-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  className="text-xs px-2.5 py-1 rounded-md border border-info/30 text-info hover:bg-info/5 hover:border-info/40 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   {isSummarizing ? (
                     <span className="flex items-center gap-1">

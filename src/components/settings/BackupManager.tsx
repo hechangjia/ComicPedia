@@ -122,8 +122,8 @@ export function BackupManager({ className }: BackupManagerProps) {
         <div
           className={`text-sm p-3 rounded ${
             message.type === "success"
-              ? "bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-300"
-              : "bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-300"
+              ? "bg-success/5 text-success bg-success/10"
+              : "bg-error/5 text-error bg-error/10"
           }`}
         >
           {message.text}

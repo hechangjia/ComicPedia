@@ -81,7 +81,7 @@ export function CharacterDialog({
               <button
                 onClick={h.handleOpenWikiSearch}
                 disabled={h.wikiImporting || h.aiGenerating}
-                className="flex-1 px-3 py-2 text-xs border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+                className="flex-1 px-3 py-2 text-xs border border-info/20 text-info rounded-lg hover:bg-info/5 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
               >
                 {h.wikiImporting ? (
                   <>
@@ -143,7 +143,7 @@ export function CharacterDialog({
                             onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                           />
                         ) : (
-                          <div className="w-8 h-8 rounded bg-muted flex items-center justify-center flex-shrink-0 text-xs font-bold text-blue-500">
+                          <div className="w-8 h-8 rounded bg-muted flex items-center justify-center flex-shrink-0 text-xs font-bold text-info">
                             W
                           </div>
                         )}
@@ -152,8 +152,8 @@ export function CharacterDialog({
                             {result.title}
                             <span className={`ml-1.5 text-[10px] px-1 py-0.5 rounded ${
                               result.lang === "en"
-                                ? "bg-blue-100 dark:bg-blue-900/40 text-blue-500"
-                                : "bg-green-100 dark:bg-green-900/40 text-green-600"
+                                ? "bg-info/10 text-info"
+                                : "bg-success/10 text-success"
                             }`}>
                               {result.lang === "en" ? "EN" : "ZH"}
                             </span>
@@ -174,43 +174,43 @@ export function CharacterDialog({
                 )}
               </div>
             )}
-            {h.aiError && <p className="text-xs text-red-500">{h.aiError}</p>}
+            {h.aiError && <p className="text-xs text-error">{h.aiError}</p>}
 
             {/* Wikipedia 导入结果预览 */}
             {h.wikiImportResult && (
-              <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 space-y-2">
+              <div className="p-3 rounded-lg bg-info/10 border border-info/20 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-blue-700 dark:text-blue-300">Wikipedia 导入成功</span>
+                  <span className="text-xs font-medium text-info">Wikipedia 导入成功</span>
                   <button
                     onClick={() => h.setWikiImportResult(null)}
-                    className="text-xs text-blue-400 hover:text-blue-600 transition-colors"
+                    className="text-xs text-info/70 hover:text-info transition-colors"
                   >
                     关闭
                   </button>
                 </div>
-                <div className="flex flex-wrap gap-2 text-[10px] text-blue-600 dark:text-blue-400">
-                  <span className="px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/40 rounded">
+                <div className="flex flex-wrap gap-2 text-[10px] text-info">
+                  <span className="px-1.5 py-0.5 bg-info/10 rounded">
                     描述 {h.wikiImportResult.enDesc.length} 字符
                   </span>
                   {h.wikiImportResult.appearanceFields > 0 && (
-                    <span className="px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/40 rounded">
+                    <span className="px-1.5 py-0.5 bg-info/10 rounded">
                       外观 {h.wikiImportResult.appearanceFields} 项
                     </span>
                   )}
                   {h.wikiImportResult.thumbnail && (
-                    <span className="px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/40 rounded">
+                    <span className="px-1.5 py-0.5 bg-info/10 rounded">
                       参考图 1 张
                     </span>
                   )}
                   {h.wikiImportResult.tags > 0 && (
-                    <span className="px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/40 rounded">
+                    <span className="px-1.5 py-0.5 bg-info/10 rounded">
                       标签 {h.wikiImportResult.tags} 个
                     </span>
                   )}
                 </div>
                 {h.wikiImportResult.zhSummary && (
-                  <div className="text-xs text-blue-700 dark:text-blue-300 border-t border-blue-200 dark:border-blue-800 pt-2 mt-1">
-                    <span className="text-[10px] text-blue-400 block mb-0.5">中文摘要：</span>
+                  <div className="text-xs text-info border-t border-info/20 pt-2 mt-1">
+                    <span className="text-[10px] text-info/70 block mb-0.5">中文摘要：</span>
                     {h.wikiImportResult.zhSummary}
                   </div>
                 )}
@@ -394,7 +394,7 @@ export function CharacterDialog({
                       {index !== h.avatarIndex && (
                         <button
                           onClick={() => h.setAvatar(index)}
-                          className="w-5 h-5 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs shadow"
+                          className="w-5 h-5 rounded-full bg-info/50 text-white flex items-center justify-center text-xs shadow"
                           title="设为头像"
                         >
                           <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
@@ -418,7 +418,7 @@ export function CharacterDialog({
                       )}
                       <button
                         onClick={() => h.removeEntry(index)}
-                        className="w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center text-xs shadow"
+                        className="w-5 h-5 rounded-full bg-error/50 text-white flex items-center justify-center text-xs shadow"
                         title="删除"
                       >
                         <X className="w-3 h-3" />
@@ -483,7 +483,7 @@ export function CharacterDialog({
               )}
             </div>
             {h.aiError && (
-              <p className="text-xs text-red-500 w-full">{h.aiError}</p>
+              <p className="text-xs text-error w-full">{h.aiError}</p>
             )}
 
             <CharacterVLMPanel
@@ -500,7 +500,7 @@ export function CharacterDialog({
           {/* 操作按钮 */}
           <div className="space-y-2 pt-2">
             {saveSuccess && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400 text-sm">
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-success/10 border border-success/20 text-success text-sm">
                 <Check className="w-4 h-4 flex-shrink-0" />
                 已保存成功
               </div>

@@ -37,9 +37,9 @@ function statusIcon(status: PipelineStageTrace["status"]): string {
 
 function statusColor(status: PipelineStageTrace["status"]): string {
   switch (status) {
-    case "completed": return "bg-green-500 text-white";
-    case "running": return "bg-blue-500 text-white animate-pulse";
-    case "failed": return "bg-red-500 text-white";
+    case "completed": return "bg-success/50 text-white";
+    case "running": return "bg-info/50 text-white animate-pulse";
+    case "failed": return "bg-error/50 text-white";
     case "skipped": return "bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400";
     case "pending": return "bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500";
   }
@@ -47,9 +47,9 @@ function statusColor(status: PipelineStageTrace["status"]): string {
 
 function pillBorder(status: PipelineStageTrace["status"]): string {
   switch (status) {
-    case "completed": return "border-green-500/30";
-    case "running": return "border-blue-500/40";
-    case "failed": return "border-red-500/30";
+    case "completed": return "border-success/30";
+    case "running": return "border-info/40";
+    case "failed": return "border-error/30";
     default: return "border-border/30";
   }
 }
@@ -136,7 +136,7 @@ export function PipelineTimeline({ trace, onRetryStage }: PipelineTimelineProps)
               </div>
             )}
             {entry.error && (
-              <div className="text-red-500 dark:text-red-400 break-words">
+              <div className="text-error break-words">
                 错误: {entry.error}
               </div>
             )}
@@ -144,7 +144,7 @@ export function PipelineTimeline({ trace, onRetryStage }: PipelineTimelineProps)
               <button
                 type="button"
                 onClick={() => onRetryStage(entry.stage)}
-                className="mt-1 px-3 py-1 rounded bg-red-500 text-white text-[11px] hover:bg-red-600 transition-colors"
+                className="mt-1 px-3 py-1 rounded bg-error/50 text-white text-[11px] hover:bg-error/90 transition-colors"
               >
                 重试
               </button>

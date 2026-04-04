@@ -209,7 +209,7 @@ export function CompletedActions({
         <button
           onClick={handleShare}
           disabled={shareStatus === "sharing"}
-          className="px-4 sm:px-6 py-2 rounded-lg border border-blue-200 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 flex items-center gap-2 min-h-[44px] disabled:opacity-50"
+          className="px-4 sm:px-6 py-2 rounded-lg border border-info/20 text-info hover:bg-info/5 flex items-center gap-2 min-h-[44px] disabled:opacity-50"
         >
           <Share2 className="w-4 h-4" />
           {shareStatus === "sharing" ? "分享中..." : "分享"}
@@ -245,7 +245,7 @@ export function CompletedActions({
           onClick={() => setShowSeriesSelector(!showSeriesSelector)}
           className={`px-4 sm:px-6 py-2 rounded-lg border flex items-center gap-2 min-h-[44px] transition-colors ${
             addedToSeries
-              ? "border-green-300 text-green-600 bg-green-50 dark:bg-green-900/20"
+              ? "border-success/30 text-success bg-success/10"
               : "hover:bg-accent"
           }`}
         >

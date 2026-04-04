@@ -170,7 +170,7 @@ export default function MigratePage() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-6">
       <div className="max-w-2xl mx-auto">
-        <Link href="/" className="text-blue-600 dark:text-blue-400 hover:underline text-sm">
+        <Link href="/" className="text-info hover:underline text-sm">
           ← 返回首页
         </Link>
 
@@ -195,7 +195,7 @@ export default function MigratePage() {
             {stage === "uploading" && stats.total > 0 && (
               <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 mb-2">
                 <div
-                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                  className="bg-info h-2 rounded-full transition-all duration-300"
                   style={{ width: `${Math.round((stats.uploaded / stats.total) * 100)}%` }}
                 />
               </div>
@@ -215,7 +215,7 @@ export default function MigratePage() {
           <button
             onClick={startMigration}
             disabled={stage === "reading" || stage === "uploading"}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-6 py-2 bg-info text-white rounded-lg hover:bg-info/90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {stage === "idle" ? "开始迁移" : stage === "done" || stage === "error" ? "重新迁移" : "迁移中..."}
           </button>
@@ -223,7 +223,7 @@ export default function MigratePage() {
 
         {/* 日志 */}
         {logs.length > 0 && (
-          <div className="bg-gray-900 text-green-400 rounded-lg p-4 font-mono text-xs max-h-64 overflow-y-auto">
+          <div className="bg-gray-900 text-success rounded-lg p-4 font-mono text-xs max-h-64 overflow-y-auto">
             {logs.map((log, i) => (
               <div key={i}>{log}</div>
             ))}

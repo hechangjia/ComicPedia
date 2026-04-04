@@ -2,7 +2,7 @@
 
 export function ScoreBar({ label, score }: { label: string; score: number }) {
   const pct = score * 10;
-  const color = score >= 8 ? "bg-green-500" : score >= 6 ? "bg-yellow-500" : "bg-red-500";
+  const color = score >= 8 ? "bg-success/50" : score >= 6 ? "bg-warning/50" : "bg-error/50";
 
   return (
     <div className="space-y-0.5">

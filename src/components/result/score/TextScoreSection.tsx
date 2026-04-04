@@ -37,7 +37,7 @@ export function TextScoreSection({ score, loading, error, onEvaluate }: TextScor
             </>
           )}
         </button>
-        {error && <p className="text-xs text-red-500">{error}</p>}
+        {error && <p className="text-xs text-error">{error}</p>}
       </div>
     );
   }

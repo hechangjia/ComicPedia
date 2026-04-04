@@ -21,13 +21,13 @@ export function StorageIndicator() {
   const isLarge = usage.totalBytes > 500 * 1024 * 1024; // > 500MB
 
   return (
-    <div className={`flex items-center gap-2 text-xs ${isLarge ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
+    <div className={`flex items-center gap-2 text-xs ${isLarge ? "text-warning" : "text-muted-foreground"}`}>
       <Database className="w-3.5 h-3.5" />
       <span>
         {usage.count} 张图片 · {formatBytes(usage.totalBytes)}
       </span>
       {isLarge && (
-        <span className="text-[10px] bg-amber-100 dark:bg-amber-900/30 px-1.5 py-0.5 rounded">
+        <span className="text-[10px] bg-warning/10 px-1.5 py-0.5 rounded">
           存储较大
         </span>
       )}

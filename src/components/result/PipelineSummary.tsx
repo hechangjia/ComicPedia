@@ -21,8 +21,8 @@ export function PipelineSummary({ task }: PipelineSummaryProps) {
         {phases.map((phase, i) => (
           <div key={i} className="flex items-center gap-2">
             <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[8px] shrink-0 ${
-              phase.status === "done" ? "bg-green-500 text-white" :
-              phase.status === "failed" ? "bg-red-500 text-white" :
+              phase.status === "done" ? "bg-success/50 text-white" :
+              phase.status === "failed" ? "bg-error/50 text-white" :
               "bg-muted-foreground/20 text-muted-foreground"
             }`}>
               {phase.status === "done" ? (

@@ -9,8 +9,8 @@ const LEVELS: { value: DifficultyLevel; label: string; icon: string; desc: strin
 ];
 
 const COLOR_MAP: Record<string, { selected: string; hover: string }> = {
-  green: { selected: "border-green-500 bg-green-50 dark:bg-green-900/20 ring-2 ring-green-500/30", hover: "hover:border-green-300" },
-  blue: { selected: "border-blue-500 bg-blue-50 dark:bg-blue-900/20 ring-2 ring-blue-500/30", hover: "hover:border-blue-300" },
+  green: { selected: "border-success bg-success/10 ring-2 ring-success/30", hover: "hover:border-success/30" },
+  blue: { selected: "border-info bg-info/10 ring-2 ring-info/30", hover: "hover:border-info/30" },
   teal: { selected: "border-[#3d8b84] bg-[#e8f4f2] dark:bg-[#3d8b84]/10 ring-2 ring-[#3d8b84]/30", hover: "hover:border-[#3d8b84]/30" },
 };
 

@@ -48,19 +48,19 @@ export function ScriptReadyBar({
   onGenerateAll,
 }: ScriptReadyBarProps) {
   return (
-    <div className="p-4 rounded-xl border bg-blue-50 dark:bg-blue-900/20 space-y-3 no-print">
+    <div className="p-4 rounded-xl border bg-info/10 space-y-3 no-print">
       <div className="flex items-start gap-3">
-        <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+        <Info className="w-5 h-5 text-info mt-0.5 shrink-0" />
         <div className="flex-1 space-y-1">
-          <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
+          <p className="text-sm font-medium text-info">
             分镜脚本已就绪
             {completedPanels > 0 && (
-              <span className="ml-2 text-xs font-normal text-blue-600 dark:text-blue-300">
+              <span className="ml-2 text-xs font-normal text-info">
                 （已生成 {completedPanels}/{totalPanels} 张图片）
               </span>
             )}
           </p>
-          <p className="text-xs text-blue-600 dark:text-blue-300">
+          <p className="text-xs text-info">
             请审查每个分镜的提示词，点击编辑按钮可修改。确认无误后，可单独生成某个分镜的图片，或点击下方按钮一次性全部生成。
           </p>
         </div>
@@ -69,7 +69,7 @@ export function ScriptReadyBar({
         {/* LLM model selector + regenerate script */}
         {llmConfigs.length > 1 && (
           <div className="flex items-center gap-1.5">
-            <label className="text-xs text-blue-600 dark:text-blue-300 whitespace-nowrap">LLM:</label>
+            <label className="text-xs text-info whitespace-nowrap">LLM:</label>
             <select
               value={selectedLLMId}
               onChange={(e) => onSelectedLLMIdChange(e.target.value)}
@@ -85,7 +85,7 @@ export function ScriptReadyBar({
         )}
         <button
           onClick={onRegenerateScript}
-          className="px-3 py-2 text-sm border border-blue-300 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors flex items-center gap-1.5 min-h-[40px]"
+          className="px-3 py-2 text-sm border border-info/30 text-info rounded-lg hover:bg-info/10 transition-colors flex items-center gap-1.5 min-h-[40px]"
         >
           <RefreshCw className="w-4 h-4" />
           Regenerate Script
@@ -93,7 +93,7 @@ export function ScriptReadyBar({
         {/* Image model selector */}
         {imageConfigs.length > 1 && (
           <div className="flex items-center gap-1.5">
-            <label className="text-xs text-blue-600 dark:text-blue-300 whitespace-nowrap">文生图:</label>
+            <label className="text-xs text-info whitespace-nowrap">文生图:</label>
             <select
               value={selectedImageId}
               onChange={(e) => onSelectedImageIdChange(e.target.value)}

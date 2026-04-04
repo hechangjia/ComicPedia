@@ -55,7 +55,7 @@ export function RelatedTopicsPanel({ script, llmConfig, onRelatedTopicsGenerated
         </button>
       </div>
 
-      {error && <p className="text-sm text-red-500">{error}</p>}
+      {error && <p className="text-sm text-error">{error}</p>}
 
       {topics && topics.length > 0 && (
         <div className="flex gap-3 overflow-x-auto pb-2 snap-x scrollbar-hide">

@@ -172,8 +172,8 @@ export default function ResultPage() {
   if (error) {
     return (
       <div className="max-w-2xl mx-auto text-center space-y-4">
-        <div className="p-6 rounded-xl border bg-red-50 dark:bg-red-900/20">
-          <p className="text-red-600 dark:text-red-400">{error}</p>
+        <div className="p-6 rounded-xl border bg-error/10">
+          <p className="text-error">{error}</p>
         </div>
         <Link
           href="/"
@@ -311,7 +311,7 @@ export default function ResultPage() {
                         {a.rationale && <span className="text-muted-foreground/60 ml-1">({a.rationale})</span>}
                       </div>
                       {i === 0 && (
-                        <span className="shrink-0 px-1 py-0.5 rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-[10px]">
+                        <span className="shrink-0 px-1 py-0.5 rounded bg-success/10 text-success text-[10px]">
                           已采用
                         </span>
                       )}
@@ -441,7 +441,7 @@ export default function ResultPage() {
             <div className="flex justify-center">
               <button
                 onClick={() => cancelGeneration(taskId, -1)}
-                className="px-4 py-2 text-sm border border-red-300 text-red-600 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors flex items-center gap-2 min-h-[40px]"
+                className="px-4 py-2 text-sm border border-error/30 text-error rounded-lg hover:bg-error/5 transition-colors flex items-center gap-2 min-h-[40px]"
               >
                 <X className="w-4 h-4" />
                 取消生成
@@ -522,18 +522,18 @@ export default function ResultPage() {
 
       {/* 失败面板重试提示 */}
       {isScriptReady && failedPanels > 0 && completedPanels > 0 && (
-        <div className="p-4 rounded-xl border bg-amber-50 dark:bg-amber-900/20 no-print">
+        <div className="p-4 rounded-xl border bg-warning/5 no-print">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
-              <p className="text-sm text-amber-800 dark:text-amber-200">
+              <AlertTriangle className="w-5 h-5 text-warning shrink-0" />
+              <p className="text-sm text-warning">
                 {failedPanels} 个面板未完成（已完成 {completedPanels}/{totalPanels}）
               </p>
             </div>
             <button
               onClick={handleRetryFailed}
               disabled={generatingAll}
-              className="px-4 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-50 flex items-center gap-1.5 min-h-[40px] shrink-0"
+              className="px-4 py-2 text-sm bg-warning text-white rounded-lg hover:bg-warning/90 transition-colors disabled:opacity-50 flex items-center gap-1.5 min-h-[40px] shrink-0"
             >
               <RefreshCw className="w-4 h-4" />
               {generatingAll ? "重试中..." : `重试失败面板 (${failedPanels})`}
@@ -562,7 +562,7 @@ export default function ResultPage() {
 
       {/* 错误状态 */}
       {task.status === "failed" && (
-        <div className="p-4 rounded-xl border bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 no-print">
+        <div className="p-4 rounded-xl border bg-error/10 text-error no-print">
           {task.accuracyErrorSummary
             ? `高风险事实冲突，脚本未通过准确性校验（${task.accuracyErrorSummary.blockingIssueCount} 项）`
             : `生成失败：${task.error || "未知错误"}`}
@@ -571,11 +571,11 @@ export default function ResultPage() {
 
       {/* 操作错误提示（瞬态） */}
       {actionError && (
-        <div className="p-3 rounded-xl border bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 text-sm flex items-center justify-between no-print">
+        <div className="p-3 rounded-xl border bg-warning/5 text-warning text-sm flex items-center justify-between no-print">
           <span>{actionError}</span>
           <button
             onClick={clearActionError}
-            className="ml-2 p-1 rounded hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
+            className="ml-2 p-1 rounded hover:bg-warning/10 transition-colors"
           >
             <X className="w-4 h-4" />
           </button>

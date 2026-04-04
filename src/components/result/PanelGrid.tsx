@@ -47,10 +47,10 @@ const PANEL_REVIEW_LABELS: Record<PanelReviewStatus, string> = {
 };
 
 const PANEL_REVIEW_BADGES: Record<PanelReviewStatus, string> = {
-  reviewed: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-  needs_repair: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-  retrying: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-  failed: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  reviewed: "bg-success/10 text-success",
+  needs_repair: "bg-warning/10 text-warning",
+  retrying: "bg-info/10 text-info",
+  failed: "bg-error/10 text-error",
 };
 
 const TASK_REVIEW_LABELS: Record<ReviewStatus, string> = {
@@ -61,8 +61,8 @@ const TASK_REVIEW_LABELS: Record<ReviewStatus, string> = {
 
 const TASK_REVIEW_BADGES: Record<ReviewStatus, string> = {
   unreviewed: "bg-muted text-muted-foreground",
-  reviewed: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-  needs_repair: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  reviewed: "bg-success/10 text-success",
+  needs_repair: "bg-warning/10 text-warning",
 };
 
 const RETRY_STATUS_LABELS: Record<VisualRetryCycleStatus, string> = {
@@ -73,9 +73,9 @@ const RETRY_STATUS_LABELS: Record<VisualRetryCycleStatus, string> = {
 };
 
 const RETRY_STATUS_BADGES: Record<VisualRetryCycleStatus, string> = {
-  running: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-  completed: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-  failed: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  running: "bg-info/10 text-info",
+  completed: "bg-success/10 text-success",
+  failed: "bg-error/10 text-error",
   skipped: "bg-muted text-muted-foreground",
 };
 
@@ -176,10 +176,10 @@ export function PanelGrid({
           {reviews.length > 0 && (
             <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
               <span className="px-2 py-1 rounded-full bg-muted/70">已评审 {reviews.length}/{panels.length}</span>
-              {reviewedCount > 0 && <span className="px-2 py-1 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">通过 {reviewedCount}</span>}
-              {needsRepairCount > 0 && <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">待修复 {needsRepairCount}</span>}
-              {retryingCount > 0 && <span className="px-2 py-1 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">修复中 {retryingCount}</span>}
-              {failedCount > 0 && <span className="px-2 py-1 rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">失败 {failedCount}</span>}
+              {reviewedCount > 0 && <span className="px-2 py-1 rounded-full bg-success/10 text-success">通过 {reviewedCount}</span>}
+              {needsRepairCount > 0 && <span className="px-2 py-1 rounded-full bg-warning/10 text-warning">待修复 {needsRepairCount}</span>}
+              {retryingCount > 0 && <span className="px-2 py-1 rounded-full bg-info/10 text-info">修复中 {retryingCount}</span>}
+              {failedCount > 0 && <span className="px-2 py-1 rounded-full bg-error/10 text-error">失败 {failedCount}</span>}
             </div>
           )}
 

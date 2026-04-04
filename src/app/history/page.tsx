@@ -32,8 +32,8 @@ interface HistoryCardProps {
 }
 
 const REVIEW_BADGE_STYLES: Record<string, string> = {
-  reviewed: "bg-emerald-100/90 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400",
-  needs_repair: "bg-amber-100/90 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400",
+  reviewed: "bg-success/10 text-success",
+  needs_repair: "bg-warning/10 text-warning",
 };
 
 function ReviewBadge({ item }: { item: GenerateTask }) {
@@ -103,12 +103,12 @@ const HistoryCard = memo(function HistoryCard({
         <div
           className={`absolute top-2 right-2 px-2 py-0.5 text-xs rounded-full ${
             item.status === "completed"
-              ? "bg-green-500/90 text-white"
+              ? "bg-success text-white"
               : item.status === "script_ready"
-              ? "bg-blue-500/90 text-white"
+              ? "bg-info text-white"
               : item.status === "generating" || item.status === "scripting" || item.status === "pending"
-              ? "bg-yellow-500/90 text-white"
-              : "bg-red-500/90 text-white"
+              ? "bg-warning text-white"
+              : "bg-error text-white"
           }`}
         >
           {item.status === "completed" ? "已完成"
@@ -443,7 +443,7 @@ export default function HistoryPage() {
               onClick={handleClearAll}
               className={`px-4 py-2 text-sm rounded-lg transition-colors ${
                 confirmClear
-                  ? "bg-red-600 text-white hover:bg-red-700"
+                  ? "bg-error text-white hover:bg-error/90"
                   : "border hover:bg-accent"
               }`}
             >

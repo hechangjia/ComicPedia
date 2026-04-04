@@ -135,11 +135,11 @@ export function ImageForm({ fields, isEditing, onChange, onProviderChange, onSav
           {discovery.status !== "idle" && !isComfyUI && (
             <div className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded ${
               discovery.status === "success"
-                ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400"
-                : "bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400"
+                ? "bg-success/10 text-success"
+                : "bg-error/10 text-error"
             }`}>
               <span className={`w-1.5 h-1.5 rounded-full ${
-                discovery.status === "success" ? "bg-green-500" : "bg-red-500"
+                discovery.status === "success" ? "bg-success/50" : "bg-error/50"
               }`} />
               {discovery.status === "success"
                 ? `连接成功${discovery.models.length > 0 ? `，${discovery.models.length} 个可用模型` : ""}`

@@ -26,7 +26,7 @@ export function VisualDiagnosisPromptDiff({
         "div",
         {
           key: "value",
-          className: "rounded-lg border border-amber-300/60 bg-amber-50/60 p-2 text-xs leading-relaxed dark:border-amber-800 dark:bg-amber-950/20",
+          className: "rounded-lg border border-warning/30 bg-warning/5 p-2 text-xs leading-relaxed",
         },
         suggestedPrompt || "当前阶段暂无完整重写建议",
       ),

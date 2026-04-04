@@ -112,7 +112,7 @@ export function VisualScoreSection({
           )}
         </button>
         <p className="text-[10px] text-muted-foreground/60">需要视觉模型（GPT-4o / Qwen-VL / Claude）</p>
-        {error && <p className="text-xs text-red-500">{error}</p>}
+        {error && <p className="text-xs text-error">{error}</p>}
       </div>
     );
   }
@@ -240,7 +240,7 @@ export function VisualScoreSection({
                 ? "已生成结构化审计卡"
                 : "可针对低分格生成结构化审计卡"}
         </p>
-        {diagnosisError && <p className="text-xs text-red-500">{diagnosisError}</p>}
+        {diagnosisError && <p className="text-xs text-error">{diagnosisError}</p>}
       </div>
 
       {/* 每面板评分（可折叠） */}
@@ -249,9 +249,9 @@ export function VisualScoreSection({
           <p className="text-xs font-medium text-muted-foreground">面板详情：</p>
           <div className="flex flex-wrap gap-1">
             {score.panels.map((p) => {
-              const color = p.overall >= 8 ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                : p.overall >= 6 ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
-                : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
+              const color = p.overall >= 8 ? "bg-success/10 text-success"
+                : p.overall >= 6 ? "bg-warning/10 text-warning"
+                : "bg-error/10 text-error";
               return (
                 <button
                   key={p.panelIndex}

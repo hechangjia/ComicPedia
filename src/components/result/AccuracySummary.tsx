@@ -51,7 +51,7 @@ export function AccuracySummary({ task }: AccuracySummaryProps) {
         )}
 
         {blocked && (
-          <div className="p-2 rounded border border-red-200 bg-red-50 text-red-700">
+          <div className="p-2 rounded border border-error/20 bg-error/5 text-error">
             <p className="font-medium">高风险事实冲突：{blocked.blockingIssueCount} 项</p>
             <ul className="list-disc pl-4 mt-1 space-y-0.5">
               {blocked.panels.map((panel, index) => (

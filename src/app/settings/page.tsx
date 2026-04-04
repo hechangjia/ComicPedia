@@ -88,7 +88,7 @@ function WatermarkInput() {
         onClick={handleSave}
         className={`px-4 py-2 text-sm rounded-lg min-h-[44px] transition-colors ${
           saved
-            ? "bg-green-500 text-white"
+            ? "bg-success/50 text-white"
             : "bg-primary text-primary-foreground hover:opacity-90"
         }`}
       >
@@ -486,8 +486,8 @@ export default function SettingsPage() {
         <div
           className={`p-3 rounded-lg text-sm ${
             message.type === "success"
-              ? "bg-green-50 text-green-700 border border-green-200"
-              : "bg-red-50 text-red-700 border border-red-200"
+              ? "bg-success/5 text-success border border-success/20"
+              : "bg-error/5 text-error border border-error/20"
           }`}
         >
           {message.text}
@@ -501,7 +501,7 @@ export default function SettingsPage() {
           <div className="flex items-center gap-2">
             <span
               className={`w-3 h-3 rounded-full ${
-                validation.hasLLM ? "bg-green-500" : "bg-gray-300"
+                validation.hasLLM ? "bg-success/50" : "bg-gray-300"
               }`}
             ></span>
             <span className="text-sm">
@@ -512,7 +512,7 @@ export default function SettingsPage() {
           <div className="flex items-center gap-2">
             <span
               className={`w-3 h-3 rounded-full ${
-                validation.hasImage ? "bg-green-500" : "bg-gray-300"
+                validation.hasImage ? "bg-success/50" : "bg-gray-300"
               }`}
             ></span>
             <span className="text-sm">
@@ -523,7 +523,7 @@ export default function SettingsPage() {
           <div className="flex items-center gap-2">
             <span
               className={`w-3 h-3 rounded-full ${
-                validation.hasVLM ? "bg-green-500" : "bg-gray-300"
+                validation.hasVLM ? "bg-success/50" : "bg-gray-300"
               }`}
             ></span>
             <span className="text-sm">
@@ -749,14 +749,14 @@ export default function SettingsPage() {
       </div>
 
       {/* 危险区域 */}
-      <div className="p-6 rounded-xl border border-red-200 bg-red-50/50 space-y-4">
-        <h2 className="font-medium text-red-700">危险区域</h2>
-        <p className="text-xs text-red-600">
+      <div className="p-6 rounded-xl border border-error/20 bg-error/5 space-y-4">
+        <h2 className="font-medium text-error">危险区域</h2>
+        <p className="text-xs text-error">
           清除所有配置后，需要重新设置才能使用漫画生成功能。
         </p>
         <button
           onClick={handleClearAll}
-          className="px-4 py-2 rounded-lg border border-red-300 text-red-700 hover:bg-red-100 transition-colors text-sm"
+          className="px-4 py-2 rounded-lg border border-error/30 text-error hover:bg-error/10 transition-colors text-sm"
         >
           清除所有配置
         </button>

@@ -65,7 +65,7 @@ export function AccuracyProviderSection({
         {!showForm && (
           <button
             onClick={onStartNew}
-            className="px-3 py-1.5 text-sm rounded-lg bg-amber-600 text-white hover:opacity-90 transition-opacity"
+            className="px-3 py-1.5 text-sm rounded-lg bg-warning text-white hover:opacity-90 transition-opacity"
           >
             + 添加
           </button>
@@ -158,14 +158,14 @@ export function AccuracyProviderSection({
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium text-sm truncate">{provider.name}</span>
                       <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
-                        provider.enabled ? "bg-green-500/10 text-green-700" : "bg-muted text-muted-foreground"
+                        provider.enabled ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"
                       }`}>
                         {provider.enabled ? "启用" : "禁用"}
                       </span>
                       {slotBadges.map((badge) => (
                         <span
                           key={badge}
-                          className="text-xs px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-700 font-medium"
+                          className="text-xs px-1.5 py-0.5 rounded-full bg-warning/10 text-warning font-medium"
                         >
                           {badge}
                         </span>
@@ -205,7 +205,7 @@ export function AccuracyProviderSection({
                     </button>
                     <button
                       onClick={() => onDelete(provider.id)}
-                      className="px-2 py-1 text-xs rounded border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
+                      className="px-2 py-1 text-xs rounded border border-error/20 text-error hover:bg-error/5 transition-colors"
                     >
                       删除
                     </button>
@@ -215,8 +215,8 @@ export function AccuracyProviderSection({
                 {(test && test.status !== "idle" && test.status !== "testing") || provider.lastError ? (
                   <div className={`mt-2 p-2 rounded text-xs ${
                     (test?.status || provider.healthStatus) === "success"
-                      ? "bg-green-50 text-green-700 border border-green-200"
-                      : "bg-red-50 text-red-700 border border-red-200"
+                      ? "bg-success/5 text-success border border-success/20"
+                      : "bg-error/5 text-error border border-error/20"
                   }`}>
                     <div className="font-medium">
                       {test?.message || (provider.healthStatus === "success" ? "连接成功" : "连接失败")}

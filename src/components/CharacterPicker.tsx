@@ -134,7 +134,7 @@ export function CharacterPicker({
           <button
             onClick={clearSelection}
             disabled={disabled}
-            className="text-xs text-red-500 hover:text-red-600 transition-colors"
+            className="text-xs text-error hover:text-error transition-colors"
           >
             清除选择
           </button>
@@ -164,7 +164,7 @@ export function CharacterPicker({
               <button
                 onClick={() => toggleCharacter(char)}
                 disabled={disabled}
-                className="w-4 h-4 flex items-center justify-center rounded-full hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-500 transition-colors"
+                className="w-4 h-4 flex items-center justify-center rounded-full hover:bg-error/10 text-muted-foreground hover:text-error transition-colors"
               >
                 <X className="w-3 h-3" />
               </button>
@@ -243,7 +243,7 @@ export function CharacterPicker({
                     {/* 标签 */}
                     <div className="flex gap-1 mt-1.5 flex-wrap">
                       {styleMatch && (
-                        <span className="text-[9px] px-1 py-0.5 rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300">
+                        <span className="text-[9px] px-1 py-0.5 rounded bg-success/10 text-success">
                           风格匹配
                         </span>
                       )}

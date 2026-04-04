@@ -68,22 +68,22 @@ function computeComposite(task: GenerateTask): {
 }
 
 function scoreColor(score: number): string {
-  if (score >= 8) return "text-green-600 dark:text-green-400";
-  if (score >= 6) return "text-yellow-600 dark:text-yellow-400";
-  return "text-red-600 dark:text-red-400";
+  if (score >= 8) return "text-success";
+  if (score >= 6) return "text-warning";
+  return "text-error";
 }
 
 function dotColor(score: number | null): string {
   if (score === null) return "bg-gray-300 dark:bg-gray-600";
-  if (score >= 8) return "bg-green-500";
-  if (score >= 6) return "bg-yellow-500";
-  return "bg-red-500";
+  if (score >= 8) return "bg-success/50";
+  if (score >= 6) return "bg-warning/50";
+  return "bg-error/50";
 }
 
 function barColor(score: number): string {
-  if (score >= 8) return "bg-green-500";
-  if (score >= 6) return "bg-yellow-500";
-  return "bg-red-500";
+  if (score >= 8) return "bg-success/50";
+  if (score >= 6) return "bg-warning/50";
+  return "bg-error/50";
 }
 
 export { computeComposite };
@@ -120,7 +120,7 @@ export function CompositeScore({ task }: CompositeScoreProps) {
 
       {/* Issue badge */}
       {issueCount > 0 && (
-        <span className="px-1.5 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 text-[10px] font-medium">
+        <span className="px-1.5 py-0.5 rounded-full bg-error/10 text-error text-[10px] font-medium">
           {issueCount} 项问题
         </span>
       )}

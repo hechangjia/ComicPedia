@@ -155,7 +155,7 @@ export function OnboardingGuide({ hasLLM, hasImage, isLoaded }: OnboardingGuideP
               <div
                 className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
                   status === "completed"
-                    ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
+                    ? "bg-success/10 text-success"
                     : status === "current"
                     ? "bg-primary text-primary-foreground"
                     : "bg-muted text-muted-foreground"

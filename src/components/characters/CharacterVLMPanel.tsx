@@ -25,7 +25,7 @@ export function CharacterVLMPanel({
   return (
     <>
       {vlmError && (
-        <p className="text-xs text-red-500 w-full">{vlmError}</p>
+        <p className="text-xs text-error w-full">{vlmError}</p>
       )}
 
       {vlmScore && (

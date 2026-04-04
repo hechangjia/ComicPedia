@@ -298,7 +298,7 @@ function StepIndicator({ step, label, active, done }: { step: number; label: str
   return (
     <div className="flex items-center gap-1.5">
       <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold transition-colors ${
-        done ? "bg-green-500 text-white" :
+        done ? "bg-success/50 text-white" :
         active ? "bg-primary text-primary-foreground animate-pulse" :
         "bg-muted text-muted-foreground"
       }`}>
@@ -309,7 +309,7 @@ function StepIndicator({ step, label, active, done }: { step: number; label: str
         ) : step}
       </div>
       <span className={`transition-colors ${
-        done ? "text-green-600 dark:text-green-400" :
+        done ? "text-success" :
         active ? "text-foreground font-medium" :
         "text-muted-foreground"
       }`}>{label}</span>
@@ -319,6 +319,6 @@ function StepIndicator({ step, label, active, done }: { step: number; label: str
 
 function StepConnector({ done }: { done: boolean }) {
   return (
-    <div className={`w-6 h-px transition-colors ${done ? "bg-green-500" : "bg-muted-foreground/30"}`} />
+    <div className={`w-6 h-px transition-colors ${done ? "bg-success/50" : "bg-muted-foreground/30"}`} />
   );
 }

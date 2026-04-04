@@ -79,7 +79,7 @@ export function LLMConfigCard({
             onClick={() => {
               if (confirm(`确定删除配置「${c.name}」？`)) onDelete(c.id);
             }}
-            className="px-2 py-1 text-xs rounded border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
+            className="px-2 py-1 text-xs rounded border border-error/20 text-error hover:bg-error/5 transition-colors"
           >
             删除
           </button>
@@ -91,8 +91,8 @@ export function LLMConfigCard({
         <div
           className={`mt-2 p-2 rounded text-xs ${
             test.status === "success"
-              ? "bg-green-50 text-green-700 border border-green-200"
-              : "bg-red-50 text-red-700 border border-red-200"
+              ? "bg-success/5 text-success border border-success/20"
+              : "bg-error/5 text-error border border-error/20"
           }`}
         >
           <div className="font-medium">{test.message}</div>
