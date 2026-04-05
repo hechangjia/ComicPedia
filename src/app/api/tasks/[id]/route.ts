@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTaskById, upsertTask, deleteTask, patchTask } from "@/lib/server/db";
 import { extractTaskImagesAsync, trashTaskImages, restoreFileRefs, fileRefsToUrls } from "@/lib/server/imageExtractor";
+import { listTaskJobsByTaskId, summarizeTaskJobs } from "@/lib/server/taskOrchestrator/store";
 import type { GenerateTask } from "@/lib/types";
 
 interface RouteParams {
@@ -15,14 +16,18 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!task) {
       return NextResponse.json({ error: "任务不存在" }, { status: 404 });
     }
+    const enrichedTask: GenerateTask = {
+      ...task,
+      queueSummary: task.queueSummary ?? summarizeTaskJobs(await listTaskJobsByTaskId(task.id)),
+    };
 
     // withImages=base64 时还原为 base64（导出等场景），默认返回 /api/images/ URL
     const withImages = request.nextUrl.searchParams.get("withImages");
-    let result: unknown = task;
+    let result: unknown = enrichedTask;
     if (withImages === "base64") {
-      result = restoreFileRefs(task);
+      result = restoreFileRefs(enrichedTask);
     } else if (withImages !== "false") {
-      result = fileRefsToUrls(task);
+      result = fileRefsToUrls(enrichedTask);
     }
 
     return NextResponse.json(result);

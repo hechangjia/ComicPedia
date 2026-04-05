@@ -13,9 +13,17 @@ interface CreateTaskJobInput {
 
 const RUNNING_STATUS_SET = new Set<TaskJobStatus>(TASK_QUEUE_RUNNING_STATUSES);
 const FAILED_STATUS_SET = new Set<TaskJobStatus>(TASK_QUEUE_FAILED_STATUSES);
+let lastIssuedTimestampMs = 0;
+
+function nextIsoTimestamp(): string {
+  const now = Date.now();
+  const timestampMs = now <= lastIssuedTimestampMs ? lastIssuedTimestampMs + 1 : now;
+  lastIssuedTimestampMs = timestampMs;
+  return new Date(timestampMs).toISOString();
+}
 
 export async function createTaskJob(input: CreateTaskJobInput): Promise<TaskJobRecord> {
-  const now = new Date().toISOString();
+  const now = nextIsoTimestamp();
   const job: TaskJobRecord = {
     id: randomUUID(),
     taskId: input.taskId,
