@@ -14,6 +14,13 @@ import { StorageIndicator } from "@/components/StorageIndicator";
 import { Spinner } from "@/components/ui/Spinner";
 import { ChevronLeft, Clock, Download, Image as ImageIcon, Trash2, Upload, X } from "lucide-react";
 
+const ACTIVE_SCRIPT_STATUSES = new Set<GenerateTask["status"]>([
+  "pending",
+  "scripting",
+  "created",
+  "research_running",
+  "script_running",
+]);
 
 /** 从 STYLE_DESCRIPTIONS 提取简短中文名称 */
 const styleNames: Record<string, string> = Object.fromEntries(
@@ -106,7 +113,7 @@ const HistoryCard = memo(function HistoryCard({
               ? "bg-success text-white"
               : item.status === "script_ready"
               ? "bg-info text-white"
-              : item.status === "generating" || item.status === "scripting" || item.status === "pending"
+              : item.status === "generating" || ACTIVE_SCRIPT_STATUSES.has(item.status)
               ? "bg-warning text-white"
               : "bg-error text-white"
           }`}
@@ -114,6 +121,9 @@ const HistoryCard = memo(function HistoryCard({
           {item.status === "completed" ? "已完成"
             : item.status === "script_ready" ? "待生成"
             : item.status === "generating" ? "生成中"
+            : item.status === "created" ? "已创建"
+            : item.status === "research_running" ? "研究中"
+            : item.status === "script_running" ? "脚本生成中"
             : item.status === "scripting" ? "脚本生成中"
             : item.status === "pending" ? "等待中"
             : "失败"}
@@ -189,7 +199,7 @@ export default function HistoryPage() {
       const result = await getAllComics(page, 50);
 
       const tasks = result.items;
-      // 恢复僵尸状态的任务（generating/scripting 但实际已中断）
+      // 恢复僵尸状态的任务（仅限本地浏览器驱动的 generating/scripting）
       const zombieIds = tasks
         .filter((t) => t.status === "generating" || t.status === "scripting")
         .map((t) => t.id);

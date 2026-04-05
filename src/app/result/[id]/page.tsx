@@ -4,7 +4,7 @@ import { useState, useMemo, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { ComicStyle, QuizQuestion, RelatedTopic } from "@/lib/types";
+import { ComicStyle, GenerateTaskStatus, QuizQuestion, RelatedTopic } from "@/lib/types";
 import { cancelGeneration } from "@/lib/client/generator";
 import { saveTask } from "@/lib/client/db";
 import { downloadTextFile } from "@/lib/downloadUtils";
@@ -46,6 +46,14 @@ const ReferenceImagePanel = dynamic(() =>
 const DynamicPlayer = dynamic(() =>
   import("@/components/DynamicPlayer").then((m) => ({ default: m.DynamicPlayer }))
 );
+
+const SCRIPT_IN_PROGRESS_STATUSES = new Set<GenerateTaskStatus>([
+  "pending",
+  "scripting",
+  "created",
+  "research_running",
+  "script_running",
+]);
 
 export default function ResultPage() {
   const params = useParams();
@@ -195,11 +203,16 @@ export default function ResultPage() {
     );
   }
 
-  const isScripting = task.status === "scripting" || task.status === "pending";
+  const isScripting = SCRIPT_IN_PROGRESS_STATUSES.has(task.status);
   const isScriptReady = task.status === "script_ready";
   const isGenerating = task.status === "generating";
   const isCompleted = task.status === "completed";
   const showAnimation = isScripting || isGenerating;
+  const animationStatus = isGenerating
+    ? "generating"
+    : task.status === "created"
+    ? "pending"
+    : "scripting";
 
   const totalPanels = task.script?.panels.length ?? 0;
   const completedPanels = task.script?.panels.filter(p => p.status === "completed").length ?? 0;
@@ -430,7 +443,7 @@ export default function ResultPage() {
       {showAnimation && (
         <div className="no-print space-y-3">
           <GeneratingAnimation
-            status={task.status as "scripting" | "generating" | "pending"}
+            status={animationStatus}
             progress={task.progress}
             taskId={taskId}
             totalPanels={totalPanels}

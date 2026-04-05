@@ -210,6 +210,7 @@ describe("task runtime task creation", () => {
       status: "created",
       progress: 0,
       presetSnapshot: requestPayload.presetSnapshot,
+      requestSnapshot: requestPayload,
     });
     expect(persistedTask.createdAt).toBeInstanceOf(Date);
     expect(persistedTask.updatedAt).toBeInstanceOf(Date);

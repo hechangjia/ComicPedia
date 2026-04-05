@@ -76,6 +76,7 @@ export async function POST(request: NextRequest) {
         status: "created",
         progress: 0,
         presetSnapshot: createRequest.presetSnapshot,
+        requestSnapshot: createRequest,
         createdAt: now,
         updatedAt: now,
       };

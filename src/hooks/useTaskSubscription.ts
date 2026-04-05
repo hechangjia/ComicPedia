@@ -7,8 +7,7 @@ import { useTaskStore } from "@/stores/taskStore";
 /** Terminal states that no longer need polling */
 const TERMINAL_STATUSES = new Set<GenerateTask["status"]>(["completed", "failed"]);
 
-/** Active states where real-time updates come via notifyListeners → Zustand store.
- *  Polling from server would return stale data and cause UI flickering. */
+/** Browser-owned active states where real-time updates come via notifyListeners → Zustand store. */
 const REALTIME_STATUSES = new Set<GenerateTask["status"]>(["generating", "scripting", "pending"]);
 
 /**
@@ -121,6 +120,9 @@ export function useTaskSubscription(taskId: string) {
 function getPollingInterval(task: GenerateTask | null): number {
   if (!task) return 2000;
   switch (task.status) {
+    case "created":
+    case "research_running":
+    case "script_running":
     case "scripting":
     case "generating":
     case "pending":

@@ -95,8 +95,8 @@ async function apiCall<T>(url: string, options?: RequestInit): Promise<T> {
 /** 终态集合：仅这些状态会触发 API 同步 */
 const SYNC_STATUSES = new Set(['completed', 'failed', 'script_ready']);
 
-/** 活跃状态集合：L3 为权威源，禁止 L1 回写覆盖 */
-const ACTIVE_STATUSES = new Set(['generating', 'scripting']);
+/** 本地浏览器仍在直接驱动的活跃状态：L3 为权威源，禁止 L1 回写覆盖 */
+const LOCAL_ACTIVE_STATUSES = new Set(['generating', 'scripting']);
 
 // ── 缓存操作（带错误日志）────────────────────────────────────
 
@@ -187,7 +187,7 @@ export async function getTask(id: string): Promise<GenerateTask | undefined> {
   // 先检查 L3，如果处于活跃状态则直接返回，跳过 L1 读取和 L2 回写。
   const { useTaskStore } = await import("@/stores/taskStore");
   const storeTask = useTaskStore.getState().tasks[id];
-  if (storeTask && ACTIVE_STATUSES.has(storeTask.status)) {
+  if (storeTask && LOCAL_ACTIVE_STATUSES.has(storeTask.status)) {
     return storeTask;
   }
 
@@ -197,7 +197,7 @@ export async function getTask(id: string): Promise<GenerateTask | undefined> {
 
     // 二次检查：在 await 期间 L3 可能已更新为活跃状态
     const freshStoreTask = useTaskStore.getState().tasks[id];
-    if (freshStoreTask && ACTIVE_STATUSES.has(freshStoreTask.status)) {
+    if (freshStoreTask && LOCAL_ACTIVE_STATUSES.has(freshStoreTask.status)) {
       return freshStoreTask;
     }
 

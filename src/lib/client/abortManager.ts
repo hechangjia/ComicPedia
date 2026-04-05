@@ -2,6 +2,9 @@ import { GenerateTask } from "@/lib/types";
 import { saveTask, getTask } from "./db";
 import { notifyListeners } from "./eventBus";
 
+const RECOVERABLE_LOCAL_STATUSES = new Set<GenerateTask["status"]>(["generating", "scripting"]);
+const SERVER_OWNED_SCRIPT_STATUSES = new Set<GenerateTask["status"]>(["created", "research_running", "script_running"]);
+
 // ============================================================
 // AbortController 管理
 // ============================================================
@@ -75,13 +78,15 @@ export function cancelGeneration(taskId: string, panelIndex: number = -1): void 
 /**
  * 恢复僵尸状态的任务。
  * 当页面刷新导致内存中的 AbortController 丢失时，
- * IndexedDB 中的任务可能卡在 generating/scripting 状态。
+ * 本地浏览器驱动的任务可能卡在 generating/scripting 状态。
+ * 服务端驱动的 created/research_running/script_running 任务不应在客户端被“恢复”。
  */
 export async function recoverZombieTask(taskId: string): Promise<boolean> {
   const task = await getTask(taskId);
   if (!task) return false;
 
-  if (task.status !== "generating" && task.status !== "scripting") return false;
+  if (SERVER_OWNED_SCRIPT_STATUSES.has(task.status)) return false;
+  if (!RECOVERABLE_LOCAL_STATUSES.has(task.status)) return false;
 
   const hasActiveController = Array.from(abortControllers.keys()).some(
     (key) => key.startsWith(`${taskId}:`)

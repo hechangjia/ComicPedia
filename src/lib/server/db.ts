@@ -203,6 +203,7 @@ function taskToRow(task: GenerateTask) {
   if (task.accuracyErrorSummary) metadata.accuracyErrorSummary = task.accuracyErrorSummary;
   if (task.narrativeOutline) metadata.narrativeOutline = task.narrativeOutline;
   if (task.generationConfig) metadata.generationConfig = task.generationConfig;
+  if (task.requestSnapshot) metadata.requestSnapshot = task.requestSnapshot;
   if (task.visualRepairExecution) metadata.visualRepairExecution = task.visualRepairExecution;
   if (task.queueSummary !== undefined) metadata.queueSummary = task.queueSummary;
   if (task.presetSnapshot !== undefined) metadata.presetSnapshot = task.presetSnapshot;
@@ -483,6 +484,7 @@ function rowToTask(row: Record<string, unknown>): GenerateTask {
     accuracyErrorSummary: meta.accuracyErrorSummary as GenerateTask["accuracyErrorSummary"],
     narrativeOutline: meta.narrativeOutline as GenerateTask["narrativeOutline"],
     generationConfig: meta.generationConfig as GenerateTask["generationConfig"],
+    requestSnapshot: meta.requestSnapshot as GenerateTask["requestSnapshot"],
     visualRepairExecution: meta.visualRepairExecution as GenerateTask["visualRepairExecution"],
     queueSummary: meta.queueSummary as GenerateTask["queueSummary"],
     presetSnapshot: meta.presetSnapshot as GenerateTask["presetSnapshot"],
