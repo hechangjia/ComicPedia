@@ -433,6 +433,36 @@ describe("image queue runner", () => {
     );
   });
 
+  it("marks a first-time attach_failed panel as failed instead of leaving it generating", async () => {
+    state.setTask(makeTask());
+    state.runComfyWorkflowMock.mockResolvedValue({
+      image: "data:image/png;base64,FIRST",
+      promptId: "pid-first-attach",
+      seed: 11,
+    });
+
+    const { enqueuePanelImageJobs, runTaskImageQueue } = await import("@/lib/server/taskOrchestrator/imageRunner");
+
+    await enqueuePanelImageJobs("task-image-queue", {
+      panelIndices: [0],
+      imageConfig: comfyImageConfig,
+    });
+
+    state.failNextTaskAttach = true;
+    await runTaskImageQueue("task-image-queue");
+
+    const failedJob = state.getJobs("task-image-queue")[0];
+    const failedTask = state.getTask("task-image-queue");
+
+    expect(failedJob).toEqual(expect.objectContaining({
+      status: "attach_failed",
+      outputFileKey: expect.any(String),
+    }));
+    expect(failedTask?.status).toBe("image_queue_paused");
+    expect(failedTask?.script?.panels[0].status).toBe("failed");
+    expect(failedTask?.script?.panels[0].imageUrl).toBeUndefined();
+  });
+
   it("processes jobs that are enqueued while the queue is already running", async () => {
     state.setTask(makeTask());
     const runner = await import("@/lib/server/taskOrchestrator/imageRunner");

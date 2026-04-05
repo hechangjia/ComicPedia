@@ -840,6 +840,16 @@ export async function runTaskImageQueue(taskId: string, fallbackInput?: RunTaskI
           latestTask.updatedAt = new Date();
           upsertTask(latestTask);
         }
+      } else if (failedStatus === "attach_failed") {
+        const latestTask = getTaskById(taskId);
+        if (latestTask?.script) {
+          const latestPanel = getPanel(latestTask, panelIndex);
+          latestPanel.imageUrl = undefined;
+          latestPanel.status = "failed";
+          latestPanel.activeVersionIndex = previousPanelState.activeVersionIndex;
+          latestTask.updatedAt = new Date();
+          upsertTask(latestTask);
+        }
       }
       upsertTaskJob(updateJob(liveJob, {
         status: failedStatus,
