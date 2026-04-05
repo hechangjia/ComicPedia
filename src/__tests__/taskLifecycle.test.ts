@@ -420,6 +420,54 @@ describe("taskLifecycle automatic visual review", () => {
     urlToBase64Mock.mockResolvedValue("data:image/png;base64,retried-panel");
     withRetryMock.mockResolvedValue("https://example.com/retried-panel.png");
     mergeReferenceImageMock.mockImplementation((config) => config);
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockRejectedValue(new TypeError("Failed to parse URL from /api/tasks/task/actions"));
+  });
+
+  it("posts a generate_all_images task action before using the local image pipeline", async () => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValue(
+      mockJsonResponse({
+        success: true,
+      }),
+    );
+
+    await generateAllImages("task-server-actions", {
+      extraBody: {
+        negative_prompt: "keep details",
+      },
+    }, true, {
+      provider: "openai-compatible",
+      model: "gpt-4o",
+      apiKey: "test-key",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/tasks/task-server-actions/actions",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "generate_all_images",
+          imageConfig: {
+            extraBody: {
+              negative_prompt: "keep details",
+            },
+          },
+          forceAll: true,
+          llmConfig: {
+            provider: "openai-compatible",
+            model: "gpt-4o",
+            apiKey: "test-key",
+          },
+        }),
+      }),
+    );
+    expect(getTaskMock).not.toHaveBeenCalled();
+    expect(saveTaskMock).not.toHaveBeenCalled();
+    expect(evaluateQualityMock).not.toHaveBeenCalled();
   });
 
   it("persists visual review projection onto the refreshed task snapshot after fine generation completes", async () => {

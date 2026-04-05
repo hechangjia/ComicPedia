@@ -21,6 +21,44 @@ function initTrace(task: GenerateTask): void {
 const traceStart = traceStartShared;
 const traceEnd = traceEndShared;
 
+type TaskActionBody = {
+  action: string;
+  imageConfig?: PartialImageGenConfig;
+  forceAll?: boolean;
+  llmConfig?: PartialLLMConfig;
+};
+
+type TaskActionError = Error & {
+  status?: number;
+};
+
+async function postTaskAction(taskId: string, body: TaskActionBody): Promise<void> {
+  const response = await fetch(`/api/tasks/${taskId}/actions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const responseBody = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const error = new Error(responseBody.error || `API error: ${response.status}`) as TaskActionError;
+    error.status = response.status;
+    throw error;
+  }
+}
+
+function shouldFallbackToLegacyTaskAction(error: unknown): boolean {
+  if (error instanceof TypeError) {
+    return true;
+  }
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return true;
+  }
+
+  const status = (error as TaskActionError | undefined)?.status;
+  return status === 404 || status === 405 || status === 501;
+}
+
 // ============================================================
 // 阶段 1：仅生成分镜脚本（停在 script_ready）
 // ============================================================
@@ -208,6 +246,29 @@ export async function changeStyleAndRegenerate(
  * 跳过已有图片（status=completed）的面板，除非 forceAll=true。
  */
 export async function generateAllImages(
+  taskId: string,
+  imageConfig?: PartialImageGenConfig,
+  forceAll: boolean = false,
+  llmConfig?: PartialLLMConfig,
+): Promise<void> {
+  try {
+    await postTaskAction(taskId, {
+      action: "generate_all_images",
+      imageConfig,
+      forceAll,
+      llmConfig,
+    });
+    return;
+  } catch (error) {
+    if (!shouldFallbackToLegacyTaskAction(error)) {
+      throw error;
+    }
+  }
+
+  return generateAllImagesLegacy(taskId, imageConfig, forceAll, llmConfig);
+}
+
+async function generateAllImagesLegacy(
   taskId: string,
   imageConfig?: PartialImageGenConfig,
   forceAll: boolean = false,
