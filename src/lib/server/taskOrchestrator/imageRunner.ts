@@ -616,6 +616,7 @@ async function generateOrResumeComfyPanelImage(
   panelIndex: number,
   imageConfig: PartialImageGenConfig,
   job: TaskJobRecord,
+  onJobUpdate?: (job: TaskJobRecord) => void,
 ): Promise<{ image: string; promptSnapshot: string; job: TaskJobRecord }> {
   const panel = getPanel(task, panelIndex);
   const directorComposition = task.narrativeOutline?.panels[panelIndex]?.suggestedComposition;
@@ -671,6 +672,7 @@ async function generateOrResumeComfyPanelImage(
       submittedAt: nowIso(),
     });
     upsertTaskJob(nextJob);
+    onJobUpdate?.(nextJob);
   }
 
   const result = await waitForComfyWorkflowResult({
@@ -899,7 +901,15 @@ export async function runTaskImageQueue(taskId: string, fallbackInput?: RunTaskI
 
         let generated: { image: string; promptSnapshot: string };
         if (imageConfig.endpointType === "comfyui") {
-          const comfyGenerated = await generateOrResumeComfyPanelImage(task, panelIndex, imageConfig, liveJob);
+          const comfyGenerated = await generateOrResumeComfyPanelImage(
+            task,
+            panelIndex,
+            imageConfig,
+            liveJob,
+            (nextJob) => {
+              liveJob = nextJob;
+            },
+          );
           liveJob = comfyGenerated.job;
           generated = comfyGenerated;
         } else {

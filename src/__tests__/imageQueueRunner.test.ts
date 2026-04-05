@@ -509,6 +509,35 @@ describe("image queue runner", () => {
     expect(state.getTask("task-image-queue")?.script?.panels[0].imageUrl).toMatch(/^file:\/\//);
   });
 
+  it("preserves a submitted ComfyUI prompt id on failure so the job can be recovered later", async () => {
+    state.setTask(makeTask());
+    state.submitComfyWorkflowMock.mockResolvedValue({
+      promptId: "pid-timeout",
+      seed: 99,
+    });
+    state.waitForComfyWorkflowResultMock.mockRejectedValue(new Error("poll timeout"));
+
+    const { enqueuePanelImageJobs, runTaskImageQueue } = await import("@/lib/server/taskOrchestrator/imageRunner");
+    await enqueuePanelImageJobs("task-image-queue", {
+      panelIndices: [0],
+      imageConfig: comfyImageConfig,
+    });
+    await runTaskImageQueue("task-image-queue");
+
+    expect(state.getJobs("task-image-queue")[0]).toEqual(expect.objectContaining({
+      status: "failed",
+      lastError: "poll timeout",
+      payload: {
+        image: expect.objectContaining({
+          comfyui: expect.objectContaining({
+            promptId: "pid-timeout",
+            seed: 99,
+          }),
+        }),
+      },
+    }));
+  });
+
   it("marks a first-time attach_failed panel as failed instead of leaving it generating", async () => {
     state.setTask(makeTask());
     state.submitComfyWorkflowMock.mockResolvedValue({
