@@ -25,7 +25,6 @@ const PROCESSABLE_JOB_STATUSES = new Set<TaskJobRecord["status"]>([
   "generating",
   "persisting",
   "light_check",
-  "attach_failed",
 ]);
 
 type SanitizedImageConfig = Omit<PartialImageGenConfig, "apiKey">;
@@ -34,6 +33,7 @@ interface StoredImageJobPayload extends Record<string, unknown> {
   image?: {
     configId?: string;
     fallback?: SanitizedImageConfig;
+    overlay?: SanitizedImageConfig;
   };
 }
 
@@ -123,6 +123,7 @@ function buildDurableImageJobPayload(input: EnqueuePanelImageJobsInput): StoredI
   const safeFallback = isSafeInlineImageConfig(input.imageConfig)
     ? sanitizedImageConfig
     : undefined;
+  const overlay = resolvedConfigId ? sanitizedImageConfig : undefined;
 
   if (!resolvedConfigId && !safeFallback) {
     throw new Error("缺少可重放的图片配置，请重新选择有效的图片模型配置后再试");
@@ -131,7 +132,26 @@ function buildDurableImageJobPayload(input: EnqueuePanelImageJobsInput): StoredI
   return {
     image: {
       configId: resolvedConfigId,
-      fallback: safeFallback,
+      fallback: resolvedConfigId ? undefined : safeFallback,
+      overlay,
+    },
+  };
+}
+
+function mergeImageConfig(
+  baseConfig: PartialImageGenConfig,
+  overlay?: SanitizedImageConfig,
+): PartialImageGenConfig {
+  if (!overlay) {
+    return baseConfig;
+  }
+
+  return {
+    ...baseConfig,
+    ...overlay,
+    extraBody: {
+      ...baseConfig.extraBody,
+      ...overlay.extraBody,
     },
   };
 }
@@ -141,25 +161,31 @@ function resolveJobImageConfig(
   config: UserAPIConfigV2 | null,
   fallback?: PartialImageGenConfig,
 ): PartialImageGenConfig | undefined {
+  let resolved: PartialImageGenConfig | undefined;
+
   if (config && payload?.configId) {
     const matched = config.imageConfigs.find((candidate) => candidate.id === payload.configId);
     if (matched) {
-      return buildImageConfig(matched);
+      resolved = buildImageConfig(matched);
     }
   }
 
-  if (config && payload?.fallback) {
+  if (!resolved && config && payload?.fallback) {
     const matched = config.imageConfigs.find((candidate) => matchesImageConfig(candidate, payload.fallback));
     if (matched) {
-      return buildImageConfig(matched);
+      resolved = buildImageConfig(matched);
     }
   }
 
-  if (payload?.fallback) {
-    return payload.fallback;
+  if (!resolved && payload?.fallback) {
+    resolved = payload.fallback;
   }
 
-  return fallback;
+  if (!resolved) {
+    resolved = fallback;
+  }
+
+  return resolved ? mergeImageConfig(resolved, payload?.overlay) : undefined;
 }
 
 function getProviderName(imageConfig?: PartialImageGenConfig): string | undefined {
@@ -596,10 +622,10 @@ async function attachPersistedImage(taskId: string, job: TaskJobRecord): Promise
   upsertTask(task);
 }
 
-async function markRemainingJobsCalibrating(taskId: string, completedJobId: string): Promise<void> {
+async function markRemainingJobsCalibrating(taskId: string, remainingJobIds: Set<string>): Promise<void> {
   const jobs = await listTaskJobsByTaskId(taskId);
   for (const job of jobs) {
-    if (job.id === completedJobId) {
+    if (!remainingJobIds.has(job.id)) {
       continue;
     }
     if (PROCESSABLE_JOB_STATUSES.has(job.status)) {
@@ -707,26 +733,33 @@ export async function runTaskImageQueue(taskId: string, fallbackInput?: RunTaskI
     return;
   }
 
-  let jobs = await listTaskJobsByTaskId(taskId);
-  const hadCompletedCalibrationSample = jobs.some((job) => job.kind === "panel_image" && job.status === "completed");
+  let calibrationGatePending = isCalibrationRequired(task) && !isCalibrationApproved(task);
 
-  for (const job of jobs) {
-    if (job.kind !== "panel_image" || typeof job.panelIndex !== "number" || !PROCESSABLE_JOB_STATUSES.has(job.status)) {
-      continue;
-    }
-
+  while (true) {
     task = getTaskById(taskId);
     if (!task || !task.script) {
       return;
     }
 
-    let liveJob = (await listTaskJobsByTaskId(taskId)).find((candidate) => candidate.id === job.id);
-    if (!liveJob || liveJob.kind !== "panel_image" || typeof liveJob.panelIndex !== "number" || !PROCESSABLE_JOB_STATUSES.has(liveJob.status)) {
-      continue;
+    let liveJob = (await listTaskJobsByTaskId(taskId)).find((candidate) =>
+      candidate.kind === "panel_image"
+      && typeof candidate.panelIndex === "number"
+      && PROCESSABLE_JOB_STATUSES.has(candidate.status),
+    );
+    if (!liveJob || typeof liveJob.panelIndex !== "number") {
+      break;
     }
 
     const panelIndex = liveJob.panelIndex;
+    const liveJobId = liveJob.id;
     const panel = getPanel(task, panelIndex);
+    const previousPanelState = {
+      imageUrl: panel.imageUrl,
+      status: panel.status,
+      imageVersions: panel.imageVersions ? structuredClone(panel.imageVersions) : undefined,
+      activeVersionIndex: panel.activeVersionIndex,
+      enhancementLog: panel.enhancementLog ? structuredClone(panel.enhancementLog) : undefined,
+    };
     panel.status = "generating";
     const enhancement = buildEnhancedPromptWithLog(
       panel.imagePrompt,
@@ -780,22 +813,40 @@ export async function runTaskImageQueue(taskId: string, fallbackInput?: RunTaskI
       }));
       await persistQueueState(taskId);
 
-      const shouldPauseForCalibration = isCalibrationRequired(task) && !isCalibrationApproved(task) && !hadCompletedCalibrationSample;
-      if (shouldPauseForCalibration) {
-        await markRemainingJobsCalibrating(taskId, liveJob.id);
-        return;
+      if (calibrationGatePending) {
+        const remainingJobs = (await listTaskJobsByTaskId(taskId)).filter((job) =>
+          job.kind === "panel_image"
+          && job.id !== liveJobId
+          && PROCESSABLE_JOB_STATUSES.has(job.status),
+        );
+        if (remainingJobs.length > 0) {
+          await markRemainingJobsCalibrating(taskId, new Set(remainingJobs.map((job) => job.id)));
+          return;
+        }
+        calibrationGatePending = false;
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown image queue error";
       const failedStatus: TaskJobRecord["status"] = liveJob.outputFileKey ? "attach_failed" : "failed";
+      if (failedStatus === "attach_failed" && previousPanelState.status === "completed" && previousPanelState.imageUrl) {
+        const latestTask = getTaskById(taskId);
+        if (latestTask?.script) {
+          const latestPanel = getPanel(latestTask, panelIndex);
+          latestPanel.imageUrl = previousPanelState.imageUrl;
+          latestPanel.status = previousPanelState.status;
+          latestPanel.imageVersions = previousPanelState.imageVersions;
+          latestPanel.activeVersionIndex = previousPanelState.activeVersionIndex;
+          latestPanel.enhancementLog = previousPanelState.enhancementLog;
+          latestTask.updatedAt = new Date();
+          upsertTask(latestTask);
+        }
+      }
       upsertTaskJob(updateJob(liveJob, {
         status: failedStatus,
         lastError: message,
       }));
       await persistQueueState(taskId);
     }
-
-    jobs = await listTaskJobsByTaskId(taskId);
   }
 
   await persistQueueState(taskId);

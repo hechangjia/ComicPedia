@@ -412,6 +412,7 @@ describe("image queue runner", () => {
     expect(failedJob.status).toBe("attach_failed");
     expect(failedJob.outputFileKey).toBeTruthy();
     expect(state.getTask("task-image-queue")?.script?.panels[0].imageUrl).toBe("file://task-image-queue_panel0_old");
+    expect(state.getTask("task-image-queue")?.script?.panels[0].status).toBe("completed");
 
     await enqueuePanelImageJobs("task-image-queue", {
       panelIndices: [0],
@@ -432,6 +433,46 @@ describe("image queue runner", () => {
     );
   });
 
+  it("processes jobs that are enqueued while the queue is already running", async () => {
+    state.setTask(makeTask());
+    const runner = await import("@/lib/server/taskOrchestrator/imageRunner");
+    let enqueuedDuringRun = false;
+
+    state.forwardImageGenerationRequestMock.mockImplementation(async () => {
+      if (!enqueuedDuringRun) {
+        enqueuedDuringRun = true;
+        await runner.enqueuePanelImageJobs("task-image-queue", {
+          panelIndices: [1],
+          imageConfig: {
+            ...remoteImageConfig,
+            extraBody: {
+              image: "data:image/png;base64,seed-image",
+              strength: 0.35,
+            },
+          },
+          imageConfigId: "img-remote-1",
+        });
+      }
+      return {
+        data: [{ b64_json: "REMOTE", content_type: "image/png" }],
+      };
+    });
+
+    await runner.enqueuePanelImageJobs("task-image-queue", {
+      panelIndices: [0],
+      imageConfig: remoteImageConfig,
+      imageConfigId: "img-remote-1",
+    });
+    await runner.runTaskImageQueue("task-image-queue");
+
+    expect(state.getJobs("task-image-queue")).toEqual([
+      expect.objectContaining({ panelIndex: 0, status: "completed" }),
+      expect.objectContaining({ panelIndex: 1, status: "completed" }),
+    ]);
+    expect(state.getTask("task-image-queue")?.script?.panels[0].status).toBe("completed");
+    expect(state.getTask("task-image-queue")?.script?.panels[1].status).toBe("completed");
+  });
+
   it("binds each queued panel job to its own durable config and ignores a later shared fallback", async () => {
     state.setTask(makeTask());
     state.forwardImageGenerationRequestMock.mockResolvedValue({
@@ -447,7 +488,13 @@ describe("image queue runner", () => {
 
     await enqueuePanelImageJobs("task-image-queue", {
       panelIndices: [0],
-      imageConfig: remoteImageConfig,
+      imageConfig: {
+        ...remoteImageConfig,
+        extraBody: {
+          image: "data:image/png;base64,overlay-image",
+          strength: 0.42,
+        },
+      },
       imageConfigId: "img-remote-1",
     });
     await enqueuePanelImageJobs("task-image-queue", {
@@ -471,6 +518,18 @@ describe("image queue runner", () => {
         }),
       },
     });
+    expect(queuedJobs[0].payload).toMatchObject({
+      image: {
+        overlay: expect.objectContaining({
+          apiUrl: "https://remote.example.com/v1",
+          endpointType: "images",
+          extraBody: expect.objectContaining({
+            image: "data:image/png;base64,overlay-image",
+            strength: 0.42,
+          }),
+        }),
+      },
+    });
 
     await runTaskImageQueue("task-image-queue", {
       imageConfig: {
@@ -488,11 +547,75 @@ describe("image queue runner", () => {
       payload: expect.objectContaining({
         model: "gpt-image-1",
         size: "1024x1024",
+        image: "data:image/png;base64,overlay-image",
+        strength: 0.42,
       }),
     }));
     expect(state.runComfyWorkflowMock).toHaveBeenCalledWith(expect.objectContaining({
       comfyuiUrl: "http://127.0.0.1:8188",
     }));
+  });
+
+  it("requires calibration for the current queued batch even when older panel jobs already completed", async () => {
+    const task = makeTask({
+      presetSnapshot: {
+        presetId: "balanced-auto",
+        imageProvider: "comfyui",
+        imageModel: "sdxl",
+        calibrationRequired: true,
+        calibrationApproved: false,
+      },
+    });
+    task.script!.panels.push({
+      id: 3,
+      scene: "Scene 3",
+      dialogue: "Dialogue 3",
+      imagePrompt: "Prompt 3",
+      status: "pending",
+    });
+    state.setTask(task);
+    state.setJobs("task-image-queue", [{
+      id: "job-old-completed",
+      taskId: "task-image-queue",
+      kind: "panel_image",
+      status: "completed",
+      panelIndex: 0,
+      provider: "comfyui",
+      model: "sdxl",
+      promptSnapshot: "Old prompt",
+      attemptCount: 1,
+      payload: {
+        image: {
+          fallback: {
+            apiUrl: "http://127.0.0.1:8188",
+            endpointType: "comfyui",
+            model: "sdxl",
+            size: "1024x1024",
+            comfyuiWorkflow: comfyImageConfig.comfyuiWorkflow,
+          },
+        },
+      },
+      outputFileKey: "task-image-queue_panel0_old",
+      createdAt: "2026-04-04T00:00:00.000Z",
+      updatedAt: "2026-04-04T00:00:00.000Z",
+    }]);
+    state.runComfyWorkflowMock
+      .mockResolvedValueOnce({ image: "data:image/png;base64,AAA", promptId: "pid-1", seed: 1 })
+      .mockResolvedValueOnce({ image: "data:image/png;base64,BBB", promptId: "pid-2", seed: 2 });
+
+    const { enqueuePanelImageJobs, runTaskImageQueue } = await import("@/lib/server/taskOrchestrator/imageRunner");
+
+    await enqueuePanelImageJobs("task-image-queue", {
+      panelIndices: [1, 2],
+      imageConfig: comfyImageConfig,
+    });
+    await runTaskImageQueue("task-image-queue");
+
+    const jobs = state.getJobs("task-image-queue");
+    expect(jobs.find((job) => job.panelIndex === 1)).toEqual(expect.objectContaining({ status: "completed" }));
+    expect(jobs.find((job) => job.panelIndex === 2)).toEqual(expect.objectContaining({ status: "calibrating" }));
+    expect(state.runComfyWorkflowMock).toHaveBeenCalledTimes(1);
+    expect(state.getTask("task-image-queue")?.status).toBe("calibrating");
   });
 
   it("replays authenticated remote jobs from durable config ids without inline secrets", async () => {
@@ -505,7 +628,14 @@ describe("image queue runner", () => {
 
     await enqueuePanelImageJobs("task-image-queue", {
       panelIndices: [0],
-      imageConfig: remoteImageConfig,
+      imageConfig: {
+        ...remoteImageConfig,
+        extraBody: {
+          control_image: "data:image/png;base64,control",
+          control_mode: "Canny",
+          strength: 0.6,
+        },
+      },
       imageConfigId: "img-remote-1",
     });
 
@@ -514,6 +644,17 @@ describe("image queue runner", () => {
       image: {
         configId: "img-remote-1",
         fallback: undefined,
+        overlay: {
+          apiUrl: "https://remote.example.com/v1",
+          model: "gpt-image-1",
+          size: "1024x1024",
+          endpointType: "images",
+          extraBody: {
+            control_image: "data:image/png;base64,control",
+            control_mode: "Canny",
+            strength: 0.6,
+          },
+        },
       },
     });
     expect(JSON.stringify(queuedJob.payload)).not.toContain("remote-secret");
@@ -526,6 +667,11 @@ describe("image queue runner", () => {
     expect(state.forwardImageGenerationRequestMock).toHaveBeenCalledWith(expect.objectContaining({
       targetUrl: "https://remote.example.com/v1/images/generations",
       headers: { Authorization: "Bearer remote-secret" },
+      payload: expect.objectContaining({
+        control_image: "data:image/png;base64,control",
+        control_mode: "Canny",
+        strength: 0.6,
+      }),
     }));
   });
 });

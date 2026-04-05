@@ -7,6 +7,7 @@ import { runResearchAndScriptTask } from "./scriptRunner";
 export class TaskRuntime {
   private readonly scriptRuns = new Map<string, Promise<void>>();
   private readonly imageRuns = new Map<string, Promise<void>>();
+  private readonly pendingImageRuns = new Map<string, RunTaskImageQueueInput | undefined>();
   private replayInitialized = false;
 
   enqueueScript(taskId: string, request: GenerateRequest): void {
@@ -34,19 +35,49 @@ export class TaskRuntime {
     },
   ): void {
     if (this.imageRuns.has(taskId)) {
+      this.pendingImageRuns.set(
+        taskId,
+        this.mergeImageRunInput(this.pendingImageRuns.get(taskId), input as RunTaskImageQueueInput | undefined),
+      );
       return;
     }
 
+    this.startImageQueueRun(taskId, input as RunTaskImageQueueInput | undefined);
+  }
+
+  private startImageQueueRun(taskId: string, input?: RunTaskImageQueueInput): void {
     const run = Promise.resolve()
-      .then(() => runTaskImageQueue(taskId, input as RunTaskImageQueueInput | undefined))
+      .then(() => runTaskImageQueue(taskId, input))
       .catch((error) => {
         console.error(`[TaskRuntime] Image queue run failed for ${taskId}:`, error);
       })
       .finally(() => {
         this.imageRuns.delete(taskId);
+        const pendingInput = this.pendingImageRuns.get(taskId);
+        if (this.pendingImageRuns.has(taskId)) {
+          this.pendingImageRuns.delete(taskId);
+          this.startImageQueueRun(taskId, pendingInput);
+        }
       });
 
     this.imageRuns.set(taskId, run);
+  }
+
+  private mergeImageRunInput(
+    current?: RunTaskImageQueueInput,
+    next?: RunTaskImageQueueInput,
+  ): RunTaskImageQueueInput | undefined {
+    if (!current) {
+      return next;
+    }
+    if (!next) {
+      return current;
+    }
+
+    return {
+      imageConfig: next.imageConfig ?? current.imageConfig,
+      llmConfig: next.llmConfig ?? current.llmConfig,
+    };
   }
 
   ensureReplay(): void {

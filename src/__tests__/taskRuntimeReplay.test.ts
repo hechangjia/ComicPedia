@@ -3,11 +3,15 @@ import type { GenerateRequest, GenerateTaskStatus } from "@/lib/types";
 
 const {
   listReplayableScriptTasksMock,
+  listReplayableImageTasksMock,
   runResearchAndScriptTaskMock,
+  runTaskImageQueueMock,
   hydrateReplayRequestMock,
 } = vi.hoisted(() => ({
   listReplayableScriptTasksMock: vi.fn(),
+  listReplayableImageTasksMock: vi.fn(),
   runResearchAndScriptTaskMock: vi.fn(),
+  runTaskImageQueueMock: vi.fn(),
   hydrateReplayRequestMock: vi.fn(),
 }));
 
@@ -17,6 +21,11 @@ vi.mock("@/lib/server/db", () => ({
 
 vi.mock("@/lib/server/taskOrchestrator/scriptRunner", () => ({
   runResearchAndScriptTask: runResearchAndScriptTaskMock,
+}));
+
+vi.mock("@/lib/server/taskOrchestrator/imageRunner", () => ({
+  listReplayableImageTasks: listReplayableImageTasksMock,
+  runTaskImageQueue: runTaskImageQueueMock,
 }));
 
 vi.mock("@/lib/server/taskOrchestrator/replay", () => ({
@@ -54,7 +63,9 @@ describe("TaskRuntime replay", () => {
   beforeEach(() => {
     vi.resetModules();
     listReplayableScriptTasksMock.mockReset();
+    listReplayableImageTasksMock.mockReset();
     runResearchAndScriptTaskMock.mockReset();
+    runTaskImageQueueMock.mockReset();
     hydrateReplayRequestMock.mockReset();
   });
 
@@ -85,5 +96,31 @@ describe("TaskRuntime replay", () => {
 
     expect(listReplayableScriptTasksMock).toHaveBeenCalledTimes(1);
     expect(runResearchAndScriptTaskMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("coalesces a second image-queue enqueue request and reruns after the active pass finishes", async () => {
+    let releaseFirstRun: (() => void) | undefined;
+    runTaskImageQueueMock.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      releaseFirstRun = resolve;
+    }));
+    runTaskImageQueueMock.mockResolvedValueOnce(undefined);
+    listReplayableImageTasksMock.mockResolvedValue([]);
+    listReplayableScriptTasksMock.mockReturnValue([]);
+
+    const { getTaskRuntime } = await import("@/lib/server/taskOrchestrator/runtime");
+    const runtime = getTaskRuntime();
+
+    runtime.enqueueImageQueue("task-image");
+    runtime.enqueueImageQueue("task-image");
+    await Promise.resolve();
+
+    expect(runTaskImageQueueMock).toHaveBeenCalledTimes(1);
+
+    releaseFirstRun?.();
+    await vi.waitFor(() => {
+      expect(runTaskImageQueueMock).toHaveBeenCalledTimes(2);
+    });
+    expect(runTaskImageQueueMock).toHaveBeenNthCalledWith(1, "task-image", undefined);
+    expect(runTaskImageQueueMock).toHaveBeenNthCalledWith(2, "task-image", undefined);
   });
 });

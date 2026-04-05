@@ -35,6 +35,23 @@ function sanitizePanelIndices(panelIndices: number[] | undefined, panelCount: nu
     .sort((left, right) => left - right);
 }
 
+function getActionErrorStatus(error: unknown): number {
+  const message = error instanceof Error ? error.message : "";
+  if (
+    message.includes("缺少可重放的图片配置")
+    || message.includes("无有效面板")
+  ) {
+    return 400;
+  }
+  if (message.includes("任务脚本尚未生成")) {
+    return 409;
+  }
+  if (message.includes("任务不存在")) {
+    return 404;
+  }
+  return 500;
+}
+
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
@@ -65,6 +82,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       panelIndices = getQueueablePanelIndices(id, body.forceAll === true);
     } else if (action === "queue_panel_images") {
       panelIndices = sanitizePanelIndices(body.panelIndices, task.script.panels.length);
+      if (panelIndices.length === 0) {
+        return NextResponse.json({ error: "无有效面板" }, { status: 400 });
+      }
     } else {
       return NextResponse.json({ error: "不支持的任务操作" }, { status: 400 });
     }
@@ -89,7 +109,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     console.error("[API /tasks/[id]/actions POST]", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "任务操作失败" },
-      { status: 500 },
+      { status: getActionErrorStatus(error) },
     );
   }
 }
