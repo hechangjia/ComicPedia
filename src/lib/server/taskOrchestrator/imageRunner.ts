@@ -1,5 +1,5 @@
 import { getStyleModifier, getStyleNegativePrompt } from "@/lib/config/styles";
-import { getAllTasks, getTaskById, registerImage, upsertTask, upsertTaskJob } from "@/lib/server/db";
+import { getAllTasks, getConfig, getTaskById, registerImage, upsertTask, upsertTaskJob } from "@/lib/server/db";
 import { forwardImageGenerationRequest } from "@/lib/server/imageGenerationService";
 import { readImageByKey, saveImageFileAsync } from "@/lib/server/imageStorage";
 import { runComfyWorkflow } from "@/lib/server/comfyuiClient";
@@ -8,9 +8,12 @@ import type {
   ComicPanel,
   ComicStyle,
   GenerateTask,
+  ImageEndpointType,
   PartialImageGenConfig,
   PartialLLMConfig,
   TaskJobRecord,
+  UserAPIConfigV2,
+  UserImageConfig,
 } from "@/lib/types";
 import { createTaskJob, listTaskJobsByTaskId, summarizeTaskJobs } from "./store";
 
@@ -25,12 +28,18 @@ const PROCESSABLE_JOB_STATUSES = new Set<TaskJobRecord["status"]>([
   "attach_failed",
 ]);
 
-interface StoredImageJobPayload {
-  imageConfig?: Omit<PartialImageGenConfig, "apiKey">;
+type SanitizedImageConfig = Omit<PartialImageGenConfig, "apiKey">;
+
+interface StoredImageJobPayload extends Record<string, unknown> {
+  image?: {
+    configId?: string;
+    fallback?: SanitizedImageConfig;
+  };
 }
 
 export interface EnqueuePanelImageJobsInput {
   imageConfig?: PartialImageGenConfig;
+  imageConfigId?: string;
   llmConfig?: PartialLLMConfig;
   panelIndices: number[];
 }
@@ -63,13 +72,94 @@ function getPanel(task: GenerateTask, panelIndex: number): ComicPanel {
   return panel;
 }
 
-function sanitizeImageConfigForPayload(imageConfig?: PartialImageGenConfig): StoredImageJobPayload["imageConfig"] {
-  if (!imageConfig) {
-    return undefined;
+function sanitizeImageConfigForPayload(imageConfig?: PartialImageGenConfig): SanitizedImageConfig | undefined {
+  if (!imageConfig) return undefined;
+  const { apiKey: _apiKey, ...safeImageConfig } = imageConfig;
+  return Object.values(safeImageConfig).some((value) => value !== undefined)
+    ? safeImageConfig
+    : undefined;
+}
+
+function isLocalApiUrl(apiUrl?: string): boolean {
+  if (!apiUrl) return false;
+  try {
+    const url = new URL(apiUrl);
+    return ["localhost", "127.0.0.1", "::1", "0.0.0.0"].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isSafeInlineImageConfig(imageConfig?: PartialImageGenConfig): imageConfig is PartialImageGenConfig {
+  return !imageConfig?.apiKey && isLocalApiUrl(imageConfig?.apiUrl);
+}
+
+function matchesImageConfig(candidate: UserImageConfig, config?: Omit<PartialImageGenConfig, "apiKey">): boolean {
+  if (!config) return false;
+  return candidate.apiUrl === config.apiUrl
+    && candidate.model === config.model
+    && candidate.endpointType === config.endpointType
+    && candidate.size === config.size
+    && candidate.comfyuiWorkflow === config.comfyuiWorkflow;
+}
+
+function buildImageConfig(config?: UserImageConfig): PartialImageGenConfig | undefined {
+  if (!config) return undefined;
+  return {
+    apiUrl: config.apiUrl,
+    apiKey: config.apiKey,
+    model: config.model,
+    size: config.size,
+    endpointType: config.endpointType as ImageEndpointType,
+    comfyuiWorkflow: config.comfyuiWorkflow,
+  };
+}
+
+function buildDurableImageJobPayload(input: EnqueuePanelImageJobsInput): StoredImageJobPayload {
+  const sanitizedImageConfig = sanitizeImageConfigForPayload(input.imageConfig);
+  const config = getConfig();
+  const resolvedConfigId = input.imageConfigId
+    ?? (sanitizedImageConfig ? config?.imageConfigs.find((candidate) => matchesImageConfig(candidate, sanitizedImageConfig))?.id : undefined);
+  const safeFallback = isSafeInlineImageConfig(input.imageConfig)
+    ? sanitizedImageConfig
+    : undefined;
+
+  if (!resolvedConfigId && !safeFallback) {
+    throw new Error("缺少可重放的图片配置，请重新选择有效的图片模型配置后再试");
   }
 
-  const { apiKey: _apiKey, ...safeImageConfig } = imageConfig;
-  return safeImageConfig;
+  return {
+    image: {
+      configId: resolvedConfigId,
+      fallback: safeFallback,
+    },
+  };
+}
+
+function resolveJobImageConfig(
+  payload: StoredImageJobPayload["image"],
+  config: UserAPIConfigV2 | null,
+  fallback?: PartialImageGenConfig,
+): PartialImageGenConfig | undefined {
+  if (config && payload?.configId) {
+    const matched = config.imageConfigs.find((candidate) => candidate.id === payload.configId);
+    if (matched) {
+      return buildImageConfig(matched);
+    }
+  }
+
+  if (config && payload?.fallback) {
+    const matched = config.imageConfigs.find((candidate) => matchesImageConfig(candidate, payload.fallback));
+    if (matched) {
+      return buildImageConfig(matched);
+    }
+  }
+
+  if (payload?.fallback) {
+    return payload.fallback;
+  }
+
+  return fallback;
 }
 
 function getProviderName(imageConfig?: PartialImageGenConfig): string | undefined {
@@ -171,10 +261,7 @@ async function persistQueueState(taskId: string): Promise<GenerateTask> {
 
 function getJobImageConfig(job: TaskJobRecord, fallback?: PartialImageGenConfig): PartialImageGenConfig | undefined {
   const payload = job.payload as StoredImageJobPayload;
-  if (fallback) {
-    return fallback;
-  }
-  return payload.imageConfig;
+  return resolveJobImageConfig(payload.image, getConfig(), fallback);
 }
 
 function updateJob(job: TaskJobRecord, patch: Partial<TaskJobRecord>): TaskJobRecord {
@@ -539,7 +626,9 @@ export async function enqueuePanelImageJobs(
     .sort((left, right) => left - right);
   const existingJobs = await listTaskJobsByTaskId(taskId);
   const latestJobsByPanel = getLatestJobsByPanel(existingJobs);
-  const imageConfigPayload = sanitizeImageConfigForPayload(input.imageConfig);
+  const durableImagePayload = input.imageConfig || input.imageConfigId
+    ? buildDurableImageJobPayload(input)
+    : undefined;
 
   for (const panelIndex of uniquePanelIndices) {
     const existingJob = latestJobsByPanel.get(panelIndex);
@@ -554,11 +643,15 @@ export async function enqueuePanelImageJobs(
         outputFileKey: existingJob.status === "attach_failed" ? existingJob.outputFileKey : undefined,
         payload: {
           ...existingJob.payload,
-          ...(imageConfigPayload ? { imageConfig: imageConfigPayload } : {}),
+          ...(durableImagePayload ?? {}),
         },
       });
       upsertTaskJob(nextJob);
       continue;
+    }
+
+    if (!durableImagePayload) {
+      throw new Error("缺少可重放的图片配置，请重新选择有效的图片模型配置后再试");
     }
 
     await createTaskJob({
@@ -569,7 +662,7 @@ export async function enqueuePanelImageJobs(
       provider: getProviderName(input.imageConfig),
       model: input.imageConfig?.model,
       promptSnapshot: getPanel(task, panelIndex).imagePrompt,
-      payload: imageConfigPayload ? { imageConfig: imageConfigPayload } : {},
+      payload: durableImagePayload,
     });
   }
 
@@ -710,9 +803,8 @@ export async function runTaskImageQueue(taskId: string, fallbackInput?: RunTaskI
 
 export async function listReplayableImageTasks(): Promise<Array<{
   taskId: string;
-  imageConfig?: PartialImageGenConfig;
 }>> {
-  const replayableTasks: Array<{ taskId: string; imageConfig?: PartialImageGenConfig }> = [];
+  const replayableTasks: Array<{ taskId: string }> = [];
 
   for (const task of getAllTasks()) {
     const jobs = await listTaskJobsByTaskId(task.id);
@@ -727,7 +819,6 @@ export async function listReplayableImageTasks(): Promise<Array<{
 
     replayableTasks.push({
       taskId: task.id,
-      imageConfig: getJobImageConfig(replayableJob),
     });
   }
 

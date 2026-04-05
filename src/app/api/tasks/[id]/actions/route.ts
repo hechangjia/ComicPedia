@@ -12,6 +12,7 @@ interface TaskActionRequestBody {
   action?: string;
   panelIndices?: number[];
   forceAll?: boolean;
+  imageConfigId?: string;
   imageConfig?: PartialImageGenConfig;
   llmConfig?: PartialLLMConfig;
 }
@@ -47,10 +48,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     if (action === "approve_image_calibration") {
       const updatedTask = await approveTaskCalibration(id);
-      getTaskRuntime().enqueueImageQueue(id, {
-        imageConfig: body.imageConfig,
-        llmConfig: body.llmConfig,
-      });
+      getTaskRuntime().enqueueImageQueue(id);
       return NextResponse.json({
         success: true,
         enqueuedPanelIndices: [],
@@ -73,15 +71,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const result = await enqueuePanelImageJobs(id, {
       panelIndices,
+      imageConfigId: body.imageConfigId,
       imageConfig: body.imageConfig,
       llmConfig: body.llmConfig,
     });
 
     if (result.enqueuedPanelIndices.length > 0) {
-      getTaskRuntime().enqueueImageQueue(id, {
-        imageConfig: body.imageConfig,
-        llmConfig: body.llmConfig,
-      });
+      getTaskRuntime().enqueueImageQueue(id);
     }
 
     return NextResponse.json({

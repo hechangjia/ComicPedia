@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { GenerateTask, TaskJobRecord, TaskQueueSummary } from "@/lib/types";
+import type { GenerateTask, TaskJobRecord, TaskQueueSummary, UserAPIConfigV2 } from "@/lib/types";
 
 const state = vi.hoisted(() => {
   const tasks = new Map<string, GenerateTask>();
@@ -7,12 +7,14 @@ const state = vi.hoisted(() => {
   const persistedImageKeys = new Set<string>();
 
   const runComfyWorkflowMock = vi.fn();
+  const forwardImageGenerationRequestMock = vi.fn();
   const saveImageFileAsyncMock = vi.fn();
   const readImageByKeyMock = vi.fn();
   const registerImageMock = vi.fn();
 
   let jobCounter = 0;
   let failNextTaskAttach = false;
+  let config: UserAPIConfigV2 | null = null;
 
   function clone<T>(value: T): T {
     return structuredClone(value);
@@ -115,10 +117,42 @@ const state = vi.hoisted(() => {
     persistedImageKeys.clear();
     runComfyWorkflowMock.mockReset();
     saveImageFileAsyncMock.mockReset();
+    forwardImageGenerationRequestMock.mockReset();
     readImageByKeyMock.mockReset();
     registerImageMock.mockReset();
     jobCounter = 0;
     failNextTaskAttach = false;
+    config = {
+      version: 2,
+      llmConfigs: [],
+      imageConfigs: [
+        {
+          id: "img-remote-1",
+          name: "Remote Image",
+          provider: "openai",
+          apiUrl: "https://remote.example.com/v1",
+          apiKey: "remote-secret",
+          model: "gpt-image-1",
+          size: "1024x1024",
+          endpointType: "images",
+        },
+      ],
+      vlmConfigs: [],
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+      activeLLMId: null,
+      activeImageId: "img-remote-1",
+      activeVLMId: null,
+      updatedAt: "2026-04-05T00:00:00.000Z",
+    };
 
     saveImageFileAsyncMock.mockImplementation(async (key: string, image: string) => {
       persistedImageKeys.add(key);
@@ -142,6 +176,7 @@ const state = vi.hoisted(() => {
   return {
     tasks,
     jobs,
+    forwardImageGenerationRequestMock,
     runComfyWorkflowMock,
     saveImageFileAsyncMock,
     readImageByKeyMock,
@@ -154,6 +189,12 @@ const state = vi.hoisted(() => {
     upsertJob,
     summarize,
     buildCreateTaskJob,
+    get config() {
+      return config ? clone(config) : null;
+    },
+    set config(value: UserAPIConfigV2 | null) {
+      config = value ? clone(value) : null;
+    },
     get failNextTaskAttach() {
       return failNextTaskAttach;
     },
@@ -178,6 +219,7 @@ vi.mock("@/lib/server/db", () => ({
   }),
   registerImage: state.registerImageMock,
   getAllTasks: vi.fn(() => Array.from(state.tasks.values()).map((task) => structuredClone(task))),
+  getConfig: vi.fn(() => state.config),
 }));
 
 vi.mock("@/lib/server/taskOrchestrator/store", () => ({
@@ -191,7 +233,7 @@ vi.mock("@/lib/server/comfyuiClient", () => ({
 }));
 
 vi.mock("@/lib/server/imageGenerationService", () => ({
-  forwardImageGenerationRequest: vi.fn(),
+  forwardImageGenerationRequest: state.forwardImageGenerationRequestMock,
 }));
 
 vi.mock("@/lib/server/imageStorage", () => ({
@@ -242,6 +284,14 @@ const comfyImageConfig = {
     "2": { class_type: "KSampler", inputs: { seed: 1, positive: ["1", 0] } },
     "3": { class_type: "EmptyLatentImage", inputs: { width: 1024, height: 1024 } },
   }),
+};
+
+const remoteImageConfig = {
+  apiUrl: "https://remote.example.com/v1",
+  apiKey: "remote-secret",
+  endpointType: "images" as const,
+  model: "gpt-image-1",
+  size: "1024x1024",
 };
 
 describe("image queue runner", () => {
@@ -380,5 +430,102 @@ describe("image queue runner", () => {
     expect(state.getJobs("task-image-queue")[0]).toEqual(
       expect.objectContaining({ status: "completed", outputFileKey: failedJob.outputFileKey }),
     );
+  });
+
+  it("binds each queued panel job to its own durable config and ignores a later shared fallback", async () => {
+    state.setTask(makeTask());
+    state.forwardImageGenerationRequestMock.mockResolvedValue({
+      data: [{ b64_json: "REMOTE", content_type: "image/png" }],
+    });
+    state.runComfyWorkflowMock.mockResolvedValue({
+      image: "data:image/png;base64,LOCAL",
+      promptId: "pid-local",
+      seed: 7,
+    });
+
+    const { enqueuePanelImageJobs, runTaskImageQueue } = await import("@/lib/server/taskOrchestrator/imageRunner");
+
+    await enqueuePanelImageJobs("task-image-queue", {
+      panelIndices: [0],
+      imageConfig: remoteImageConfig,
+      imageConfigId: "img-remote-1",
+    });
+    await enqueuePanelImageJobs("task-image-queue", {
+      panelIndices: [1],
+      imageConfig: comfyImageConfig,
+    });
+
+    const queuedJobs = state.getJobs("task-image-queue");
+    expect(queuedJobs[0].payload).toMatchObject({
+      image: {
+        configId: "img-remote-1",
+        fallback: undefined,
+      },
+    });
+    expect(JSON.stringify(queuedJobs[0].payload)).not.toContain("remote-secret");
+    expect(queuedJobs[1].payload).toMatchObject({
+      image: {
+        fallback: expect.objectContaining({
+          apiUrl: "http://127.0.0.1:8188",
+          endpointType: "comfyui",
+        }),
+      },
+    });
+
+    await runTaskImageQueue("task-image-queue", {
+      imageConfig: {
+        apiUrl: "https://wrong.example.com/v1",
+        apiKey: "wrong-secret",
+        endpointType: "images",
+        model: "wrong-model",
+        size: "512x512",
+      },
+    });
+
+    expect(state.forwardImageGenerationRequestMock).toHaveBeenCalledWith(expect.objectContaining({
+      targetUrl: "https://remote.example.com/v1/images/generations",
+      headers: { Authorization: "Bearer remote-secret" },
+      payload: expect.objectContaining({
+        model: "gpt-image-1",
+        size: "1024x1024",
+      }),
+    }));
+    expect(state.runComfyWorkflowMock).toHaveBeenCalledWith(expect.objectContaining({
+      comfyuiUrl: "http://127.0.0.1:8188",
+    }));
+  });
+
+  it("replays authenticated remote jobs from durable config ids without inline secrets", async () => {
+    state.setTask(makeTask());
+    state.forwardImageGenerationRequestMock.mockResolvedValue({
+      data: [{ b64_json: "REMOTE", content_type: "image/png" }],
+    });
+
+    const { enqueuePanelImageJobs, listReplayableImageTasks, runTaskImageQueue } = await import("@/lib/server/taskOrchestrator/imageRunner");
+
+    await enqueuePanelImageJobs("task-image-queue", {
+      panelIndices: [0],
+      imageConfig: remoteImageConfig,
+      imageConfigId: "img-remote-1",
+    });
+
+    const [queuedJob] = state.getJobs("task-image-queue");
+    expect(queuedJob.payload).toEqual({
+      image: {
+        configId: "img-remote-1",
+        fallback: undefined,
+      },
+    });
+    expect(JSON.stringify(queuedJob.payload)).not.toContain("remote-secret");
+
+    const replayable = await listReplayableImageTasks();
+    expect(replayable).toEqual([{ taskId: "task-image-queue" }]);
+
+    await runTaskImageQueue("task-image-queue");
+
+    expect(state.forwardImageGenerationRequestMock).toHaveBeenCalledWith(expect.objectContaining({
+      targetUrl: "https://remote.example.com/v1/images/generations",
+      headers: { Authorization: "Bearer remote-secret" },
+    }));
   });
 });

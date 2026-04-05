@@ -62,7 +62,7 @@ export class TaskRuntime {
     Promise.resolve()
       .then(async () => {
         for (const task of await listReplayableImageTasks()) {
-          this.enqueueImageQueue(task.taskId, { imageConfig: task.imageConfig });
+          this.enqueueImageQueue(task.taskId);
         }
       })
       .catch((error) => {
