@@ -98,6 +98,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     if (action === "reconcile") {
       const updatedTask = await reconcileTaskJobs(id);
+      if (
+        updatedTask.status === "image_queue_running"
+        || updatedTask.status === "calibrating"
+      ) {
+        getTaskRuntime().enqueueImageQueue(id);
+      }
+      if (updatedTask.status === "deep_review_running") {
+        getTaskRuntime().enqueueDeepReview(id);
+      }
       return NextResponse.json({
         success: true,
         task: updatedTask,

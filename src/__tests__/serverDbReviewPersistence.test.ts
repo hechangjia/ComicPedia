@@ -159,6 +159,7 @@ function makeTask(): GenerateTask {
       completed: 4,
       calibrationPending: 0,
     },
+    comfyuiRemotePendingCount: 2,
     presetSnapshot: {
       presetId: "balanced-auto",
       imageProvider: "comfyui",
@@ -341,6 +342,7 @@ describe("server db review persistence", () => {
     expect(roundTripped?.accuracyReview).toEqual(task.accuracyReview);
     expect(roundTripped?.accuracyErrorSummary).toEqual(task.accuracyErrorSummary);
     expect(roundTripped?.queueSummary).toEqual(task.queueSummary);
+    expect(roundTripped?.comfyuiRemotePendingCount).toBe(task.comfyuiRemotePendingCount);
     expect(roundTripped?.presetSnapshot).toEqual(task.presetSnapshot);
     expect(roundTripped?.createdAt).toEqual(task.createdAt);
     expect(roundTripped?.updatedAt).toEqual(task.updatedAt);

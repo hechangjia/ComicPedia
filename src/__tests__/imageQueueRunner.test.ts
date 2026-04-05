@@ -235,6 +235,15 @@ vi.mock("@/lib/server/taskOrchestrator/store", () => ({
 }));
 
 vi.mock("@/lib/server/comfyuiClient", () => ({
+  ComfyUIClientError: class ComfyUIClientError extends Error {
+    status: number;
+
+    constructor(message: string, status: number) {
+      super(message);
+      this.name = "ComfyUIClientError";
+      this.status = status;
+    }
+  },
   runComfyWorkflow: state.runComfyWorkflowMock,
   submitComfyWorkflow: state.submitComfyWorkflowMock,
   waitForComfyWorkflowResult: state.waitForComfyWorkflowResultMock,
@@ -509,7 +518,51 @@ describe("image queue runner", () => {
     expect(state.getTask("task-image-queue")?.script?.panels[0].imageUrl).toMatch(/^file:\/\//);
   });
 
-  it("preserves a submitted ComfyUI prompt id on failure so the job can be recovered later", async () => {
+  it("persists queue summary as running before waiting on a submitted ComfyUI prompt", async () => {
+    state.setTask(makeTask());
+    state.submitComfyWorkflowMock.mockResolvedValue({
+      promptId: "pid-running-summary",
+      seed: 13,
+    });
+    let taskSnapshotWhileWaiting: GenerateTask | null = null;
+    state.waitForComfyWorkflowResultMock.mockImplementation(async () => {
+      taskSnapshotWhileWaiting = state.getTask("task-image-queue");
+      return {
+        image: "data:image/png;base64,RUNNING",
+        promptId: "pid-running-summary",
+        seed: 13,
+      };
+    });
+
+    const { enqueuePanelImageJobs, runTaskImageQueue } = await import("@/lib/server/taskOrchestrator/imageRunner");
+    await enqueuePanelImageJobs("task-image-queue", {
+      panelIndices: [0],
+      imageConfig: comfyImageConfig,
+    });
+    await runTaskImageQueue("task-image-queue");
+
+    expect(taskSnapshotWhileWaiting).toEqual(expect.objectContaining({
+      comfyuiRemotePendingCount: 1,
+      status: "image_queue_running",
+      queueSummary: {
+        queued: 0,
+        running: 1,
+        paused: 0,
+        failed: 0,
+        attachFailed: 0,
+        completed: 0,
+        calibrationPending: 0,
+      },
+      script: expect.objectContaining({
+        panels: [
+          expect.objectContaining({ status: "generating" }),
+          expect.anything(),
+        ],
+      }),
+    }));
+  });
+
+  it("keeps a submitted ComfyUI prompt id in generating state after a recoverable wait timeout", async () => {
     state.setTask(makeTask());
     state.submitComfyWorkflowMock.mockResolvedValue({
       promptId: "pid-timeout",
@@ -524,8 +577,11 @@ describe("image queue runner", () => {
     });
     await runTaskImageQueue("task-image-queue");
 
-    expect(state.getJobs("task-image-queue")[0]).toEqual(expect.objectContaining({
-      status: "failed",
+    const timedOutJob = state.getJobs("task-image-queue")[0];
+    const timedOutTask = state.getTask("task-image-queue");
+
+    expect(timedOutJob).toEqual(expect.objectContaining({
+      status: "generating",
       lastError: "poll timeout",
       payload: {
         image: expect.objectContaining({
@@ -536,6 +592,79 @@ describe("image queue runner", () => {
         }),
       },
     }));
+    expect(timedOutTask?.comfyuiRemotePendingCount).toBe(1);
+    expect(timedOutTask?.status).toBe("image_queue_running");
+    expect(timedOutTask?.script?.panels[0].status).toBe("generating");
+  });
+
+  it("replays a recoverable failed ComfyUI job by waiting on the stored prompt id", async () => {
+    state.setTask(makeTask({
+      status: "image_queue_paused",
+      queueSummary: {
+        queued: 0,
+        running: 0,
+        paused: 0,
+        failed: 1,
+        attachFailed: 0,
+        completed: 0,
+        calibrationPending: 0,
+      },
+      script: {
+        ...makeTask().script!,
+        panels: [
+          {
+            ...makeTask().script!.panels[0],
+            status: "failed",
+          },
+          {
+            ...makeTask().script!.panels[1],
+          },
+        ],
+      },
+    }));
+    state.setJobs("task-image-queue", [{
+      id: "job-recoverable-failed",
+      taskId: "task-image-queue",
+      kind: "panel_image",
+      status: "failed",
+      panelIndex: 0,
+      provider: "local-comfyui",
+      model: "workflow-a",
+      attemptCount: 1,
+      payload: {
+        image: {
+          fallback: comfyImageConfig,
+          comfyui: {
+            promptId: "pid-failed-resume",
+            seed: 42,
+            submittedAt: "2026-04-05T00:00:00.000Z",
+          },
+        },
+      },
+      createdAt: "2026-04-05T00:00:00.000Z",
+      updatedAt: "2026-04-05T00:00:00.000Z",
+    }]);
+    state.waitForComfyWorkflowResultMock.mockResolvedValue({
+      image: "data:image/png;base64,RECOVERED",
+      promptId: "pid-failed-resume",
+      seed: 42,
+    });
+
+    const { runTaskImageQueue } = await import("@/lib/server/taskOrchestrator/imageRunner");
+    await runTaskImageQueue("task-image-queue");
+
+    expect(state.submitComfyWorkflowMock).not.toHaveBeenCalled();
+    expect(state.waitForComfyWorkflowResultMock).toHaveBeenCalledWith(expect.objectContaining({
+      comfyuiUrl: "http://127.0.0.1:8188",
+      promptId: "pid-failed-resume",
+      seed: 42,
+    }));
+    expect(state.getJobs("task-image-queue")[0]).toEqual(expect.objectContaining({
+      status: "completed",
+      outputFileKey: expect.any(String),
+    }));
+    expect(state.getTask("task-image-queue")?.comfyuiRemotePendingCount).toBe(0);
+    expect(state.getTask("task-image-queue")?.script?.panels[0].status).toBe("completed");
   });
 
   it("marks a first-time attach_failed panel as failed instead of leaving it generating", async () => {

@@ -44,6 +44,7 @@ function renderWorkspace(overrides: Partial<React.ComponentProps<typeof ScriptRe
       panels: makePanels(),
       selectedPanelIds: [],
       queueSummary: makeQueueSummary(),
+      comfyuiRemotePendingCount: 0,
       generatingAll: false,
       llmConfigs: [
         { id: "llm-1", name: "GPT-4o", model: "gpt-4o" },
@@ -96,6 +97,21 @@ describe("ScriptReadyWorkspace", () => {
     expect(html).toContain("队列已暂停");
     expect(html).toContain("恢复队列");
     expect(html).toMatch(/aria-label="生成选中"[^>]*disabled=""/);
+  });
+
+  it("shows the ComfyUI recovery hint while the queue is active", () => {
+    const html = renderWorkspace({
+      taskStatus: "image_queue_running",
+      comfyuiRemotePendingCount: 1,
+      queueSummary: makeQueueSummary({
+        queued: 0,
+        running: 1,
+      }),
+    });
+
+    expect(html).toContain("ComfyUI 回收 1");
+    expect(html).toContain("如使用本地 ComfyUI");
+    expect(html).toContain("不会重复提交");
   });
 
   it("keeps checkbox selection attached to panel identity after reorder", () => {

@@ -21,6 +21,7 @@ interface ScriptReadyWorkspaceProps {
   panels: ComicPanel[];
   selectedPanelIds: number[];
   queueSummary?: TaskQueueSummary;
+  comfyuiRemotePendingCount?: number;
   generatingAll: boolean;
   llmConfigs: LLMConfig[];
   imageConfigs: ImageConfig[];
@@ -51,6 +52,7 @@ export function ScriptReadyWorkspace({
   panels,
   selectedPanelIds,
   queueSummary,
+  comfyuiRemotePendingCount,
   generatingAll,
   llmConfigs,
   imageConfigs,
@@ -95,6 +97,7 @@ export function ScriptReadyWorkspace({
         pendingPanels={pendingPanels}
         selectedCount={selectedPanelIds.length}
         queueSummary={queueSummary}
+        comfyuiRemotePendingCount={comfyuiRemotePendingCount}
         actionPending={generatingAll}
         onQueueSelected={onQueueSelected}
         onContinueRemaining={onContinueRemaining}

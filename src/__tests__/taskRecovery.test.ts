@@ -255,6 +255,83 @@ describe("task recovery", () => {
     ]);
   });
 
+  it("keeps a remotely submitted ComfyUI image job running during reconcile and only pauses queued siblings", async () => {
+    state.setTask(makeTask({
+      status: "image_queue_running",
+      script: {
+        ...makeTask().script!,
+        panels: [
+          {
+            ...makeTask().script!.panels[0],
+            status: "generating",
+            imageUrl: undefined,
+            imageVersions: undefined,
+            activeVersionIndex: undefined,
+          },
+          {
+            ...makeTask().script!.panels[1],
+            status: "pending",
+          },
+          {
+            ...makeTask().script!.panels[2],
+            status: "pending",
+          },
+        ],
+      },
+    }));
+    state.setJobs("task-recovery", [
+      makeJob({
+        id: "job-panel-remote",
+        panelIndex: 0,
+        status: "generating",
+        payload: {
+          image: {
+            fallback: {
+              apiUrl: "http://127.0.0.1:8188",
+              endpointType: "comfyui",
+              model: "sdxl",
+              size: "1024x1024",
+              comfyuiWorkflow: "{\"1\":{\"class_type\":\"CLIPTextEncode\",\"inputs\":{\"text\":\"old prompt\"}}}",
+            },
+            comfyui: {
+              promptId: "pid-reconcile",
+              seed: 12,
+              submittedAt: "2026-04-05T00:00:00.000Z",
+            },
+          },
+        },
+      }),
+      makeJob({
+        id: "job-panel-queued",
+        panelIndex: 2,
+        status: "queued",
+      }),
+    ]);
+
+    const { reconcileTaskJobs } = await import("@/lib/server/taskOrchestrator/reconcile");
+    const reconciledTask = await reconcileTaskJobs("task-recovery");
+
+    expect(reconciledTask.comfyuiRemotePendingCount).toBe(1);
+    expect(reconciledTask.status).toBe("image_queue_running");
+    expect(reconciledTask.queueSummary).toEqual({
+      queued: 0,
+      running: 1,
+      paused: 1,
+      failed: 0,
+      attachFailed: 0,
+      completed: 0,
+      calibrationPending: 0,
+    });
+    expect(reconciledTask.script?.panels[0]).toEqual(expect.objectContaining({
+      status: "generating",
+      imageUrl: undefined,
+    }));
+    expect(state.listJobs("task-recovery")).toEqual([
+      expect.objectContaining({ id: "job-panel-remote", status: "generating" }),
+      expect.objectContaining({ id: "job-panel-queued", status: "paused" }),
+    ]);
+  });
+
   it("resumes paused deep review jobs without rejecting the task", async () => {
     state.setTask(makeTask({
       status: "deep_review_paused",
@@ -288,6 +365,59 @@ describe("task recovery", () => {
     expect(state.listJobs("task-recovery")).toEqual([
       expect.objectContaining({ id: "job-image-history", kind: "panel_image", status: "completed" }),
       expect.objectContaining({ id: "job-deep-review", kind: "deep_review", status: "queued" }),
+    ]);
+  });
+
+  it("resumes recoverable failed ComfyUI image jobs by queueing them again", async () => {
+    state.setTask(makeTask({
+      status: "image_queue_paused",
+    }));
+    state.setJobs("task-recovery", [
+      makeJob({
+        id: "job-image-recoverable",
+        panelIndex: 1,
+        status: "failed",
+        lastError: "poll timeout",
+        payload: {
+          image: {
+            fallback: {
+              apiUrl: "http://127.0.0.1:8188",
+              endpointType: "comfyui",
+              model: "sdxl",
+              size: "1024x1024",
+              comfyuiWorkflow: "{\"1\":{\"class_type\":\"CLIPTextEncode\",\"inputs\":{\"text\":\"old prompt\"}}}",
+            },
+            comfyui: {
+              promptId: "pid-timeout",
+              seed: 44,
+              submittedAt: "2026-04-05T00:00:00.000Z",
+            },
+          },
+        },
+      }),
+    ]);
+
+    const { resumeTaskJobs } = await import("@/lib/server/taskOrchestrator/reconcile");
+    const resumedTask = await resumeTaskJobs("task-recovery");
+
+    expect(resumedTask.comfyuiRemotePendingCount).toBe(1);
+    expect(resumedTask.status).toBe("image_queue_running");
+    expect(resumedTask.queueSummary).toEqual({
+      queued: 1,
+      running: 0,
+      paused: 0,
+      failed: 0,
+      attachFailed: 0,
+      completed: 0,
+      calibrationPending: 0,
+    });
+    expect(state.listJobs("task-recovery")).toEqual([
+      expect.objectContaining({
+        id: "job-image-recoverable",
+        kind: "panel_image",
+        status: "queued",
+        lastError: undefined,
+      }),
     ]);
   });
 

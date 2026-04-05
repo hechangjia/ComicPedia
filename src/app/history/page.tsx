@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback, memo } from "react";
+import { useEffect, useState, useRef, useCallback, memo, useMemo } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { getAllComics, deleteComic, clearAllComics, saveTask } from "@/lib/client/db";
 import { useListCache } from "@/stores/listCache";
 import { recoverZombieTask } from "@/lib/client/generator";
@@ -13,6 +14,8 @@ import { formatDate } from "@/lib/utils";
 import type { ExportProgress } from "@/lib/exportImport";
 import { StorageIndicator } from "@/components/StorageIndicator";
 import { Spinner } from "@/components/ui/Spinner";
+import { buildHistoryOverview, filterHistoryItems, getHistoryAuxStatusLabels, type HistoryFilterId } from "./historyCardStatus";
+import { buildResultHref, parseHistoryFilter } from "./historyNavigation";
 import { ChevronLeft, Clock, Download, Image as ImageIcon, Trash2, Upload, X } from "lucide-react";
 
 /** 从 STYLE_DESCRIPTIONS 提取简短中文名称 */
@@ -81,6 +84,7 @@ function getHistoryStatusLabel(status: GenerateTask["status"]): string {
 
 interface HistoryCardProps {
   item: GenerateTask;
+  activeFilter: HistoryFilterId;
   exportMode: boolean;
   isSelected: boolean;
   onToggleSelect: (id: string) => void;
@@ -91,6 +95,22 @@ const REVIEW_BADGE_STYLES: Record<string, string> = {
   reviewed: "bg-success/10 text-success",
   needs_repair: "bg-warning/10 text-warning",
 };
+
+function getHistoryAuxBadgeClass(label: string): string {
+  if (label.startsWith("ComfyUI 回收")) {
+    return "bg-primary/90 text-primary-foreground";
+  }
+  if (label.startsWith("处理中")) {
+    return "bg-warning text-white";
+  }
+  if (label.startsWith("排队")) {
+    return "bg-info text-white";
+  }
+  if (label.startsWith("已暂停")) {
+    return "bg-secondary text-secondary-foreground";
+  }
+  return "bg-muted text-muted-foreground";
+}
 
 function ReviewBadge({ item }: { item: GenerateTask }) {
   if (item.status !== "completed") return null;
@@ -110,11 +130,13 @@ function ReviewBadge({ item }: { item: GenerateTask }) {
 
 const HistoryCard = memo(function HistoryCard({
   item,
+  activeFilter,
   exportMode,
   isSelected,
   onToggleSelect,
   onRemove,
 }: HistoryCardProps) {
+  const auxStatusLabels = getHistoryAuxStatusLabels(item);
   return (
     <div
       className={`rounded-xl border overflow-hidden bg-card transition-shadow group ${
@@ -156,10 +178,20 @@ const HistoryCard = memo(function HistoryCard({
           </div>
         )}
         {/* 状态标签 */}
-        <div
-          className={`absolute top-2 right-2 px-2 py-0.5 text-xs rounded-full ${getHistoryStatusBadgeClass(item.status)}`}
-        >
-          {getHistoryStatusLabel(item.status)}
+        <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
+          <div
+            className={`px-2 py-0.5 text-xs rounded-full ${getHistoryStatusBadgeClass(item.status)}`}
+          >
+            {getHistoryStatusLabel(item.status)}
+          </div>
+          {auxStatusLabels.map((label) => (
+            <div
+              key={label}
+              className={`px-2 py-0.5 text-[10px] rounded-full ${getHistoryAuxBadgeClass(label)}`}
+            >
+              {label}
+            </div>
+          ))}
         </div>
         {/* 删除按钮 - 导出模式下隐藏 */}
         {!exportMode && (
@@ -182,6 +214,18 @@ const HistoryCard = memo(function HistoryCard({
       {exportMode ? (
         <div className="p-3 space-y-1">
           <h3 className="font-medium truncate">{item.script?.title || "无标题"}</h3>
+          {auxStatusLabels.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {auxStatusLabels.map((label) => (
+                <span
+                  key={label}
+                  className={`px-1.5 py-0.5 text-[10px] rounded-full ${getHistoryAuxBadgeClass(label)}`}
+                >
+                  {label}
+                </span>
+              ))}
+            </div>
+          )}
           <p className="text-sm text-muted-foreground truncate">{item.script?.topic || "未知主题"}</p>
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{item.script?.style ? (styleNames[item.script.style] || item.script.style) : "未知风格"}</span>
@@ -192,11 +236,23 @@ const HistoryCard = memo(function HistoryCard({
           </p>
         </div>
       ) : (
-        <Link href={`/result/${item.id}`} className="block p-3 space-y-1">
+        <Link href={buildResultHref(item.id, activeFilter)} className="block p-3 space-y-1">
           <div className="flex items-center gap-1.5">
             <h3 className="font-medium truncate flex-1">{item.script?.title || "无标题"}</h3>
             <ReviewBadge item={item} />
           </div>
+          {auxStatusLabels.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {auxStatusLabels.map((label) => (
+                <span
+                  key={label}
+                  className={`px-1.5 py-0.5 text-[10px] rounded-full ${getHistoryAuxBadgeClass(label)}`}
+                >
+                  {label}
+                </span>
+              ))}
+            </div>
+          )}
           <p className="text-sm text-muted-foreground truncate">{item.script?.topic || "未知主题"}</p>
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{item.script?.style ? (styleNames[item.script.style] || item.script.style) : "未知风格"}</span>
@@ -212,6 +268,8 @@ const HistoryCard = memo(function HistoryCard({
 });
 
 export default function HistoryPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { getTasks, setTasks, invalidateTasks } = useListCache();
   const [history, setHistory] = useState<GenerateTask[]>(() => getTasks()?.items ?? []);
   const [hasMore, setHasMore] = useState(false);
@@ -225,6 +283,13 @@ export default function HistoryPage() {
   const [exportMode, setExportMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
+  const urlFilter = useMemo(() => parseHistoryFilter(searchParams.get("filter")), [searchParams]);
+  const [activeFilter, setActiveFilter] = useState<HistoryFilterId>(urlFilter);
+  const historyOverview = buildHistoryOverview(history);
+  const visibleHistory = useMemo(
+    () => filterHistoryItems(history, activeFilter),
+    [activeFilter, history],
+  );
 
   const loadHistory = useCallback(async (page: number) => {
     try {
@@ -282,6 +347,26 @@ export default function HistoryPage() {
   useEffect(() => {
     loadHistory(1);
   }, [loadHistory]);
+
+  useEffect(() => {
+    setActiveFilter(urlFilter);
+  }, [urlFilter]);
+
+  useEffect(() => {
+    if (activeFilter === urlFilter) {
+      return;
+    }
+
+    const params = new URLSearchParams(searchParams.toString());
+    if (activeFilter === "all") {
+      params.delete("filter");
+    } else {
+      params.set("filter", activeFilter);
+    }
+
+    const query = params.toString();
+    router.replace(query ? `/history?${query}` : "/history", { scroll: false });
+  }, [activeFilter, router, searchParams, urlFilter]);
 
   useEffect(() => {
     return () => {
@@ -350,8 +435,13 @@ export default function HistoryPage() {
   }, []);
 
   const selectAll = useCallback(() => {
-    setSelectedIds(new Set(history.map((t) => t.id)));
-  }, [history]);
+    setSelectedIds(new Set(visibleHistory.map((t) => t.id)));
+  }, [visibleHistory]);
+
+  const handleFilterChange = useCallback((filter: HistoryFilterId) => {
+    setActiveFilter(filter);
+    setSelectedIds(new Set());
+  }, []);
 
   const handleExportSelected = useCallback(async () => {
     const selected = history.filter((t) => selectedIds.has(t.id));
@@ -433,13 +523,13 @@ export default function HistoryPage() {
           /* ── Export selection toolbar ── */
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">
-              已选 {selectedIds.size} / {history.length}
+              已选 {selectedIds.size} / {visibleHistory.length}
             </span>
             <button
-              onClick={selectedIds.size === history.length ? () => setSelectedIds(new Set()) : selectAll}
+              onClick={selectedIds.size === visibleHistory.length ? () => setSelectedIds(new Set()) : selectAll}
               className="px-3 py-2 text-sm rounded-lg border hover:bg-accent transition-colors"
             >
-              {selectedIds.size === history.length ? "取消全选" : "全选"}
+              {selectedIds.size === visibleHistory.length ? "取消全选" : "全选"}
             </button>
             <button
               onClick={handleExportSelected}
@@ -511,6 +601,59 @@ export default function HistoryPage() {
         ) : null}
       </div>
 
+      {history.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <span className="px-2.5 py-1 text-xs rounded-full bg-muted text-muted-foreground">
+            总任务 {historyOverview.total}
+          </span>
+          <span className="px-2.5 py-1 text-xs rounded-full bg-success/10 text-success">
+            已完成 {historyOverview.completed}
+          </span>
+          {historyOverview.imageQueueRunning > 0 && (
+            <span className="px-2.5 py-1 text-xs rounded-full bg-warning text-white">
+              图片队列中 {historyOverview.imageQueueRunning}
+            </span>
+          )}
+          {historyOverview.imageQueuePaused > 0 && (
+            <span className="px-2.5 py-1 text-xs rounded-full bg-secondary text-secondary-foreground">
+              队列已暂停 {historyOverview.imageQueuePaused}
+            </span>
+          )}
+          {historyOverview.comfyuiRemotePending > 0 && (
+            <span className="px-2.5 py-1 text-xs rounded-full bg-primary/10 text-primary">
+              ComfyUI 回收 {historyOverview.comfyuiRemotePending}
+            </span>
+          )}
+        </div>
+      )}
+
+      {history.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {[
+            { id: "all" as const, label: "全部", count: historyOverview.total },
+            { id: "image_queue_running" as const, label: "图片队列中", count: historyOverview.imageQueueRunning },
+            { id: "image_queue_paused" as const, label: "队列已暂停", count: historyOverview.imageQueuePaused },
+            { id: "comfyui_remote_pending" as const, label: "ComfyUI 回收中", count: historyOverview.comfyuiRemotePending },
+          ].filter((item) => item.id === "all" || item.count > 0 || activeFilter === item.id).map((item) => {
+            const isActive = activeFilter === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleFilterChange(item.id)}
+                className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${
+                  isActive
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background hover:bg-accent"
+                }`}
+              >
+                {item.label} {item.count}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* 空状态 */}
       {history.length === 0 && (
         <div className="text-center py-16 space-y-4">
@@ -539,12 +682,26 @@ export default function HistoryPage() {
       )}
 
       {/* 历史卡片网格 */}
-      {history.length > 0 && (
+      {history.length > 0 && visibleHistory.length === 0 && (
+        <div className="rounded-xl border bg-card p-8 text-center space-y-3">
+          <p className="text-sm text-muted-foreground">当前筛选下暂无任务</p>
+          <button
+            type="button"
+            onClick={() => handleFilterChange("all")}
+            className="px-4 py-2 text-sm rounded-lg border hover:bg-accent transition-colors"
+          >
+            查看全部
+          </button>
+        </div>
+      )}
+
+      {visibleHistory.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {history.map((item) => (
+          {visibleHistory.map((item) => (
             <HistoryCard
               key={item.id}
               item={item}
+              activeFilter={activeFilter}
               exportMode={exportMode}
               isSelected={selectedIds.has(item.id)}
               onToggleSelect={toggleSelect}

@@ -282,6 +282,66 @@ describe("/api/tasks/[id]/actions POST", () => {
     }));
   });
 
+  it("requeues the image runtime when reconcile keeps a ComfyUI job in running state", async () => {
+    getTaskByIdMock.mockReturnValue({
+      id: "task-actions",
+      status: "image_queue_running",
+      progress: 65,
+      script: {
+        title: "Task Actions",
+        topic: "Topic",
+        style: "anime",
+        panels: [
+          { id: 1, scene: "Scene 1", dialogue: "Dialogue 1", imagePrompt: "Prompt 1", status: "generating" },
+        ],
+      },
+      createdAt: new Date("2026-04-05T00:00:00.000Z"),
+      updatedAt: new Date("2026-04-05T00:00:00.000Z"),
+    });
+    reconcileTaskJobsMock.mockResolvedValue({
+      id: "task-actions",
+      status: "image_queue_running",
+      progress: 65,
+      queueSummary: {
+        queued: 0,
+        running: 1,
+        paused: 0,
+        failed: 0,
+        attachFailed: 0,
+        completed: 0,
+        calibrationPending: 0,
+      },
+      script: {
+        title: "Task Actions",
+        topic: "Topic",
+        style: "anime",
+        panels: [
+          { id: 1, scene: "Scene 1", dialogue: "Dialogue 1", imagePrompt: "Prompt 1", status: "generating" },
+        ],
+      },
+      createdAt: new Date("2026-04-05T00:00:00.000Z"),
+      updatedAt: new Date("2026-04-05T00:00:00.000Z"),
+    });
+
+    const { POST } = await import("@/app/api/tasks/[id]/actions/route");
+    const request = new NextRequest("http://localhost:3000/api/tasks/task-actions/actions", {
+      method: "POST",
+      body: JSON.stringify({ action: "reconcile" }),
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ id: "task-actions" }) });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(reconcileTaskJobsMock).toHaveBeenCalledWith("task-actions");
+    expect(enqueueImageQueueMock).toHaveBeenCalledWith("task-actions");
+    expect(enqueueDeepReviewMock).not.toHaveBeenCalled();
+    expect(body).toEqual(expect.objectContaining({
+      success: true,
+      task: expect.objectContaining({ status: "image_queue_running" }),
+    }));
+  });
+
   it("starts deep review through the action route and schedules the review runtime", async () => {
     getTaskByIdMock.mockReturnValue({
       id: "task-actions",

@@ -207,6 +207,7 @@ function taskToRow(task: GenerateTask & { serverScriptReplay?: ServerScriptRepla
   if (task.serverScriptReplay) metadata.serverScriptReplay = task.serverScriptReplay;
   if (task.visualRepairExecution) metadata.visualRepairExecution = task.visualRepairExecution;
   if (task.queueSummary !== undefined) metadata.queueSummary = task.queueSummary;
+  if (task.comfyuiRemotePendingCount !== undefined) metadata.comfyuiRemotePendingCount = task.comfyuiRemotePendingCount;
   if (task.presetSnapshot !== undefined) metadata.presetSnapshot = task.presetSnapshot;
 
   return {
@@ -487,6 +488,9 @@ function rowToTask(row: Record<string, unknown>): GenerateTask {
     generationConfig: meta.generationConfig as GenerateTask["generationConfig"],
     visualRepairExecution: meta.visualRepairExecution as GenerateTask["visualRepairExecution"],
     queueSummary: meta.queueSummary as GenerateTask["queueSummary"],
+    comfyuiRemotePendingCount: typeof meta.comfyuiRemotePendingCount === "number"
+      ? meta.comfyuiRemotePendingCount
+      : undefined,
     presetSnapshot: meta.presetSnapshot as GenerateTask["presetSnapshot"],
     tags: safeJsonParse<string[]>(row.tags as string | null) ?? [],
     favorited: (row.favorited as number) === 1,

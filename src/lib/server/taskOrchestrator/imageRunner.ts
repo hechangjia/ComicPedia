@@ -2,7 +2,7 @@ import { getStyleModifier, getStyleNegativePrompt } from "@/lib/config/styles";
 import { getAllTasks, getConfig, getTaskById, registerImage, upsertTask, upsertTaskJob } from "@/lib/server/db";
 import { forwardImageGenerationRequest } from "@/lib/server/imageGenerationService";
 import { readImageByKey, saveImageFileAsync } from "@/lib/server/imageStorage";
-import { submitComfyWorkflow, waitForComfyWorkflowResult } from "@/lib/server/comfyuiClient";
+import { ComfyUIClientError, submitComfyWorkflow, waitForComfyWorkflowResult } from "@/lib/server/comfyuiClient";
 import { buildEnhancedPromptWithLog, mergeReferenceImage } from "@/lib/client/promptEnhancer";
 import type {
   ComicPanel,
@@ -17,6 +17,7 @@ import type {
   UserLLMConfig,
 } from "@/lib/types";
 import { runPanelLightCheck } from "./lightCheck";
+import { countRecoverableComfyJobs, hasReplayableComfyPrompt } from "./queueMeta";
 import { createTaskJob, listTaskJobsByTaskId, summarizeTaskJobs } from "./store";
 
 const FILE_REF_PREFIX = "file://";
@@ -318,6 +319,7 @@ async function persistQueueState(taskId: string): Promise<GenerateTask> {
   const nextTask: GenerateTask = {
     ...task,
     queueSummary,
+    comfyuiRemotePendingCount: countRecoverableComfyJobs(jobs),
     status: buildQueueStatus(task, jobs),
     progress: buildTaskProgress(task),
     updatedAt: new Date(),
@@ -334,6 +336,27 @@ function getJobImageConfig(job: TaskJobRecord, fallback?: PartialImageGenConfig)
 function getStoredComfyJobState(job: TaskJobRecord): StoredComfyJobState | undefined {
   const payload = job.payload as StoredImageJobPayload;
   return payload.image?.comfyui ? structuredClone(payload.image.comfyui) : undefined;
+}
+
+function isRecoverableFailedComfyJob(job: TaskJobRecord): boolean {
+  return job.kind === "panel_image"
+    && job.status === "failed"
+    && !job.outputFileKey
+    && hasReplayableComfyPrompt(job);
+}
+
+function isProcessablePanelImageJob(job: TaskJobRecord): boolean {
+  return job.kind === "panel_image"
+    && typeof job.panelIndex === "number"
+    && (PROCESSABLE_JOB_STATUSES.has(job.status) || isRecoverableFailedComfyJob(job));
+}
+
+function isRecoverableComfyWaitError(error: unknown): boolean {
+  if (error instanceof ComfyUIClientError) {
+    return error.status === 504;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return /timeout|timed out|超时/i.test(message);
 }
 
 function updateStoredComfyJobState(
@@ -616,7 +639,7 @@ async function generateOrResumeComfyPanelImage(
   panelIndex: number,
   imageConfig: PartialImageGenConfig,
   job: TaskJobRecord,
-  onJobUpdate?: (job: TaskJobRecord) => void,
+  onJobUpdate?: (job: TaskJobRecord) => Promise<void> | void,
 ): Promise<{ image: string; promptSnapshot: string; job: TaskJobRecord }> {
   const panel = getPanel(task, panelIndex);
   const directorComposition = task.narrativeOutline?.panels[panelIndex]?.suggestedComposition;
@@ -672,7 +695,7 @@ async function generateOrResumeComfyPanelImage(
       submittedAt: nowIso(),
     });
     upsertTaskJob(nextJob);
-    onJobUpdate?.(nextJob);
+    await onJobUpdate?.(nextJob);
   }
 
   const result = await waitForComfyWorkflowResult({
@@ -850,9 +873,7 @@ export async function runTaskImageQueue(taskId: string, fallbackInput?: RunTaskI
     }
 
     let liveJob = (await listTaskJobsByTaskId(taskId)).find((candidate) =>
-      candidate.kind === "panel_image"
-      && typeof candidate.panelIndex === "number"
-      && PROCESSABLE_JOB_STATUSES.has(candidate.status),
+      isProcessablePanelImageJob(candidate),
     );
     if (!liveJob || typeof liveJob.panelIndex !== "number") {
       break;
@@ -885,6 +906,7 @@ export async function runTaskImageQueue(taskId: string, fallbackInput?: RunTaskI
       if (liveJob.outputFileKey && readImageByKey(liveJob.outputFileKey)) {
         liveJob = updateJob(liveJob, { status: "persisting" });
         upsertTaskJob(liveJob);
+        await persistQueueState(taskId);
         await attachPersistedImage(taskId, liveJob);
       } else {
         liveJob = updateJob(liveJob, {
@@ -893,6 +915,7 @@ export async function runTaskImageQueue(taskId: string, fallbackInput?: RunTaskI
           lastError: undefined,
         });
         upsertTaskJob(liveJob);
+        await persistQueueState(taskId);
 
         const imageConfig = getJobImageConfig(liveJob, fallbackInput?.imageConfig);
         if (!imageConfig) {
@@ -906,8 +929,9 @@ export async function runTaskImageQueue(taskId: string, fallbackInput?: RunTaskI
             panelIndex,
             imageConfig,
             liveJob,
-            (nextJob) => {
+            async (nextJob) => {
               liveJob = nextJob;
+              await persistQueueState(taskId);
             },
           );
           liveJob = comfyGenerated.job;
@@ -920,6 +944,7 @@ export async function runTaskImageQueue(taskId: string, fallbackInput?: RunTaskI
           promptSnapshot: generated.promptSnapshot,
         });
         upsertTaskJob(liveJob);
+        await persistQueueState(taskId);
 
         const outputFileKey = await persistGeneratedImage(taskId, panelIndex, liveJob.id, generated.image);
         liveJob = updateJob(liveJob, {
@@ -927,6 +952,7 @@ export async function runTaskImageQueue(taskId: string, fallbackInput?: RunTaskI
           outputFileKey,
         });
         upsertTaskJob(liveJob);
+        await persistQueueState(taskId);
         await attachPersistedImage(taskId, liveJob);
       }
 
@@ -964,6 +990,19 @@ export async function runTaskImageQueue(taskId: string, fallbackInput?: RunTaskI
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown image queue error";
+      const shouldKeepWaitingOnRemotePrompt = !liveJob.outputFileKey
+        && hasReplayableComfyPrompt(liveJob)
+        && isRecoverableComfyWaitError(error);
+
+      if (shouldKeepWaitingOnRemotePrompt) {
+        upsertTaskJob(updateJob(liveJob, {
+          status: "generating",
+          lastError: message,
+        }));
+        await persistQueueState(taskId);
+        return;
+      }
+
       const failedStatus: TaskJobRecord["status"] = liveJob.outputFileKey ? "attach_failed" : "failed";
       if (failedStatus === "attach_failed" && previousPanelState.status === "completed" && previousPanelState.imageUrl) {
         const latestTask = getTaskById(taskId);
@@ -1007,8 +1046,7 @@ export async function listReplayableImageTasks(): Promise<Array<{
   for (const task of getAllTasks()) {
     const jobs = await listTaskJobsByTaskId(task.id);
     const replayableJob = jobs.find((job) =>
-      job.kind === "panel_image"
-      && PROCESSABLE_JOB_STATUSES.has(job.status),
+      isProcessablePanelImageJob(job),
     );
 
     if (!replayableJob || replayableJob.status === "calibrating") {

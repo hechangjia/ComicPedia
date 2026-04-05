@@ -5,12 +5,14 @@ const {
   getTaskByIdMock,
   listTaskJobsByTaskIdMock,
   summarizeTaskJobsMock,
+  countRecoverableComfyJobsMock,
   fileRefsToUrlsMock,
   getTaskRuntimeMock,
 } = vi.hoisted(() => ({
   getTaskByIdMock: vi.fn(),
   listTaskJobsByTaskIdMock: vi.fn(),
   summarizeTaskJobsMock: vi.fn(),
+  countRecoverableComfyJobsMock: vi.fn(),
   fileRefsToUrlsMock: vi.fn((value) => value),
   getTaskRuntimeMock: vi.fn(),
 }));
@@ -34,6 +36,10 @@ vi.mock("@/lib/server/taskOrchestrator/store", () => ({
   summarizeTaskJobs: summarizeTaskJobsMock,
 }));
 
+vi.mock("@/lib/server/taskOrchestrator/queueMeta", () => ({
+  countRecoverableComfyJobs: countRecoverableComfyJobsMock,
+}));
+
 vi.mock("@/lib/server/taskOrchestrator/runtime", () => ({
   getTaskRuntime: getTaskRuntimeMock,
 }));
@@ -43,6 +49,7 @@ describe("/api/tasks/[id] GET", () => {
     getTaskByIdMock.mockReset();
     listTaskJobsByTaskIdMock.mockReset();
     summarizeTaskJobsMock.mockReset();
+    countRecoverableComfyJobsMock.mockReset();
     fileRefsToUrlsMock.mockReset();
     fileRefsToUrlsMock.mockImplementation((value) => value);
     getTaskRuntimeMock.mockReset();
@@ -59,6 +66,7 @@ describe("/api/tasks/[id] GET", () => {
       updatedAt: new Date("2026-03-27T00:00:00.000Z"),
     });
     listTaskJobsByTaskIdMock.mockResolvedValue([{ id: "job-detail-1" }]);
+    countRecoverableComfyJobsMock.mockReturnValue(1);
     summarizeTaskJobsMock.mockReturnValue({
       queued: 0,
       running: 1,
@@ -76,7 +84,9 @@ describe("/api/tasks/[id] GET", () => {
 
     expect(getTaskRuntimeMock).toHaveBeenCalledTimes(1);
     expect(listTaskJobsByTaskIdMock).toHaveBeenCalledWith("task-detail");
+    expect(countRecoverableComfyJobsMock).toHaveBeenCalledWith([{ id: "job-detail-1" }]);
     expect(summarizeTaskJobsMock).toHaveBeenCalledWith([{ id: "job-detail-1" }]);
+    expect(body.comfyuiRemotePendingCount).toBe(1);
     expect(body.queueSummary).toEqual({
       queued: 0,
       running: 1,

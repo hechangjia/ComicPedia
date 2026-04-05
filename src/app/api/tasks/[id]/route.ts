@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTaskById, upsertTask, deleteTask, patchTask } from "@/lib/server/db";
 import { extractTaskImagesAsync, trashTaskImages, restoreFileRefs, fileRefsToUrls } from "@/lib/server/imageExtractor";
 import { getTaskRuntime } from "@/lib/server/taskOrchestrator/runtime";
+import { countRecoverableComfyJobs } from "@/lib/server/taskOrchestrator/queueMeta";
 import { listTaskJobsByTaskId, summarizeTaskJobs } from "@/lib/server/taskOrchestrator/store";
 import type { GenerateTask, TaskJobRecord } from "@/lib/types";
 
@@ -32,6 +33,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     } = {
       ...taskForClient,
       queueSummary: task.queueSummary ?? summarizeTaskJobs(taskJobs),
+      comfyuiRemotePendingCount: task.comfyuiRemotePendingCount ?? countRecoverableComfyJobs(taskJobs),
       queueJobs: taskJobs.map(({ payload: _payload, ...job }) => job),
     };
 

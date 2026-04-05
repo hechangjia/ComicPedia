@@ -1,5 +1,6 @@
 import { getConfig, getTaskById, upsertTask } from "@/lib/server/db";
 import type { GenerateTask, PartialLLMConfig, UserAPIConfigV2, UserLLMConfig } from "@/lib/types";
+import { countRecoverableComfyJobs } from "./queueMeta";
 import { createTaskJob, listTaskJobsByTaskId, summarizeTaskJobs } from "./store";
 
 type SanitizedLLMConfig = Omit<PartialLLMConfig, "apiKey">;
@@ -100,6 +101,7 @@ export async function startDeepReview(taskId: string, input: StartDeepReviewInpu
     ...task,
     status: "deep_review_running",
     queueSummary: summarizeTaskJobs(jobs),
+    comfyuiRemotePendingCount: countRecoverableComfyJobs(jobs),
     visualDiagnosisState: "running",
     updatedAt: new Date(),
   };

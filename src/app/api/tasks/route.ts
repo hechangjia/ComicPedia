@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getTasksPaginated, upsertTask, clearAllTasks, getAllTaskIds } from "@/lib/server/db";
 import { extractTaskImagesAsync, fileRefsToUrls, trashTaskImages } from "@/lib/server/imageExtractor";
+import { countRecoverableComfyJobs } from "@/lib/server/taskOrchestrator/queueMeta";
 import { getTaskRuntime } from "@/lib/server/taskOrchestrator/runtime";
 import { buildServerScriptReplayPayload, validateServerReplayPayload } from "@/lib/server/taskOrchestrator/replay";
 import { listTaskJobsByTaskId, summarizeTaskJobs } from "@/lib/server/taskOrchestrator/store";
@@ -9,12 +10,15 @@ import type { GenerateRequest, GenerateTask } from "@/lib/types";
 
 /** 将 task 精简为列表所需的最小字段集，再转换 file:// 引用 */
 async function toListItem(task: GenerateTask) {
-  const queueSummary = task.queueSummary ?? summarizeTaskJobs(await listTaskJobsByTaskId(task.id));
+  const needsJobFallback = !task.queueSummary || task.comfyuiRemotePendingCount === undefined;
+  const taskJobs = needsJobFallback ? await listTaskJobsByTaskId(task.id) : [];
+  const queueSummary = task.queueSummary ?? summarizeTaskJobs(taskJobs);
   const stripped = {
     id: task.id,
     status: task.status,
     progress: task.progress,
     queueSummary,
+    comfyuiRemotePendingCount: task.comfyuiRemotePendingCount ?? countRecoverableComfyJobs(taskJobs),
     reviewStatus: task.reviewStatus,
     lastReviewAt: task.lastReviewAt,
     visualQualityScore: task.visualQualityScore ? {

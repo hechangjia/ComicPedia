@@ -1,10 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
-const { getTasksPaginatedMock, listTaskJobsByTaskIdMock, summarizeTaskJobsMock, getTaskRuntimeMock } = vi.hoisted(() => ({
+const { getTasksPaginatedMock, listTaskJobsByTaskIdMock, summarizeTaskJobsMock, countRecoverableComfyJobsMock, getTaskRuntimeMock } = vi.hoisted(() => ({
   getTasksPaginatedMock: vi.fn(),
   listTaskJobsByTaskIdMock: vi.fn(),
   summarizeTaskJobsMock: vi.fn(),
+  countRecoverableComfyJobsMock: vi.fn(),
   getTaskRuntimeMock: vi.fn(),
 }));
 
@@ -26,6 +27,10 @@ vi.mock("@/lib/server/taskOrchestrator/store", () => ({
   summarizeTaskJobs: summarizeTaskJobsMock,
 }));
 
+vi.mock("@/lib/server/taskOrchestrator/queueMeta", () => ({
+  countRecoverableComfyJobs: countRecoverableComfyJobsMock,
+}));
+
 vi.mock("@/lib/server/taskOrchestrator/runtime", () => ({
   getTaskRuntime: getTaskRuntimeMock,
 }));
@@ -35,6 +40,7 @@ describe("/api/tasks GET", () => {
     getTasksPaginatedMock.mockReset();
     listTaskJobsByTaskIdMock.mockReset();
     summarizeTaskJobsMock.mockReset();
+    countRecoverableComfyJobsMock.mockReset();
     getTaskRuntimeMock.mockReset();
   });
 
@@ -126,6 +132,7 @@ describe("/api/tasks GET", () => {
       ],
     });
     listTaskJobsByTaskIdMock.mockResolvedValue([{ id: "job-1" }]);
+    countRecoverableComfyJobsMock.mockReturnValue(2);
     summarizeTaskJobsMock.mockReturnValue({
       queued: 1,
       running: 2,
@@ -143,7 +150,9 @@ describe("/api/tasks GET", () => {
 
     expect(getTaskRuntimeMock).toHaveBeenCalledTimes(1);
     expect(listTaskJobsByTaskIdMock).toHaveBeenCalledWith("task-fallback");
+    expect(countRecoverableComfyJobsMock).toHaveBeenCalledWith([{ id: "job-1" }]);
     expect(summarizeTaskJobsMock).toHaveBeenCalledWith([{ id: "job-1" }]);
+    expect(body.tasks[0].comfyuiRemotePendingCount).toBe(2);
     expect(body.tasks[0].queueSummary).toEqual({
       queued: 1,
       running: 2,

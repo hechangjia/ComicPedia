@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { ComicStyle, GenerateTaskStatus, QuizQuestion, RelatedTopic } from "@/lib/types";
@@ -28,6 +28,7 @@ import { DetailTabs } from "@/components/result/DetailTabs";
 import { StickyActionBar } from "@/components/result/StickyActionBar";
 import { ScriptEditor } from "@/components/editor/ScriptEditor";
 import "@/app/result/print.css";
+import { resolveResultBackHref } from "@/app/history/historyNavigation";
 import { AlertTriangle, ChevronLeft, RefreshCw, X } from "lucide-react";
 
 
@@ -58,7 +59,12 @@ const SCRIPT_IN_PROGRESS_STATUSES = new Set<GenerateTaskStatus>([
 
 export default function ResultPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const taskId = params.id as string;
+  const backHref = useMemo(
+    () => resolveResultBackHref(searchParams.get("returnTo")),
+    [searchParams],
+  );
 
   const { task, setTask, error } = useTaskSubscription(taskId);
   useTaskPageLifecycle(task);
@@ -233,10 +239,10 @@ export default function ResultPage() {
           <p className="text-error">{error}</p>
         </div>
         <Link
-          href="/"
+          href={backHref}
           className="inline-block px-6 py-2 rounded-lg bg-primary text-primary-foreground min-h-[44px]"
         >
-          返回首页
+          {backHref === "/" ? "返回首页" : "返回历史"}
         </Link>
       </div>
     );
@@ -283,11 +289,11 @@ export default function ResultPage() {
     <div className="max-w-4xl mx-auto space-y-6 sm:space-y-8 pb-20 print-container">
       {/* 返回按钮 */}
       <Link
-        href="/"
+        href={backHref}
         className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground no-print min-h-[44px]"
       >
         <ChevronLeft className="w-4 h-4" />
-        返回
+        {backHref === "/" ? "返回" : "返回历史"}
       </Link>
 
       {/* 标题 */}
@@ -545,6 +551,7 @@ export default function ResultPage() {
           panels={task.script.panels}
           selectedPanelIds={validSelectedPanelIds}
           queueSummary={task.queueSummary}
+          comfyuiRemotePendingCount={task.comfyuiRemotePendingCount}
           generatingAll={generatingAll}
           llmConfigs={storedConfigs.llmConfigs}
           imageConfigs={storedConfigs.imageConfigs}

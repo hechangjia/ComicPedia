@@ -1,4 +1,5 @@
 import { getTaskById, upsertTask, upsertTaskJob } from "@/lib/server/db";
+import { countRecoverableComfyJobs, hasReplayableComfyPrompt } from "./queueMeta";
 import { listTaskJobsByTaskId, summarizeTaskJobs } from "./store";
 import type { GenerateTask, TaskJobKind, TaskJobRecord, TaskQueueSummary } from "@/lib/types";
 
@@ -27,6 +28,10 @@ const NON_TERMINAL_JOB_STATUSES = new Set<TaskJobRecord["status"]>([
   "attach_failed",
   "failed",
 ]);
+
+function shouldKeepRecoveringRemoteImageJob(job: TaskJobRecord): boolean {
+  return job.status === "generating" && hasReplayableComfyPrompt(job);
+}
 
 function updateJob(job: TaskJobRecord, patch: Partial<TaskJobRecord>): TaskJobRecord {
   return {
@@ -167,6 +172,7 @@ function finalizeTask(task: GenerateTask, jobs: TaskJobRecord[]): GenerateTask {
   return {
     ...task,
     queueSummary,
+    comfyuiRemotePendingCount: countRecoverableComfyJobs(jobs),
     status: buildTaskStatus(task, jobs),
     progress: buildTaskProgress(task),
     updatedAt: new Date(),
@@ -204,9 +210,10 @@ async function applyJobTransition(
 
   const nextTask = finalizeTask(task, nextJobs);
   const queueSummaryChanged = !isSameQueueSummary(task.queueSummary, nextTask.queueSummary!);
+  const queueRecoveryChanged = task.comfyuiRemotePendingCount !== nextTask.comfyuiRemotePendingCount;
   const taskStateChanged = task.status !== nextTask.status || task.progress !== nextTask.progress;
 
-  if (!jobsChanged && !taskChanged && !queueSummaryChanged && !taskStateChanged) {
+  if (!jobsChanged && !taskChanged && !queueSummaryChanged && !queueRecoveryChanged && !taskStateChanged) {
     return nextTask;
   }
 
@@ -220,19 +227,54 @@ async function applyJobTransition(
 }
 
 export async function reconcileTaskJobs(taskId: string): Promise<GenerateTask> {
-  return applyJobTransition(
-    taskId,
-    (job) => RECONCILE_PAUSEABLE_JOB_STATUSES.has(job.status),
-    (task, job) => {
-      if (job.kind !== "panel_image" || typeof job.panelIndex !== "number") {
-        return false;
-      }
-      if (!RUNNING_JOB_STATUSES.has(job.status)) {
-        return false;
-      }
-      return reconcileRunningPanelState(task, job.panelIndex);
-    },
-  );
+  const task = getTaskById(taskId);
+  if (!task) {
+    throw new Error(`Task not found: ${taskId}`);
+  }
+
+  const jobs = await listTaskJobsByTaskId(taskId);
+  let taskChanged = false;
+  let jobsChanged = false;
+  const nextJobs = jobs.map((job) => {
+    if (!RECONCILE_PAUSEABLE_JOB_STATUSES.has(job.status)) {
+      return job;
+    }
+    if (shouldKeepRecoveringRemoteImageJob(job)) {
+      return job;
+    }
+
+    if (
+      job.kind === "panel_image"
+      && typeof job.panelIndex === "number"
+      && RUNNING_JOB_STATUSES.has(job.status)
+      && reconcileRunningPanelState(task, job.panelIndex)
+    ) {
+      taskChanged = true;
+    }
+
+    jobsChanged = true;
+    return updateJob(job, {
+      status: "paused",
+      lastError: undefined,
+    });
+  });
+
+  const nextTask = finalizeTask(task, nextJobs);
+  const queueSummaryChanged = !isSameQueueSummary(task.queueSummary, nextTask.queueSummary!);
+  const queueRecoveryChanged = task.comfyuiRemotePendingCount !== nextTask.comfyuiRemotePendingCount;
+  const taskStateChanged = task.status !== nextTask.status || task.progress !== nextTask.progress;
+
+  if (!jobsChanged && !taskChanged && !queueSummaryChanged && !queueRecoveryChanged && !taskStateChanged) {
+    return nextTask;
+  }
+
+  for (let index = 0; index < jobs.length; index += 1) {
+    if (jobs[index] !== nextJobs[index]) {
+      upsertTaskJob(nextJobs[index]);
+    }
+  }
+  upsertTask(nextTask);
+  return nextTask;
 }
 
 export async function pauseTaskJobs(taskId: string): Promise<GenerateTask> {
@@ -252,7 +294,8 @@ export async function resumeTaskJobs(taskId: string): Promise<GenerateTask> {
   const jobs = await listTaskJobsByTaskId(taskId);
   let jobsChanged = false;
   const nextJobs = jobs.map((job) => {
-    if (!RESUMABLE_JOB_STATUSES.has(job.status)) {
+    const shouldResumeRecoverableFailure = job.status === "failed" && hasReplayableComfyPrompt(job);
+    if (!RESUMABLE_JOB_STATUSES.has(job.status) && !shouldResumeRecoverableFailure) {
       return job;
     }
     jobsChanged = true;
@@ -264,9 +307,10 @@ export async function resumeTaskJobs(taskId: string): Promise<GenerateTask> {
 
   const nextTask = finalizeTask(task, nextJobs);
   const queueSummaryChanged = !isSameQueueSummary(task.queueSummary, nextTask.queueSummary!);
+  const queueRecoveryChanged = task.comfyuiRemotePendingCount !== nextTask.comfyuiRemotePendingCount;
   const taskStateChanged = task.status !== nextTask.status || task.progress !== nextTask.progress;
 
-  if (!jobsChanged && !queueSummaryChanged && !taskStateChanged) {
+  if (!jobsChanged && !queueSummaryChanged && !queueRecoveryChanged && !taskStateChanged) {
     return nextTask;
   }
 

@@ -12,6 +12,7 @@ import { evaluateVisualDiagnosis, summarizeDiagnosisReport } from "@/lib/vlmDiag
 import { markDiagnosisFailed, markDiagnosisRunning, markDiagnosisSucceeded } from "@/lib/vlmDiagnosisState";
 import { buildTaskReviewStatus } from "@/lib/vlmRetry";
 import { evaluateVisualQuality } from "@/lib/vlmScorer";
+import { countRecoverableComfyJobs } from "./queueMeta";
 import { listTaskJobsByTaskId, summarizeTaskJobs } from "./store";
 
 const PROCESSABLE_REVIEW_JOB_STATUSES = new Set<TaskJobRecord["status"]>([
@@ -189,6 +190,7 @@ async function persistReviewState(taskId: string): Promise<void> {
   const deepReviewSummary = summarizeTaskJobs(deepReviewJobs);
 
   task.queueSummary = queueSummary;
+  task.comfyuiRemotePendingCount = countRecoverableComfyJobs(jobs);
   if (deepReviewSummary.queued > 0 || deepReviewSummary.running > 0 || deepReviewSummary.calibrationPending > 0) {
     task.status = "deep_review_running";
   } else if (deepReviewSummary.paused > 0 || deepReviewSummary.failed > 0 || deepReviewSummary.attachFailed > 0) {

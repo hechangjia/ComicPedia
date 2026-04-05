@@ -593,6 +593,8 @@ export interface GenerateTask {
   pipelineTrace?: PipelineStageTrace[];
   /** Durable queue-state projection for orchestration list rendering */
   queueSummary?: TaskQueueSummary;
+  /** Count of local ComfyUI jobs already submitted upstream and still recoverable */
+  comfyuiRemotePendingCount?: number;
   /** Frozen generation preset and override snapshot for explainability */
   presetSnapshot?: GenerationPresetSnapshot;
   /** User-assigned tags for organization */
