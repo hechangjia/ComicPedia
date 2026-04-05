@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import { ComicPanel, ComicScript } from "@/lib/types";
-import { Download, ChevronDown, Check, X, Image, Archive, FileText, FileDown, LayoutGrid, Layers, Video, PackageOpen } from "lucide-react";
+import { Download, ChevronDown, Check, X, Image as ImageIcon, Archive, FileText, FileDown, LayoutGrid, Layers, Video, PackageOpen } from "lucide-react";
 import {
   downloadSingleImage,
   downloadComicAsImage,
@@ -132,7 +132,7 @@ export function DownloadMenu({ panels, title, script }: DownloadMenuProps) {
               disabled={status === "loading"}
               className="w-full px-3 py-2 text-left text-sm rounded-md hover:bg-accent flex items-center gap-3 disabled:opacity-50"
             >
-              <Image className="w-5 h-5 text-teal" />
+              <ImageIcon className="w-5 h-5 text-teal" />
               <div>
                 <div className="font-medium">合成大图</div>
                 <div className="text-xs text-muted-foreground">将所有面板拼接为一张 PNG</div>

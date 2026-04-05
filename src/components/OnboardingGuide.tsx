@@ -2,7 +2,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { X, Check, Image } from "lucide-react";
+import { X, Check, Image as ImageIcon } from "lucide-react";
 
 const STORAGE_KEY = "comicpedia_onboarding_completed";
 const onboardingListeners = new Set<() => void>();
@@ -201,7 +201,7 @@ export function OnboardingGuide({ hasLLM, hasImage, isLoaded }: OnboardingGuideP
             href="/gallery"
             className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs rounded-lg border hover:bg-accent transition-colors min-h-[32px]"
           >
-            <Image className="w-3.5 h-3.5" />
+            <ImageIcon className="w-3.5 h-3.5" />
             浏览作品展示
           </Link>
         </div>

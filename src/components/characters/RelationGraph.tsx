@@ -95,20 +95,22 @@ export function RelationGraph({
   // Use refs for nodes/links to avoid recreating simulation on every change
   const nodesRef = useRef<GraphNode[]>([]);
   const linksRef = useRef<GraphLink[]>([]);
-  const [, forceRender] = useState(0);
+  const [renderGraph, setRenderGraph] = useState<{ nodes: GraphNode[]; links: GraphLink[] }>({
+    nodes: [],
+    links: [],
+  });
   const rafRef = useRef<number | null>(null);
 
   const scheduleRender = useCallback(() => {
     if (rafRef.current != null) return;
     rafRef.current = requestAnimationFrame(() => {
       rafRef.current = null;
-      forceRender((v) => v + 1);
+      setRenderGraph({
+        nodes: [...nodesRef.current],
+        links: [...linksRef.current],
+      });
     });
   }, []);
-
-  // Expose current nodes/links for rendering via refs
-  const nodes = nodesRef.current;
-  const links = linksRef.current;
 
   // Build nodes & links when data changes — update in-place
   useEffect(() => {
@@ -175,7 +177,6 @@ export function RelationGraph({
         rafRef.current = null;
       }
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scheduleRender]);
 
   // Setup zoom
@@ -243,7 +244,7 @@ export function RelationGraph({
   );
 
   // Filter links by enabled types
-  const visibleLinks = links.filter((l) => enabledTypes.has(l.relation.type));
+  const visibleLinks = renderGraph.links.filter((l) => enabledTypes.has(l.relation.type));
 
   // Determine highlight/dim
   const connectedIds = new Set<string>();
@@ -379,7 +380,7 @@ export function RelationGraph({
           })}
 
           {/* Nodes */}
-          {nodes.map((node) => {
+          {renderGraph.nodes.map((node) => {
             const isConnected = connectedIds.has(node.id);
             const isSelected = node.id === selectedNodeId;
             const dimmed = !!selectedNodeId && !isSelected && !isConnected;

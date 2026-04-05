@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { TOPIC_PRESETS, getCategories } from "@/lib/config/topicPresets";
 import type { BuiltinContentType } from "@/lib/types";
 
@@ -12,18 +12,16 @@ interface InspirationSquareProps {
 const MAX_VISIBLE = 20;
 
 export function InspirationSquare({ contentType, onSelect }: InspirationSquareProps) {
-  const [activeCategory, setActiveCategory] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [viewState, setViewState] = useState(() => ({
+    contentType,
+    activeCategory: null as string | null,
+    expanded: false,
+  }));
 
   const categories = useMemo(() => getCategories(contentType), [contentType]);
-  const presets = TOPIC_PRESETS[contentType] ?? [];
-
-  // Reset category when content type changes
-  useEffect(() => {
-    setActiveCategory(null);
-    setExpanded(false);
-  }, [contentType]);
+  const presets = useMemo(() => TOPIC_PRESETS[contentType] ?? [], [contentType]);
+  const activeCategory = viewState.contentType === contentType ? viewState.activeCategory : null;
+  const expanded = viewState.contentType === contentType ? viewState.expanded : false;
 
   const filtered = useMemo(() => {
     if (!activeCategory) return presets;
@@ -45,7 +43,13 @@ export function InspirationSquare({ contentType, onSelect }: InspirationSquarePr
       {/* Category filter pills */}
       <div className="flex gap-1.5 flex-wrap">
         <button
-          onClick={() => { setActiveCategory(null); setExpanded(false); }}
+          onClick={() => {
+            setViewState({
+              contentType,
+              activeCategory: null,
+              expanded: false,
+            });
+          }}
           className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
             activeCategory === null
               ? "bg-foreground text-background"
@@ -57,7 +61,13 @@ export function InspirationSquare({ contentType, onSelect }: InspirationSquarePr
         {categories.map((cat) => (
           <button
             key={cat}
-            onClick={() => { setActiveCategory(cat === activeCategory ? null : cat); setExpanded(false); }}
+            onClick={() => {
+              setViewState({
+                contentType,
+                activeCategory: cat === activeCategory ? null : cat,
+                expanded: false,
+              });
+            }}
             className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
               activeCategory === cat
                 ? "bg-foreground text-background"
@@ -70,7 +80,7 @@ export function InspirationSquare({ contentType, onSelect }: InspirationSquarePr
       </div>
 
       {/* Topic chips */}
-      <div ref={scrollRef} className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap gap-1.5">
         {visible.map((preset) => (
           <button
             key={`${preset.category}-${preset.label}`}
@@ -83,7 +93,13 @@ export function InspirationSquare({ contentType, onSelect }: InspirationSquarePr
         ))}
         {hasMore && !expanded && (
           <button
-            onClick={() => setExpanded(true)}
+            onClick={() => {
+              setViewState({
+                contentType,
+                activeCategory,
+                expanded: true,
+              });
+            }}
             className="px-2.5 py-1 rounded-full text-xs border border-dashed border-border/60 text-muted-foreground hover:text-foreground hover:border-border transition-colors"
           >
             +{filtered.length - MAX_VISIBLE} 更多

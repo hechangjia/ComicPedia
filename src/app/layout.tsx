@@ -8,7 +8,7 @@ import { GlobalErrorBoundary } from "@/components/GlobalErrorBoundary";
 import { BottomTabBar } from "@/components/BottomTabBar";
 import { ToastProvider } from "@/components/ui/Toast";
 import Link from "next/link";
-import { BookImage, Image, Users, Library, Clock, Settings } from "lucide-react";
+import { BookImage, Image as ImageIcon, Users, Library, Clock, Settings } from "lucide-react";
 
 const dmSans = DM_Sans({
   subsets: ["latin"],
@@ -86,7 +86,7 @@ export default function RootLayout({
                   className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5 min-h-[44px]"
                   aria-label="作品库"
                 >
-                  <Image className="w-4 h-4" />
+                  <ImageIcon className="w-4 h-4" />
                   <span className="hidden sm:inline">作品</span>
                 </Link>
                 <Link

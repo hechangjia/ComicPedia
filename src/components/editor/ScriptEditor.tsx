@@ -46,7 +46,6 @@ export function ScriptEditor({ script, onSave }: ScriptEditorProps) {
   );
 
   return (
-    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div onKeyDown={handleKeyDown} tabIndex={-1} className="outline-none">
       {/* Toolbar */}
       <div className="flex items-center gap-2 mb-4">

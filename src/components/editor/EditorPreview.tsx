@@ -17,7 +17,6 @@ export function EditorPreview({ panels, style }: EditorPreviewProps) {
           {/* Thumbnail */}
           <div className="aspect-square rounded-lg border bg-muted/30 overflow-hidden flex items-center justify-center">
             {panel.imageUrl && !panel.imageUrl.startsWith("data:text/plain") ? (
-              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={panel.imageUrl}
                 alt={`面板 ${i + 1}`}
