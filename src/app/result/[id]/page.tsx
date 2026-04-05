@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -15,7 +15,7 @@ import { resumeTaskLifecycle, useTaskPageLifecycle } from "@/hooks/useTaskPageLi
 import { useTaskActions } from "@/hooks/useTaskActions";
 import { getStoredConfigs, getStoredRequestConfigs } from "@/hooks/useAPIConfig";
 import { StyleSwitcher } from "@/components/result/StyleSwitcher";
-import { ScriptReadyBar } from "@/components/result/ScriptReadyBar";
+import { ScriptReadyWorkspace } from "@/components/result/ScriptReadyWorkspace";
 import { ScriptValidationPanel } from "@/components/result/ScriptValidationPanel";
 import { CompletedActions } from "@/components/result/CompletedActions";
 import { PanelGrid } from "@/components/result/PanelGrid";
@@ -84,7 +84,11 @@ export default function ResultPage() {
     handleRegenerate,
     handleCancel,
     handleVersionChange,
-    handleGenerateAll,
+    handleQueuePanel,
+    handleQueueSelectedPanels,
+    handleContinueRemaining,
+    handlePauseQueue,
+    handleResumeQueue,
     handleRetryFailed,
     handleReferenceImageChange,
     handleReferenceImagesChange,
@@ -104,6 +108,7 @@ export default function ResultPage() {
   } = useTaskActions(taskId, setTask, selectedImageId, selectedLLMId);
 
   const [viewMode, setViewMode] = useState<"edit" | "read" | "play">("edit");
+  const [selectedPanelIndices, setSelectedPanelIndices] = useState<number[]>([]);
 
   const handleResumePausedTask = useCallback(async () => {
     if (task?.status === "image_queue_paused" || task?.status === "deep_review_paused") {
@@ -114,14 +119,25 @@ export default function ResultPage() {
     }
   }, [setTask, task?.status, taskId]);
 
-  const handleGenerateAllOrResume = useCallback(async () => {
-    if (task?.status === "image_queue_paused") {
-      await handleResumePausedTask();
-      return;
-    }
+  useEffect(() => {
+    const panelCount = task?.script?.panels.length ?? 0;
+    setSelectedPanelIndices((prev) => prev.filter((panelIndex) => panelIndex >= 0 && panelIndex < panelCount));
+  }, [task?.script?.panels.length]);
 
-    await handleGenerateAll();
-  }, [handleGenerateAll, handleResumePausedTask, task?.status]);
+  const handleTogglePanelSelection = useCallback((panelIndex: number, checked: boolean) => {
+    setSelectedPanelIndices((prev) => {
+      if (checked) {
+        if (prev.includes(panelIndex)) return prev;
+        return [...prev, panelIndex].sort((left, right) => left - right);
+      }
+      return prev.filter((value) => value !== panelIndex);
+    });
+  }, []);
+
+  const handleQueueSelected = useCallback(async () => {
+    await handleQueueSelectedPanels(selectedPanelIndices);
+    setSelectedPanelIndices([]);
+  }, [handleQueueSelectedPanels, selectedPanelIndices]);
 
   // Script editor save handler
   const handleScriptEditorSave = useCallback((panels: import("@/lib/types").ComicPanel[]) => {
@@ -231,7 +247,12 @@ export default function ResultPage() {
   const isDeepReviewPaused = task.status === "deep_review_paused";
   const isGenerating = isLegacyGenerating || isQueueRunning;
   const isCompleted = task.status === "completed";
-  const showPausedResume = task.status === "image_queue_paused" || task.status === "deep_review_paused";
+  const showPausedResume = task.status === "deep_review_paused";
+  const showScriptReadyWorkspace = !!task.script && (
+    task.status === "script_ready"
+    || task.status === "image_queue_running"
+    || task.status === "image_queue_paused"
+  );
   const showAnimation = isScripting || isGenerating;
   const animationStatus = isGenerating
     ? "generating"
@@ -493,26 +514,24 @@ export default function ResultPage() {
         <div className="p-4 rounded-xl border bg-warning/5 no-print">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm text-warning">
-              {task.status === "deep_review_paused"
-                ? "离页后深度评审已暂停。"
-                : "离页后图片队列已暂停。"}
+              离页后深度评审已暂停。
             </p>
             <button
               onClick={handleResumePausedTask}
               className="px-4 py-2 text-sm bg-warning text-white rounded-lg hover:bg-warning/90 transition-colors min-h-[40px] shrink-0"
             >
-              {task.status === "deep_review_paused" ? "继续评审" : "继续处理"}
+              继续评审
             </button>
           </div>
         </div>
       )}
 
-      {/* script_ready 状态提示 + 全部生成按钮 */}
-      {isScriptReady && task.script && (
-        <ScriptReadyBar
-          completedPanels={completedPanels}
-          totalPanels={totalPanels}
-          pendingPanels={pendingPanels}
+      {showScriptReadyWorkspace && task.script && (
+        <ScriptReadyWorkspace
+          taskStatus={task.status}
+          panels={task.script.panels}
+          selectedPanelIndices={selectedPanelIndices}
+          queueSummary={task.queueSummary}
           generatingAll={generatingAll}
           llmConfigs={storedConfigs.llmConfigs}
           imageConfigs={storedConfigs.imageConfigs}
@@ -523,7 +542,12 @@ export default function ResultPage() {
           onSelectedLLMIdChange={setSelectedLLMId}
           onSelectedImageIdChange={setSelectedImageId}
           onRegenerateScript={handleRegenerateScript}
-          onGenerateAll={handleGenerateAllOrResume}
+          onTogglePanelSelection={handleTogglePanelSelection}
+          onQueuePanel={handleQueuePanel}
+          onQueueSelected={handleQueueSelected}
+          onContinueRemaining={handleContinueRemaining}
+          onPauseQueue={handlePauseQueue}
+          onResumeQueue={handleResumeQueue}
         />
       )}
 

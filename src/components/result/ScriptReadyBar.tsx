@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Image as ImageIcon, Info, RefreshCw } from "lucide-react";
 
 interface LLMConfig {
@@ -18,7 +19,7 @@ interface ScriptReadyBarProps {
   completedPanels: number;
   totalPanels: number;
   pendingPanels: number;
-  generatingAll: boolean;
+  generatingAll?: boolean;
   llmConfigs: LLMConfig[];
   imageConfigs: ImageConfig[];
   activeLLMId: string;
@@ -28,14 +29,15 @@ interface ScriptReadyBarProps {
   onSelectedLLMIdChange: (id: string) => void;
   onSelectedImageIdChange: (id: string) => void;
   onRegenerateScript: () => void;
-  onGenerateAll: () => void;
+  onGenerateAll?: () => void;
+  actionSlot?: ReactNode;
 }
 
 export function ScriptReadyBar({
   completedPanels,
   totalPanels,
   pendingPanels,
-  generatingAll,
+  generatingAll = false,
   llmConfigs,
   imageConfigs,
   activeLLMId,
@@ -46,6 +48,7 @@ export function ScriptReadyBar({
   onSelectedImageIdChange,
   onRegenerateScript,
   onGenerateAll,
+  actionSlot,
 }: ScriptReadyBarProps) {
   return (
     <div className="p-4 rounded-xl border bg-info/10 space-y-3 no-print">
@@ -61,7 +64,7 @@ export function ScriptReadyBar({
             )}
           </p>
           <p className="text-xs text-info">
-            请审查每个分镜的提示词，点击编辑按钮可修改。确认无误后，可单独生成某个分镜的图片，或点击下方按钮一次性全部生成。
+            请审查每个分镜的提示词，点击编辑按钮可修改。确认无误后，可在下方工作区按面板推进生成队列。
           </p>
         </div>
       </div>
@@ -107,14 +110,17 @@ export function ScriptReadyBar({
             </select>
           </div>
         )}
-        <button
-          onClick={onGenerateAll}
-          disabled={generatingAll || pendingPanels === 0}
-          className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2 min-h-[40px]"
-        >
-          <ImageIcon className="w-4 h-4" />
-          {generatingAll ? "生成中..." : pendingPanels > 0 ? `全部生成 (${pendingPanels} 张)` : "全部已生成"}
-        </button>
+        {onGenerateAll && (
+          <button
+            onClick={onGenerateAll}
+            disabled={generatingAll || pendingPanels === 0}
+            className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2 min-h-[40px]"
+          >
+            <ImageIcon className="w-4 h-4" />
+            {generatingAll ? "生成中..." : pendingPanels > 0 ? `全部生成 (${pendingPanels} 张)` : "全部已生成"}
+          </button>
+        )}
+        {actionSlot}
       </div>
     </div>
   );

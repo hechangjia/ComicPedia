@@ -35,6 +35,21 @@ import { getStoredRequestConfigs } from "@/hooks/useAPIConfig";
 import { buildPanelReview, buildTaskReviewStatus, type PromptPatch } from "@/lib/vlmRetry";
 import { invalidateDiagnosis, markDiagnosisFailed, markDiagnosisSucceeded } from "@/lib/vlmDiagnosisState";
 
+interface TaskActionResponse {
+  success?: boolean;
+  task?: GenerateTask;
+  error?: string;
+}
+
+interface TaskActionBody {
+  action: string;
+  panelIndices?: number[];
+  forceAll?: boolean;
+  imageConfigId?: string;
+  imageConfig?: PartialImageGenConfig;
+  llmConfig?: PartialLLMConfig;
+}
+
 export function applyVisualQualityScoreUpdate(task: GenerateTask, visualQualityScore: VisualQualityScore): GenerateTask {
   task.visualQualityScore = visualQualityScore;
   task.panelReview = buildPanelReview(visualQualityScore);
@@ -181,6 +196,44 @@ export function useTaskActions(
     if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
     setActionError(null);
   }, []);
+
+  const syncTaskSnapshot = useCallback(
+    async (nextTask: GenerateTask | undefined) => {
+      if (!nextTask) return undefined;
+      await saveTask(nextTask);
+      notifyListeners(nextTask);
+      setTask(nextTask);
+      return nextTask;
+    },
+    [setTask],
+  );
+
+  const getSelectedQueueActionBody = useCallback(() => {
+    return {
+      imageConfigId: selectedImageId || undefined,
+      imageConfig: getSelectedImageConfig(),
+      llmConfig: getSelectedLLMConfig(),
+    };
+  }, [getSelectedImageConfig, getSelectedLLMConfig, selectedImageId]);
+
+  const postTaskAction = useCallback(
+    async (body: TaskActionBody) => {
+      const response = await fetch(`/api/tasks/${taskId}/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json().catch(() => ({} as TaskActionResponse));
+
+      if (!response.ok) {
+        throw new Error(payload.error || `任务操作失败 (${response.status})`);
+      }
+
+      await syncTaskSnapshot(payload.task);
+      return payload;
+    },
+    [syncTaskSnapshot, taskId],
+  );
 
   const persistTaskUpdate = useCallback(
     async (updater: (task: GenerateTask) => GenerateTask | void) => {
@@ -378,16 +431,18 @@ export function useTaskActions(
   const handleGenerateAll = useCallback(async () => {
     setGeneratingAll(true);
     try {
-      const imageConfig = getSelectedImageConfig();
-      const llmConfig = getSelectedLLMConfig();
-      await generateAllImages(taskId, imageConfig, undefined, llmConfig);
+      await postTaskAction({
+        action: "generate_all_images",
+        forceAll: false,
+        ...getSelectedQueueActionBody(),
+      });
     } catch (err) {
       console.error("Batch generation failed:", err);
       showError(`批量生成失败: ${err instanceof Error ? err.message : "未知错误"}`);
     } finally {
       setGeneratingAll(false);
     }
-  }, [taskId, showError, getSelectedImageConfig, getSelectedLLMConfig]);
+  }, [getSelectedQueueActionBody, postTaskAction, showError]);
 
   // 仅重试失败/待处理的面板
   const handleRetryFailed = useCallback(async () => {
@@ -404,6 +459,80 @@ export function useTaskActions(
       setGeneratingAll(false);
     }
   }, [taskId, showError, getSelectedImageConfig, getSelectedLLMConfig]);
+
+  const handleQueuePanel = useCallback(async (panelIndex: number) => {
+    setGeneratingAll(true);
+    try {
+      await postTaskAction({
+        action: "queue_panel_images",
+        panelIndices: [panelIndex],
+        ...getSelectedQueueActionBody(),
+      });
+    } catch (err) {
+      console.error("Queue single panel failed:", err);
+      showError(`第 ${panelIndex + 1} 格入队失败: ${err instanceof Error ? err.message : "未知错误"}`);
+    } finally {
+      setGeneratingAll(false);
+    }
+  }, [getSelectedQueueActionBody, postTaskAction, showError]);
+
+  const handleQueueSelectedPanels = useCallback(async (panelIndices: number[]) => {
+    if (panelIndices.length === 0) return;
+
+    setGeneratingAll(true);
+    try {
+      await postTaskAction({
+        action: "queue_panel_images",
+        panelIndices,
+        ...getSelectedQueueActionBody(),
+      });
+    } catch (err) {
+      console.error("Queue selected panels failed:", err);
+      showError(`选中面板入队失败: ${err instanceof Error ? err.message : "未知错误"}`);
+    } finally {
+      setGeneratingAll(false);
+    }
+  }, [getSelectedQueueActionBody, postTaskAction, showError]);
+
+  const handleContinueRemaining = useCallback(async () => {
+    setGeneratingAll(true);
+    try {
+      await postTaskAction({
+        action: "generate_all_images",
+        forceAll: false,
+        ...getSelectedQueueActionBody(),
+      });
+    } catch (err) {
+      console.error("Continue remaining panels failed:", err);
+      showError(`继续剩余失败: ${err instanceof Error ? err.message : "未知错误"}`);
+    } finally {
+      setGeneratingAll(false);
+    }
+  }, [getSelectedQueueActionBody, postTaskAction, showError]);
+
+  const handlePauseQueue = useCallback(async () => {
+    setGeneratingAll(true);
+    try {
+      await postTaskAction({ action: "pause" });
+    } catch (err) {
+      console.error("Pause queue failed:", err);
+      showError(`暂停队列失败: ${err instanceof Error ? err.message : "未知错误"}`);
+    } finally {
+      setGeneratingAll(false);
+    }
+  }, [postTaskAction, showError]);
+
+  const handleResumeQueue = useCallback(async () => {
+    setGeneratingAll(true);
+    try {
+      await postTaskAction({ action: "resume" });
+    } catch (err) {
+      console.error("Resume queue failed:", err);
+      showError(`恢复队列失败: ${err instanceof Error ? err.message : "未知错误"}`);
+    } finally {
+      setGeneratingAll(false);
+    }
+  }, [postTaskAction, showError]);
 
   // 参考图变更
   const handleReferenceImageChange = useCallback(
@@ -595,6 +724,11 @@ export function useTaskActions(
     handleCancel,
     handleVersionChange,
     handleGenerateAll,
+    handleQueuePanel,
+    handleQueueSelectedPanels,
+    handleContinueRemaining,
+    handlePauseQueue,
+    handleResumeQueue,
     handleRetryFailed,
     handleReferenceImageChange,
     handleReferenceImagesChange,
