@@ -134,7 +134,7 @@ export function ScienceForm({ initialTopic = "" }: { initialTopic?: string }) {
         <button
           onClick={handleGenerate}
           disabled={form.isLoading || !topic.trim()}
-          className="w-full py-3 rounded-lg bg-[#3d8b84] text-white font-medium hover:bg-[#2d7069] hover:shadow-lg hover:shadow-[#3d8b84]/25 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+          className="w-full py-3 rounded-lg bg-teal text-white font-medium hover:opacity-90 hover:shadow-lg hover:shadow-teal/25 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
         >
           {form.isLoading ? (
             <span className="flex items-center justify-center gap-2">

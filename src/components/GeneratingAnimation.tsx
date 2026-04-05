@@ -258,7 +258,7 @@ export function GeneratingAnimation({
       <div className="w-64 space-y-1">
         <div className="h-2 bg-muted rounded-full overflow-hidden">
           <div
-            className="h-full bg-gradient-to-r from-[#3d8b84] to-[#5cb8ae] transition-all duration-500 ease-out"
+            className="h-full bg-gradient-to-r from-teal to-teal/70 transition-all duration-500 ease-out"
             style={{ width: `${progress}%` }}
           />
         </div>

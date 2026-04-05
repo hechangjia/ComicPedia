@@ -34,11 +34,11 @@ const WikipediaForm = dynamic(() => import("@/components/WikipediaForm").then((m
 export type TabMode = "science" | "poetry" | "xiaohongshu" | "novel" | "wikipedia";
 
 const TABS: { value: TabMode; label: string; icon: string; gradient: string; desc: string }[] = [
-  { value: "wikipedia", label: "百科漫画", icon: "\uD83C\uDF10", gradient: "from-[#3d8b84] to-[#5b95b8]", desc: "从 Wikipedia 优质内容生成科普漫画" },
-  { value: "science", label: "科普漫画", icon: "\uD83D\uDD2C", gradient: "from-[#8b7eb5] to-[#5b95b8]", desc: "输入科普主题，AI 自动生成精美漫画" },
-  { value: "poetry", label: "诗词漫画", icon: "\uD83D\uDCDC", gradient: "from-[#5b95b8] to-[#3d8b84]", desc: "将古诗词、现代诗歌转化为精美漫画" },
-  { value: "novel", label: "小说漫画", icon: "\uD83D\uDCD6", gradient: "from-[#b8943e] to-[#c4756a]", desc: "将经典小说片段转化为分镜漫画" },
-  { value: "xiaohongshu", label: "小红书图文", icon: "\uD83D\uDCF1", gradient: "from-[#c4756a] to-[#b8943e]", desc: "输入内容，AI 生成小红书风格图文" },
+  { value: "wikipedia", label: "百科漫画", icon: "\uD83C\uDF10", gradient: "from-teal to-sky", desc: "从 Wikipedia 优质内容生成科普漫画" },
+  { value: "science", label: "科普漫画", icon: "\uD83D\uDD2C", gradient: "from-lavender to-sky", desc: "输入科普主题，AI 自动生成精美漫画" },
+  { value: "poetry", label: "诗词漫画", icon: "\uD83D\uDCDC", gradient: "from-sky to-teal", desc: "将古诗词、现代诗歌转化为精美漫画" },
+  { value: "novel", label: "小说漫画", icon: "\uD83D\uDCD6", gradient: "from-ochre to-coral", desc: "将经典小说片段转化为分镜漫画" },
+  { value: "xiaohongshu", label: "小红书图文", icon: "\uD83D\uDCF1", gradient: "from-coral to-ochre", desc: "输入内容，AI 生成小红书风格图文" },
 ];
 
 function contentTypeToTab(ct: ContentType): TabMode {
@@ -97,8 +97,8 @@ export function FormLayout({ defaultTab = "wikipedia" }: FormLayoutProps) {
     <div className="relative max-w-2xl mx-auto space-y-8">
       {/* 背景装饰 — 渐变光晕 */}
       <div className="absolute inset-0 -z-10 overflow-hidden pointer-events-none">
-        <div className="absolute top-[-40%] left-[-20%] w-[500px] h-[500px] rounded-full bg-[#3d8b84]/10 dark:bg-[#3d8b84]/5 blur-3xl" />
-        <div className="absolute bottom-[-20%] right-[-15%] w-[400px] h-[400px] rounded-full bg-[#c4756a]/8 dark:bg-[#c4756a]/3 blur-3xl" />
+        <div className="absolute top-[-40%] left-[-20%] w-[500px] h-[500px] rounded-full bg-teal/10 dark:bg-teal/5 blur-3xl" />
+        <div className="absolute bottom-[-20%] right-[-15%] w-[400px] h-[400px] rounded-full bg-coral/[0.08] dark:bg-coral/[0.03] blur-3xl" />
       </div>
 
       <OnboardingGuide

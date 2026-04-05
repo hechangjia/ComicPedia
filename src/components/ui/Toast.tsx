@@ -33,10 +33,10 @@ const ICONS = {
 };
 
 const STYLES = {
-  success: "bg-[#f0fdf4] dark:bg-[#5a9e6f]/10 text-[#5a9e6f] border-[#5a9e6f]/20",
-  warning: "bg-[#faf6ea] dark:bg-[#c49a3d]/10 text-[#c49a3d] border-[#c49a3d]/20",
-  error: "bg-[#fef2f2] dark:bg-[#c05a4a]/10 text-[#c05a4a] border-[#c05a4a]/20",
-  info: "bg-[#edf4f8] dark:bg-[#5b8fb8]/10 text-[#5b8fb8] border-[#5b8fb8]/20",
+  success: "bg-success/5 dark:bg-success/10 text-success border-success/20",
+  warning: "bg-warning/5 dark:bg-warning/10 text-warning border-warning/20",
+  error: "bg-error/5 dark:bg-error/10 text-error border-error/20",
+  info: "bg-info/5 dark:bg-info/10 text-info border-info/20",
 };
 
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string) => void }) {

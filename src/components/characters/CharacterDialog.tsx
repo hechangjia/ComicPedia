@@ -67,7 +67,7 @@ export function CharacterDialog({
               <button
                 onClick={h.handleAIProfile}
                 disabled={h.aiGenerating || h.wikiImporting || !h.form.name.trim()}
-                className="flex-1 px-3 py-2 text-xs border border-[#3d8b84]/30 dark:border-[#3d8b84]/30 text-[#3d8b84] dark:text-[#5cb8ae] rounded-lg hover:bg-[#e8f4f2] dark:hover:bg-[#3d8b84]/10 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+                className="flex-1 px-3 py-2 text-xs border border-teal/30 text-teal rounded-lg hover:bg-teal-soft dark:hover:bg-teal/10 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
               >
                 {h.aiGenerating ? (
                   <>
@@ -406,7 +406,7 @@ export function CharacterDialog({
                         <button
                           onClick={() => h.handleAIGenerate(index)}
                           disabled={h.aiGenerating}
-                          className="w-5 h-5 rounded-full bg-[#3d8b84] text-white flex items-center justify-center text-xs disabled:opacity-50 shadow"
+                          className="w-5 h-5 rounded-full bg-teal text-white flex items-center justify-center text-xs disabled:opacity-50 shadow"
                           title="重新生成"
                         >
                           {h.regeneratingIndex === index ? (
@@ -448,7 +448,7 @@ export function CharacterDialog({
               <button
                 onClick={() => h.handleAIGenerate()}
                 disabled={h.aiGenerating}
-                className="px-3 py-1.5 text-xs border border-[#3d8b84]/30 text-[#3d8b84] rounded-lg hover:bg-[#e8f4f2] dark:hover:bg-[#3d8b84]/10 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                className="px-3 py-1.5 text-xs border border-teal/30 text-teal rounded-lg hover:bg-teal-soft dark:hover:bg-teal/10 transition-colors disabled:opacity-50 flex items-center gap-1.5"
               >
                 {h.aiGenerating && h.regeneratingIndex === -1 ? (
                   <>
@@ -463,7 +463,7 @@ export function CharacterDialog({
                 <button
                   onClick={h.handleVlmEvaluate}
                   disabled={h.vlmLoading}
-                  className="px-3 py-1.5 text-xs border border-[#8b7eb5]/30 text-[#8b7eb5] rounded-lg hover:bg-[#f3f1f8] dark:hover:bg-[#8b7eb5]/10 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                  className="px-3 py-1.5 text-xs border border-lavender/30 text-lavender rounded-lg hover:bg-lavender-soft dark:hover:bg-lavender/10 transition-colors disabled:opacity-50 flex items-center gap-1.5"
                 >
                   {h.vlmLoading ? (
                     <>

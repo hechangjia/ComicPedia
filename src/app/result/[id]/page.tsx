@@ -298,7 +298,7 @@ export default function ResultPage() {
 
       {/* 标题 */}
       <div className="text-center space-y-2 print-title">
-        <h1 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-[#3d8b84] to-[#5cb8ae] bg-clip-text text-transparent">
+        <h1 className="text-xl sm:text-2xl font-bold text-teal">
           {task.script?.title || "生成中..."}
         </h1>
         {task.script?.topic && (

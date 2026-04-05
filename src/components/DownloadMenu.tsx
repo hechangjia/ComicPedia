@@ -132,7 +132,7 @@ export function DownloadMenu({ panels, title, script }: DownloadMenuProps) {
               disabled={status === "loading"}
               className="w-full px-3 py-2 text-left text-sm rounded-md hover:bg-accent flex items-center gap-3 disabled:opacity-50"
             >
-              <Image className="w-5 h-5 text-[#3d8b84]" />
+              <Image className="w-5 h-5 text-teal" />
               <div>
                 <div className="font-medium">合成大图</div>
                 <div className="text-xs text-muted-foreground">将所有面板拼接为一张 PNG</div>
@@ -208,7 +208,7 @@ export function DownloadMenu({ panels, title, script }: DownloadMenuProps) {
               disabled={status === "loading"}
               className="w-full px-3 py-2 text-left text-sm rounded-md hover:bg-accent flex items-center gap-3 disabled:opacity-50"
             >
-              <LayoutGrid className="w-5 h-5 text-[#c4756a]" />
+              <LayoutGrid className="w-5 h-5 text-coral" />
               <div>
                 <div className="font-medium">竖版长图</div>
                 <div className="text-xs text-muted-foreground">3:4 比例，适合单图笔记</div>
@@ -226,7 +226,7 @@ export function DownloadMenu({ panels, title, script }: DownloadMenuProps) {
               disabled={status === "loading"}
               className="w-full px-3 py-2 text-left text-sm rounded-md hover:bg-accent flex items-center gap-3 disabled:opacity-50"
             >
-              <Layers className="w-5 h-5 text-[#c4756a]" />
+              <Layers className="w-5 h-5 text-coral" />
               <div>
                 <div className="font-medium">多图分页</div>
                 <div className="text-xs text-muted-foreground">每格独立图片，ZIP 打包</div>

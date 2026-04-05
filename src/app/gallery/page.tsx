@@ -577,7 +577,7 @@ export default function GalleryPage() {
             <ChevronLeft className="w-4 h-4" />
             返回
           </Link>
-          <h1 className="text-2xl font-bold text-[#2c2825] dark:text-[#ede9e3]">
+          <h1 className="text-2xl font-bold text-foreground">
             作品展示
           </h1>
         </div>
@@ -672,21 +672,21 @@ export default function GalleryPage() {
       {/* 统计摘要 */}
       {stats.totalWorks > 0 && (
         <div className="flex gap-4 flex-wrap">
-          <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#e8f4f2] dark:bg-[#3d8b84]/10 border">
-            <span className="text-2xl font-bold text-[#3d8b84] dark:text-[#5cb8ae]">
+          <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-soft border">
+            <span className="text-2xl font-bold text-teal">
               {stats.totalWorks}
             </span>
             <span className="text-xs text-muted-foreground">部作品</span>
           </div>
-          <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#edf4f8] dark:bg-[#5b95b8]/10 border">
-            <span className="text-2xl font-bold text-[#5b95b8] dark:text-[#7cb5d4]">
+          <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-sky-soft border">
+            <span className="text-2xl font-bold text-sky">
               {stats.totalPanels}
             </span>
             <span className="text-xs text-muted-foreground">张面板</span>
           </div>
           {stats.topStyle && (
-            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#faf6ea] dark:bg-[#b8943e]/10 border">
-              <span className="text-sm font-semibold text-[#b8943e] dark:text-[#d4b44e]">
+            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-ochre-soft border">
+              <span className="text-sm font-semibold text-ochre">
                 {stats.topStyle}
               </span>
               <span className="text-xs text-muted-foreground">最爱风格</span>

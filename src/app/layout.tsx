@@ -71,10 +71,10 @@ export default function RootLayout({
             <div className="container mx-auto px-4 h-14 flex items-center justify-between">
               {/* Logo */}
               <Link href={isShowcase ? "/gallery" : "/"} className="flex items-center gap-2 font-bold text-lg group">
-                <div className="w-8 h-8 rounded-lg bg-[#3d8b84] flex items-center justify-center shadow-sm group-hover:shadow-md transition-shadow">
+                <div className="w-8 h-8 rounded-lg bg-teal flex items-center justify-center shadow-sm group-hover:shadow-md transition-shadow">
                   <BookImage className="w-5 h-5 text-white" />
                 </div>
-                <span className="hidden sm:inline text-[#3d8b84] dark:text-[#5cb8ae]">
+                <span className="hidden sm:inline text-teal">
                   ComicPedia{isShowcase ? " Gallery" : ""}
                 </span>
               </Link>

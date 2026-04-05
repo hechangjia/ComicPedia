@@ -690,7 +690,7 @@ export default function SettingsPage() {
           {!vlmForm.showNew && !vlmForm.editingId && (
             <button
               onClick={vlmForm.startNew}
-              className="px-3 py-1.5 text-sm rounded-lg bg-[#8b7eb5] text-white hover:opacity-90 transition-opacity"
+              className="px-3 py-1.5 text-sm rounded-lg bg-lavender text-white hover:opacity-90 transition-opacity"
             >
               + 添加
             </button>

@@ -54,7 +54,7 @@ export function AIEditAssistant({ panel, script, panelIndex, llmConfig, onApply 
           type="button"
           onClick={() => setIsOpen(!isOpen)}
           disabled={loading}
-          className="px-3 py-2 text-sm border border-[#3d8b84]/30 text-[#3d8b84] dark:text-[#5cb8ae] rounded flex items-center gap-1.5 hover:bg-[#e8f4f2] dark:hover:bg-[#3d8b84]/10 transition-colors min-h-[44px] disabled:opacity-50"
+          className="px-3 py-2 text-sm border border-teal/30 text-teal rounded flex items-center gap-1.5 hover:bg-teal-soft dark:hover:bg-teal/10 transition-colors min-h-[44px] disabled:opacity-50"
         >
           {loading ? <Spinner size="sm" /> : <span>✨</span>}
           {loading ? "AI 思考中..." : "AI 辅助"}
@@ -81,9 +81,9 @@ export function AIEditAssistant({ panel, script, panelIndex, llmConfig, onApply 
       {error && <p className="text-xs text-error">{error}</p>}
 
       {suggestion && (
-        <div className="p-3 rounded-lg bg-[#e8f4f2] dark:bg-[#3d8b84]/10 border border-[#3d8b84]/30 dark:border-[#3d8b84]/30 space-y-2">
+        <div className="p-3 rounded-lg bg-teal-soft dark:bg-teal/10 border border-teal/30 space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-[#2d7069] dark:text-[#5cb8ae]">
+            <span className="text-xs font-medium text-teal">
               AI 建议 ({suggestion.field === "dialogue" ? "对话" : "图片提示词"})
             </span>
           </div>
@@ -93,7 +93,7 @@ export function AIEditAssistant({ panel, script, panelIndex, llmConfig, onApply 
           <div className="flex gap-2">
             <button
               onClick={handleApply}
-              className="px-3 py-1.5 text-xs bg-[#3d8b84] text-white rounded hover:bg-[#2d7069] transition-colors"
+              className="px-3 py-1.5 text-xs bg-teal text-white rounded hover:opacity-90 transition-colors"
             >
               采纳
             </button>
