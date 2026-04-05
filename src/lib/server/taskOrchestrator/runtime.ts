@@ -1,12 +1,7 @@
-import { getAllTasks } from "@/lib/server/db";
-import type { GenerateRequest, GenerateTask } from "@/lib/types";
+import { listReplayableScriptTasks } from "@/lib/server/db";
+import type { GenerateRequest } from "@/lib/types";
+import { hydrateReplayRequest } from "./replay";
 import { runResearchAndScriptTask } from "./scriptRunner";
-
-const REPLAYABLE_SCRIPT_STATUSES = new Set<GenerateTask["status"]>([
-  "created",
-  "research_running",
-  "script_running",
-]);
 
 export class TaskRuntime {
   private readonly scriptRuns = new Map<string, Promise<void>>();
@@ -35,15 +30,8 @@ export class TaskRuntime {
     }
     this.replayInitialized = true;
 
-    for (const task of getAllTasks()) {
-      if (!REPLAYABLE_SCRIPT_STATUSES.has(task.status)) {
-        continue;
-      }
-      if (!task.requestSnapshot) {
-        console.warn(`[TaskRuntime] Skipping replay for ${task.id}: missing request snapshot`);
-        continue;
-      }
-      this.enqueueScript(task.id, task.requestSnapshot);
+    for (const task of listReplayableScriptTasks()) {
+      this.enqueueScript(task.taskId, hydrateReplayRequest(task.replayPayload));
     }
   }
 }

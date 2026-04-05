@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTasksPaginated, upsertTask, clearAllTasks, getAllTaskIds } from "@/lib/server/db";
 import { extractTaskImagesAsync, fileRefsToUrls, trashTaskImages } from "@/lib/server/imageExtractor";
 import { getTaskRuntime } from "@/lib/server/taskOrchestrator/runtime";
+import { buildServerScriptReplayPayload } from "@/lib/server/taskOrchestrator/replay";
 import { listTaskJobsByTaskId, summarizeTaskJobs } from "@/lib/server/taskOrchestrator/store";
 import type { GenerateRequest, GenerateTask } from "@/lib/types";
 
@@ -45,6 +46,7 @@ async function toListItem(task: GenerateTask) {
 /** GET /api/tasks — 获取任务列表（支持分页，轻量返回） */
 export async function GET(request: NextRequest) {
   try {
+    getTaskRuntime();
     const searchParams = request.nextUrl.searchParams;
     const page = Math.max(1, parseInt(searchParams.get("page") || "1"));
     const pageSize = Math.min(Math.max(1, parseInt(searchParams.get("pageSize") || "100")), 200);
@@ -76,11 +78,16 @@ export async function POST(request: NextRequest) {
         status: "created",
         progress: 0,
         presetSnapshot: createRequest.presetSnapshot,
-        requestSnapshot: createRequest,
         createdAt: now,
         updatedAt: now,
       };
-      upsertTask(serverTask);
+      const persistedTask: GenerateTask & {
+        serverScriptReplay: ReturnType<typeof buildServerScriptReplayPayload>;
+      } = {
+        ...serverTask,
+        serverScriptReplay: buildServerScriptReplayPayload(createRequest),
+      };
+      upsertTask(persistedTask);
       getTaskRuntime().enqueueScript(serverTask.id, createRequest);
       return NextResponse.json({ success: true, id: serverTask.id });
     }

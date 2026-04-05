@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import type { GenerateTask, Character, CharacterRelation, UserAPIConfigV2, ComicScript, TaskJobRecord } from "@/lib/types";
 import type { Series } from "@/lib/series";
+import type { ServerScriptReplayPayload } from "@/lib/server/taskOrchestrator/replay";
 
 // ============================================================
 // SQLite 数据库初始化（单例）
@@ -181,7 +182,7 @@ const stmtUpsertTaskJob = db.prepare(`
 const stmtListTaskJobsByTaskId = db.prepare("SELECT * FROM task_jobs WHERE task_id = ? ORDER BY created_at ASC, id ASC");
 const stmtClearTaskJobsByTaskId = db.prepare("DELETE FROM task_jobs WHERE task_id = ?");
 
-function taskToRow(task: GenerateTask) {
+function taskToRow(task: GenerateTask & { serverScriptReplay?: ServerScriptReplayPayload }) {
   // Pack non-core fields into a single metadata JSON column
   const metadata: Record<string, unknown> = {};
   if (task.qualityScore) metadata.qualityScore = task.qualityScore;
@@ -203,7 +204,7 @@ function taskToRow(task: GenerateTask) {
   if (task.accuracyErrorSummary) metadata.accuracyErrorSummary = task.accuracyErrorSummary;
   if (task.narrativeOutline) metadata.narrativeOutline = task.narrativeOutline;
   if (task.generationConfig) metadata.generationConfig = task.generationConfig;
-  if (task.requestSnapshot) metadata.requestSnapshot = task.requestSnapshot;
+  if (task.serverScriptReplay) metadata.serverScriptReplay = task.serverScriptReplay;
   if (task.visualRepairExecution) metadata.visualRepairExecution = task.visualRepairExecution;
   if (task.queueSummary !== undefined) metadata.queueSummary = task.queueSummary;
   if (task.presetSnapshot !== undefined) metadata.presetSnapshot = task.presetSnapshot;
@@ -484,7 +485,6 @@ function rowToTask(row: Record<string, unknown>): GenerateTask {
     accuracyErrorSummary: meta.accuracyErrorSummary as GenerateTask["accuracyErrorSummary"],
     narrativeOutline: meta.narrativeOutline as GenerateTask["narrativeOutline"],
     generationConfig: meta.generationConfig as GenerateTask["generationConfig"],
-    requestSnapshot: meta.requestSnapshot as GenerateTask["requestSnapshot"],
     visualRepairExecution: meta.visualRepairExecution as GenerateTask["visualRepairExecution"],
     queueSummary: meta.queueSummary as GenerateTask["queueSummary"],
     presetSnapshot: meta.presetSnapshot as GenerateTask["presetSnapshot"],
@@ -507,6 +507,34 @@ export function getTaskById(id: string): GenerateTask | null {
 export function getAllTasks(): GenerateTask[] {
   const rows = stmtGetAllTasks.all() as Record<string, unknown>[];
   return rows.map(rowToTask);
+}
+
+export function listReplayableScriptTasks(): Array<{
+  taskId: string;
+  status: GenerateTask["status"];
+  replayPayload: ServerScriptReplayPayload;
+}> {
+  const rows = stmtGetAllTasks.all() as Record<string, unknown>[];
+  const replayableStatuses = new Set<GenerateTask["status"]>(["created", "research_running", "script_running"]);
+
+  return rows.flatMap((row) => {
+    const status = row.status as GenerateTask["status"];
+    if (!replayableStatuses.has(status)) {
+      return [];
+    }
+
+    const meta = safeJsonParse<Record<string, unknown>>(row.metadata as string | null) ?? {};
+    const replayPayload = meta.serverScriptReplay as ServerScriptReplayPayload | undefined;
+    if (!replayPayload) {
+      return [];
+    }
+
+    return [{
+      taskId: row.id as string,
+      status,
+      replayPayload,
+    }];
+  });
 }
 
 export function getTasksPaginated(page: number = 1, pageSize: number = 50): { tasks: GenerateTask[]; total: number } {

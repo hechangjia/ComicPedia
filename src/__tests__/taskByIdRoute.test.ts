@@ -6,11 +6,13 @@ const {
   listTaskJobsByTaskIdMock,
   summarizeTaskJobsMock,
   fileRefsToUrlsMock,
+  getTaskRuntimeMock,
 } = vi.hoisted(() => ({
   getTaskByIdMock: vi.fn(),
   listTaskJobsByTaskIdMock: vi.fn(),
   summarizeTaskJobsMock: vi.fn(),
   fileRefsToUrlsMock: vi.fn((value) => value),
+  getTaskRuntimeMock: vi.fn(),
 }));
 
 vi.mock("@/lib/server/db", () => ({
@@ -32,6 +34,10 @@ vi.mock("@/lib/server/taskOrchestrator/store", () => ({
   summarizeTaskJobs: summarizeTaskJobsMock,
 }));
 
+vi.mock("@/lib/server/taskOrchestrator/runtime", () => ({
+  getTaskRuntime: getTaskRuntimeMock,
+}));
+
 describe("/api/tasks/[id] GET", () => {
   beforeEach(() => {
     getTaskByIdMock.mockReset();
@@ -39,6 +45,7 @@ describe("/api/tasks/[id] GET", () => {
     summarizeTaskJobsMock.mockReset();
     fileRefsToUrlsMock.mockReset();
     fileRefsToUrlsMock.mockImplementation((value) => value);
+    getTaskRuntimeMock.mockReset();
   });
 
   it("enriches queueSummary from durable jobs when task does not have queueSummary", async () => {
@@ -46,6 +53,8 @@ describe("/api/tasks/[id] GET", () => {
       id: "task-detail",
       status: "image_queue_running",
       progress: 10,
+      requestSnapshot: { llmConfig: { apiKey: "secret" } },
+      serverScriptReplay: { llm: { fallback: { model: "gpt-4o" } } },
       createdAt: new Date("2026-03-27T00:00:00.000Z"),
       updatedAt: new Date("2026-03-27T00:00:00.000Z"),
     });
@@ -65,6 +74,7 @@ describe("/api/tasks/[id] GET", () => {
     const response = await GET(request, { params: Promise.resolve({ id: "task-detail" }) });
     const body = await response.json();
 
+    expect(getTaskRuntimeMock).toHaveBeenCalledTimes(1);
     expect(listTaskJobsByTaskIdMock).toHaveBeenCalledWith("task-detail");
     expect(summarizeTaskJobsMock).toHaveBeenCalledWith([{ id: "job-detail-1" }]);
     expect(body.queueSummary).toEqual({
@@ -76,5 +86,7 @@ describe("/api/tasks/[id] GET", () => {
       completed: 0,
       calibrationPending: 1,
     });
+    expect(body).not.toHaveProperty("requestSnapshot");
+    expect(body).not.toHaveProperty("serverScriptReplay");
   });
 });

@@ -1,10 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
-const { getTasksPaginatedMock, listTaskJobsByTaskIdMock, summarizeTaskJobsMock } = vi.hoisted(() => ({
+const { getTasksPaginatedMock, listTaskJobsByTaskIdMock, summarizeTaskJobsMock, getTaskRuntimeMock } = vi.hoisted(() => ({
   getTasksPaginatedMock: vi.fn(),
   listTaskJobsByTaskIdMock: vi.fn(),
   summarizeTaskJobsMock: vi.fn(),
+  getTaskRuntimeMock: vi.fn(),
 }));
 
 vi.mock("@/lib/server/db", () => ({
@@ -25,11 +26,16 @@ vi.mock("@/lib/server/taskOrchestrator/store", () => ({
   summarizeTaskJobs: summarizeTaskJobsMock,
 }));
 
+vi.mock("@/lib/server/taskOrchestrator/runtime", () => ({
+  getTaskRuntime: getTaskRuntimeMock,
+}));
+
 describe("/api/tasks GET", () => {
   beforeEach(() => {
     getTasksPaginatedMock.mockReset();
     listTaskJobsByTaskIdMock.mockReset();
     summarizeTaskJobsMock.mockReset();
+    getTaskRuntimeMock.mockReset();
   });
 
   it("keeps persisted review summary fields in list items for history badges", async () => {
@@ -95,6 +101,7 @@ describe("/api/tasks GET", () => {
     const response = await GET(request);
     const body = await response.json();
 
+    expect(getTaskRuntimeMock).toHaveBeenCalledTimes(1);
     expect(body.tasks[0]).toMatchObject({
       id: "task-1",
       reviewStatus: "needs_repair",
@@ -134,6 +141,7 @@ describe("/api/tasks GET", () => {
     const response = await GET(request);
     const body = await response.json();
 
+    expect(getTaskRuntimeMock).toHaveBeenCalledTimes(1);
     expect(listTaskJobsByTaskIdMock).toHaveBeenCalledWith("task-fallback");
     expect(summarizeTaskJobsMock).toHaveBeenCalledWith([{ id: "job-1" }]);
     expect(body.tasks[0].queueSummary).toEqual({

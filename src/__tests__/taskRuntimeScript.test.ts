@@ -27,6 +27,7 @@ const {
   repairAccuracyIssuesMock,
   searchWikipediaMock,
   getWikipediaSummaryMock,
+  buildServerScriptReplayPayloadMock,
 } = vi.hoisted(() => ({
   getTaskByIdMock: vi.fn(),
   upsertTaskMock: vi.fn(),
@@ -52,6 +53,7 @@ const {
   repairAccuracyIssuesMock: vi.fn(),
   searchWikipediaMock: vi.fn(),
   getWikipediaSummaryMock: vi.fn(),
+  buildServerScriptReplayPayloadMock: vi.fn(),
 }));
 
 vi.mock("@/lib/server/db", () => ({
@@ -121,6 +123,10 @@ vi.mock("@/lib/server/wikipedia", () => ({
   getWikipediaSummary: getWikipediaSummaryMock,
 }));
 
+vi.mock("@/lib/server/taskOrchestrator/replay", () => ({
+  buildServerScriptReplayPayload: buildServerScriptReplayPayloadMock,
+}));
+
 function makeGeneratedScript() {
   return {
     title: "雷电从哪里来",
@@ -188,10 +194,26 @@ describe("task runtime task creation", () => {
     upsertTaskMock.mockReset();
     enqueueScriptMock.mockReset();
     extractTaskImagesAsyncMock.mockReset();
+    buildServerScriptReplayPayloadMock.mockReset();
   });
 
   it("creates a server-owned task for request mode and enqueues scripting", async () => {
     const requestPayload = makeRequest();
+    buildServerScriptReplayPayloadMock.mockReturnValue({
+      request: {
+        ...requestPayload,
+        llmConfig: undefined,
+        imageConfig: undefined,
+      },
+      llm: {
+        configId: "llm-config-1",
+        fallback: {
+          apiUrl: "https://llm.example.com/v1",
+          model: "gpt-4o",
+          provider: "openai-compatible",
+        },
+      },
+    });
     const { POST } = await import("@/app/api/tasks/route");
     const request = new NextRequest("http://localhost:3000/api/tasks", {
       method: "POST",
@@ -210,7 +232,22 @@ describe("task runtime task creation", () => {
       status: "created",
       progress: 0,
       presetSnapshot: requestPayload.presetSnapshot,
-      requestSnapshot: requestPayload,
+    });
+    expect(persistedTask).not.toHaveProperty("requestSnapshot");
+    expect((persistedTask as GenerateTask & { serverScriptReplay?: unknown }).serverScriptReplay).toEqual({
+      request: {
+        ...requestPayload,
+        llmConfig: undefined,
+        imageConfig: undefined,
+      },
+      llm: {
+        configId: "llm-config-1",
+        fallback: {
+          apiUrl: "https://llm.example.com/v1",
+          model: "gpt-4o",
+          provider: "openai-compatible",
+        },
+      },
     });
     expect(persistedTask.createdAt).toBeInstanceOf(Date);
     expect(persistedTask.updatedAt).toBeInstanceOf(Date);

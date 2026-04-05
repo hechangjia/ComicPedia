@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTaskById, upsertTask, deleteTask, patchTask } from "@/lib/server/db";
 import { extractTaskImagesAsync, trashTaskImages, restoreFileRefs, fileRefsToUrls } from "@/lib/server/imageExtractor";
+import { getTaskRuntime } from "@/lib/server/taskOrchestrator/runtime";
 import { listTaskJobsByTaskId, summarizeTaskJobs } from "@/lib/server/taskOrchestrator/store";
 import type { GenerateTask } from "@/lib/types";
 
@@ -11,13 +12,22 @@ interface RouteParams {
 /** GET /api/tasks/[id] — 获取单个任务 */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    getTaskRuntime();
     const { id } = await params;
     const task = getTaskById(id);
     if (!task) {
       return NextResponse.json({ error: "任务不存在" }, { status: 404 });
     }
+    const {
+      serverScriptReplay: _serverScriptReplay,
+      requestSnapshot: _requestSnapshot,
+      ...taskForClient
+    } = task as GenerateTask & {
+      serverScriptReplay?: unknown;
+      requestSnapshot?: unknown;
+    };
     const enrichedTask: GenerateTask = {
-      ...task,
+      ...taskForClient,
       queueSummary: task.queueSummary ?? summarizeTaskJobs(await listTaskJobsByTaskId(task.id)),
     };
 

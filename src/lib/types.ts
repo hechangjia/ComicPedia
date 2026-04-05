@@ -482,8 +482,6 @@ export interface GenerateTask {
   id: string;
   status: GenerateTaskStatus;
   progress: number; // 0-100
-  /** Durable copy of the original generation request for server-side replay */
-  requestSnapshot?: GenerateRequest;
   script?: ComicScript;
   character?: Character; // Store character info if used
   error?: string;

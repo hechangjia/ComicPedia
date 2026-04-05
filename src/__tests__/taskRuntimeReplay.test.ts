@@ -1,20 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { GenerateRequest, GenerateTask } from "@/lib/types";
+import type { GenerateRequest, GenerateTaskStatus } from "@/lib/types";
 
 const {
-  getAllTasksMock,
+  listReplayableScriptTasksMock,
   runResearchAndScriptTaskMock,
+  hydrateReplayRequestMock,
 } = vi.hoisted(() => ({
-  getAllTasksMock: vi.fn(),
+  listReplayableScriptTasksMock: vi.fn(),
   runResearchAndScriptTaskMock: vi.fn(),
+  hydrateReplayRequestMock: vi.fn(),
 }));
 
 vi.mock("@/lib/server/db", () => ({
-  getAllTasks: getAllTasksMock,
+  listReplayableScriptTasks: listReplayableScriptTasksMock,
 }));
 
 vi.mock("@/lib/server/taskOrchestrator/scriptRunner", () => ({
   runResearchAndScriptTask: runResearchAndScriptTaskMock,
+}));
+
+vi.mock("@/lib/server/taskOrchestrator/replay", () => ({
+  hydrateReplayRequest: hydrateReplayRequestMock,
 }));
 
 function makeRequest(overrides: Partial<GenerateRequest> = {}): GenerateRequest {
@@ -34,35 +40,32 @@ function makeRequest(overrides: Partial<GenerateRequest> = {}): GenerateRequest 
 
 function makeTask(
   id: string,
-  status: GenerateTask["status"],
-  requestSnapshot?: GenerateRequest,
-): GenerateTask {
+  status: GenerateTaskStatus,
+  replayPayload?: unknown,
+) {
   return {
-    id,
+    taskId: id,
     status,
-    progress: 0,
-    requestSnapshot,
-    createdAt: new Date("2026-04-01T00:00:00.000Z"),
-    updatedAt: new Date("2026-04-01T00:00:00.000Z"),
+    replayPayload,
   };
 }
 
 describe("TaskRuntime replay", () => {
   beforeEach(() => {
     vi.resetModules();
-    getAllTasksMock.mockReset();
+    listReplayableScriptTasksMock.mockReset();
     runResearchAndScriptTaskMock.mockReset();
+    hydrateReplayRequestMock.mockReset();
   });
 
   it("re-enqueues persisted script-phase tasks on first initialization only", async () => {
     const replayRequest = makeRequest();
-    getAllTasksMock.mockReturnValue([
+    listReplayableScriptTasksMock.mockReturnValue([
       makeTask("task-created", "created", replayRequest),
       makeTask("task-research", "research_running", replayRequest),
       makeTask("task-script", "script_running", replayRequest),
-      makeTask("task-missing-request", "created"),
-      makeTask("task-completed", "completed", replayRequest),
     ]);
+    hydrateReplayRequestMock.mockReturnValue(replayRequest);
     runResearchAndScriptTaskMock.mockResolvedValue(undefined);
 
     const { getTaskRuntime } = await import("@/lib/server/taskOrchestrator/runtime");
@@ -70,7 +73,8 @@ describe("TaskRuntime replay", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(getAllTasksMock).toHaveBeenCalledTimes(1);
+    expect(listReplayableScriptTasksMock).toHaveBeenCalledTimes(1);
+    expect(hydrateReplayRequestMock).toHaveBeenCalledTimes(3);
     expect(runResearchAndScriptTaskMock).toHaveBeenCalledTimes(3);
     expect(runResearchAndScriptTaskMock).toHaveBeenNthCalledWith(1, "task-created", replayRequest);
     expect(runResearchAndScriptTaskMock).toHaveBeenNthCalledWith(2, "task-research", replayRequest);
@@ -79,7 +83,7 @@ describe("TaskRuntime replay", () => {
     getTaskRuntime();
     await Promise.resolve();
 
-    expect(getAllTasksMock).toHaveBeenCalledTimes(1);
+    expect(listReplayableScriptTasksMock).toHaveBeenCalledTimes(1);
     expect(runResearchAndScriptTaskMock).toHaveBeenCalledTimes(3);
   });
 });
