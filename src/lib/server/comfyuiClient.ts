@@ -20,6 +20,17 @@ export interface RunComfyWorkflowResult {
   seed: number;
 }
 
+export interface SubmittedComfyWorkflow {
+  promptId: string;
+  seed: number;
+}
+
+export interface WaitForComfyWorkflowResultInput {
+  comfyuiUrl: string;
+  promptId: string;
+  seed: number;
+}
+
 export class ComfyUIClientError extends Error {
   status: number;
 
@@ -165,7 +176,7 @@ function coerceStatusMessages(value: unknown): unknown[][] {
   return value.filter((entry): entry is unknown[] => Array.isArray(entry));
 }
 
-export async function runComfyWorkflow(input: RunComfyWorkflowInput): Promise<RunComfyWorkflowResult> {
+export async function submitComfyWorkflow(input: RunComfyWorkflowInput): Promise<SubmittedComfyWorkflow> {
   const { comfyuiUrl, workflow, prompt, width, height, seed, negativePrompt, referenceImage } = input;
   const baseUrl = comfyuiUrl.replace(/\/+$/, "");
   const effectiveSeed = seed ?? Math.floor(Math.random() * 2 ** 53);
@@ -199,78 +210,75 @@ export async function runComfyWorkflow(input: RunComfyWorkflowInput): Promise<Ru
     throw new ComfyUIClientError("ComfyUI 未返回 prompt_id", 502);
   }
 
-  const startTime = Date.now();
+  return {
+    promptId,
+    seed: effectiveSeed,
+  };
+}
+
+interface PolledComfyWorkflowResult {
+  status: "pending" | "completed";
+  image?: string;
+}
+
+async function pollComfyWorkflowResult(
+  comfyuiUrl: string,
+  promptId: string,
+): Promise<PolledComfyWorkflowResult> {
+  const baseUrl = comfyuiUrl.replace(/\/+$/, "");
+  const historyRes = await fetch(`${baseUrl}/history/${promptId}`, {
+    signal: AbortSignal.timeout(POLL_REQUEST_TIMEOUT_MS),
+  });
+  if (!historyRes.ok) {
+    return { status: "pending" };
+  }
+
+  const historyData = await historyRes.json() as Record<string, unknown>;
+  const result = historyData[promptId] as Record<string, unknown> | undefined;
+  if (!result) {
+    return { status: "pending" };
+  }
+  const status = result.status as Record<string, unknown> | undefined;
+  const outputs = result.outputs as Record<string, unknown> | undefined;
+
+  if (status?.status_str === "error") {
+    const messages = coerceStatusMessages(status?.messages);
+    const errMessages = messages.length > 0
+      ? messages.map((message) => message[1]).join("; ")
+      : "未知错误";
+    throw new ComfyUIClientError(`ComfyUI 生成出错: ${errMessages}`, 500);
+  }
+
+  const isCompleted = status?.completed === true
+    || status?.status_str === "success"
+    || (!status && outputs && Object.keys(outputs).length > 0);
+  if (!isCompleted) {
+    return { status: "pending" };
+  }
+
   let outputImages: { filename: string; subfolder: string; type: string }[] = [];
-  let lastPollError: string | undefined;
-
-  while (Date.now() - startTime < MAX_POLL_TIME_MS) {
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-
-    let historyRes: Response;
-    try {
-      historyRes = await fetch(`${baseUrl}/history/${promptId}`, {
-        signal: AbortSignal.timeout(POLL_REQUEST_TIMEOUT_MS),
-      });
-    } catch (error) {
-      lastPollError = error instanceof Error ? error.message : String(error);
-      continue;
-    }
-    if (!historyRes.ok) continue;
-
-    let historyData: Record<string, unknown>;
-    try {
-      historyData = await historyRes.json();
-    } catch (error) {
-      lastPollError = error instanceof Error ? error.message : String(error);
-      continue;
-    }
-    const result = historyData[promptId] as Record<string, unknown> | undefined;
-    if (!result) continue;
-    const status = result.status as Record<string, unknown> | undefined;
-    const outputs = result.outputs as Record<string, unknown> | undefined;
-
-    const isCompleted = status?.completed === true
-      || status?.status_str === "success"
-      || (!status && outputs && Object.keys(outputs).length > 0);
-
-    if (isCompleted) {
-      for (const nodeOutput of Object.values(outputs || {})) {
-        const out = nodeOutput as Record<string, unknown>;
-        const imageList = (out.images || out.gifs) as
-          Array<{ filename: string; subfolder: string; type: string }> | undefined;
-        if (imageList && imageList.length > 0) {
-          outputImages = imageList;
-          break;
-        }
-      }
-
-      if (outputImages.length === 0 && outputs && Object.keys(outputs).length > 0) {
-        console.warn("[ComfyUI] 任务完成但未找到图片输出。outputs 结构:", JSON.stringify(outputs).slice(0, 1000));
-      }
-
-      if (outputImages.length === 0) {
-        const messages = coerceStatusMessages(status?.messages);
-        const isCached = messages.some((message) => message[0] === "execution_cached");
-        if (isCached) {
-          console.warn("[ComfyUI] 所有节点被缓存，outputs 为空。将使用随机 seed 重新提交。");
-        }
-      }
+  for (const nodeOutput of Object.values(outputs || {})) {
+    const out = nodeOutput as Record<string, unknown>;
+    const imageList = (out.images || out.gifs) as
+      Array<{ filename: string; subfolder: string; type: string }> | undefined;
+    if (imageList && imageList.length > 0) {
+      outputImages = imageList;
       break;
-    }
-
-    if (status?.status_str === "error") {
-      const messages = coerceStatusMessages(status?.messages);
-      const errMessages = messages
-        ? messages.map((message) => message[1]).join("; ")
-        : "未知错误";
-      throw new ComfyUIClientError(`ComfyUI 生成出错: ${errMessages}`, 500);
     }
   }
 
   if (outputImages.length === 0) {
+    if (outputs && Object.keys(outputs).length > 0) {
+      console.warn("[ComfyUI] 任务完成但未找到图片输出。outputs 结构:", JSON.stringify(outputs).slice(0, 1000));
+    }
+    const messages = coerceStatusMessages(status?.messages);
+    const isCached = messages.some((message) => message[0] === "execution_cached");
+    if (isCached) {
+      console.warn("[ComfyUI] 所有节点被缓存，outputs 为空。将使用随机 seed 重新提交。");
+    }
     throw new ComfyUIClientError(
-      `ComfyUI 生成超时或无输出 (prompt_id=${promptId}${lastPollError ? `, last_poll_error=${lastPollError}` : ""})。请检查 workflow 是否包含 SaveImage/PreviewImage 输出节点，以及 ComfyUI 控制台是否有报错`,
-      504,
+      `ComfyUI 任务已完成但未返回图片输出 (prompt_id=${promptId})。请检查 workflow 是否包含 SaveImage/PreviewImage 输出节点`,
+      502,
     );
   }
 
@@ -286,10 +294,51 @@ export async function runComfyWorkflow(input: RunComfyWorkflowInput): Promise<Ru
   const imageBuffer = await imageRes.arrayBuffer();
   const base64 = Buffer.from(imageBuffer).toString("base64");
   const contentType = imageRes.headers.get("content-type") || "image/png";
-
   return {
+    status: "completed",
     image: `data:${contentType};base64,${base64}`,
-    promptId,
-    seed: effectiveSeed,
   };
+}
+
+export async function waitForComfyWorkflowResult(
+  input: WaitForComfyWorkflowResultInput,
+): Promise<RunComfyWorkflowResult> {
+  const { comfyuiUrl, promptId, seed } = input;
+
+  const startTime = Date.now();
+  let lastPollError: string | undefined;
+
+  while (Date.now() - startTime < MAX_POLL_TIME_MS) {
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+
+    try {
+      const result = await pollComfyWorkflowResult(comfyuiUrl, promptId);
+      if (result.status === "completed" && result.image) {
+        return {
+          image: result.image,
+          promptId,
+          seed,
+        };
+      }
+    } catch (error) {
+      if (error instanceof ComfyUIClientError && error.status < 500) {
+        throw error;
+      }
+      lastPollError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  throw new ComfyUIClientError(
+    `ComfyUI 生成超时或无输出 (prompt_id=${promptId}${lastPollError ? `, last_poll_error=${lastPollError}` : ""})。请检查 workflow 是否包含 SaveImage/PreviewImage 输出节点，以及 ComfyUI 控制台是否有报错`,
+    504,
+  );
+}
+
+export async function runComfyWorkflow(input: RunComfyWorkflowInput): Promise<RunComfyWorkflowResult> {
+  const submitted = await submitComfyWorkflow(input);
+  return waitForComfyWorkflowResult({
+    comfyuiUrl: input.comfyuiUrl,
+    promptId: submitted.promptId,
+    seed: submitted.seed,
+  });
 }

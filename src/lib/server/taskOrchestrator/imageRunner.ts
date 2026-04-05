@@ -2,7 +2,7 @@ import { getStyleModifier, getStyleNegativePrompt } from "@/lib/config/styles";
 import { getAllTasks, getConfig, getTaskById, registerImage, upsertTask, upsertTaskJob } from "@/lib/server/db";
 import { forwardImageGenerationRequest } from "@/lib/server/imageGenerationService";
 import { readImageByKey, saveImageFileAsync } from "@/lib/server/imageStorage";
-import { runComfyWorkflow } from "@/lib/server/comfyuiClient";
+import { submitComfyWorkflow, waitForComfyWorkflowResult } from "@/lib/server/comfyuiClient";
 import { buildEnhancedPromptWithLog, mergeReferenceImage } from "@/lib/client/promptEnhancer";
 import type {
   ComicPanel,
@@ -31,11 +31,18 @@ const PROCESSABLE_JOB_STATUSES = new Set<TaskJobRecord["status"]>([
 
 type SanitizedImageConfig = Omit<PartialImageGenConfig, "apiKey">;
 
+interface StoredComfyJobState {
+  promptId?: string;
+  seed?: number;
+  submittedAt?: string;
+}
+
 interface StoredImageJobPayload extends Record<string, unknown> {
   image?: {
     configId?: string;
     fallback?: SanitizedImageConfig;
     overlay?: SanitizedImageConfig;
+    comfyui?: StoredComfyJobState;
   };
 }
 
@@ -324,6 +331,25 @@ function getJobImageConfig(job: TaskJobRecord, fallback?: PartialImageGenConfig)
   return resolveJobImageConfig(payload.image, getConfig(), fallback);
 }
 
+function getStoredComfyJobState(job: TaskJobRecord): StoredComfyJobState | undefined {
+  const payload = job.payload as StoredImageJobPayload;
+  return payload.image?.comfyui ? structuredClone(payload.image.comfyui) : undefined;
+}
+
+function updateStoredComfyJobState(
+  job: TaskJobRecord,
+  comfyui: StoredComfyJobState | undefined,
+): TaskJobRecord {
+  const payload = structuredClone(job.payload) as StoredImageJobPayload;
+  payload.image ??= {};
+  if (comfyui) {
+    payload.image.comfyui = comfyui;
+  } else {
+    delete payload.image.comfyui;
+  }
+  return updateJob(job, { payload });
+}
+
 function updateJob(job: TaskJobRecord, patch: Partial<TaskJobRecord>): TaskJobRecord {
   return {
     ...job,
@@ -549,39 +575,6 @@ async function generatePanelImage(
   const prompt = enhancement.enhanced;
   const seed = task.script?.seed !== undefined ? task.script.seed + panelIndex : undefined;
 
-  if (mergedConfig?.endpointType === "comfyui") {
-    if (!mergedConfig.apiUrl || !mergedConfig.comfyuiWorkflow) {
-      throw new Error("ComfyUI queue run requires apiUrl and comfyuiWorkflow");
-    }
-
-    let workflow: Record<string, unknown>;
-    try {
-      workflow = JSON.parse(mergedConfig.comfyuiWorkflow);
-    } catch {
-      throw new Error("ComfyUI workflow JSON is invalid");
-    }
-
-    const [width, height] = (mergedConfig.size ?? "1024x1024").split("x").map(Number);
-    const referenceImage = mergedConfig.extraBody?.control_image ?? mergedConfig.extraBody?.image;
-    const result = await runComfyWorkflow({
-      comfyuiUrl: mergedConfig.apiUrl,
-      workflow,
-      prompt: `${getStyleModifier(style)}, ${prompt}`,
-      negativePrompt: buildComfyNegativePrompt(style),
-      referenceImage: typeof referenceImage === "string" && referenceImage.startsWith("data:image")
-        ? referenceImage
-        : undefined,
-      width: width || 1024,
-      height: height || 1024,
-      seed,
-    });
-
-    return {
-      image: result.image,
-      promptSnapshot: prompt,
-    };
-  }
-
   if (!mergedConfig?.apiUrl) {
     throw new Error("Image queue run requires imageConfig.apiUrl");
   }
@@ -615,6 +608,81 @@ async function generatePanelImage(
   return {
     image,
     promptSnapshot: prompt,
+  };
+}
+
+async function generateOrResumeComfyPanelImage(
+  task: GenerateTask,
+  panelIndex: number,
+  imageConfig: PartialImageGenConfig,
+  job: TaskJobRecord,
+): Promise<{ image: string; promptSnapshot: string; job: TaskJobRecord }> {
+  const panel = getPanel(task, panelIndex);
+  const directorComposition = task.narrativeOutline?.panels[panelIndex]?.suggestedComposition;
+  const enhancement = buildEnhancedPromptWithLog(
+    panel.imagePrompt,
+    panelIndex,
+    task.script?.characterDescription,
+    panel.styleOverride ?? task.script!.style,
+    task.script!.panels.length,
+    directorComposition,
+  );
+  const mergedConfig = mergeReferenceImage(imageConfig, task.script!, panel, panelIndex);
+  const style = panel.styleOverride ?? task.script!.style;
+  const prompt = enhancement.enhanced;
+  const seed = task.script?.seed !== undefined ? task.script.seed + panelIndex : undefined;
+
+  if (!mergedConfig || !mergedConfig.apiUrl || !mergedConfig.comfyuiWorkflow) {
+    throw new Error("ComfyUI queue run requires apiUrl and comfyuiWorkflow");
+  }
+
+  let workflow: Record<string, unknown>;
+  try {
+    workflow = JSON.parse(mergedConfig.comfyuiWorkflow);
+  } catch {
+    throw new Error("ComfyUI workflow JSON is invalid");
+  }
+
+  const [width, height] = (mergedConfig.size ?? "1024x1024").split("x").map(Number);
+  const referenceImage = mergedConfig.extraBody?.control_image ?? mergedConfig.extraBody?.image;
+  const comfyState = getStoredComfyJobState(job);
+  let nextJob = job;
+  let promptId = comfyState?.promptId;
+  let promptSeed = comfyState?.seed ?? seed;
+
+  if (!promptId) {
+    const submitted = await submitComfyWorkflow({
+      comfyuiUrl: mergedConfig.apiUrl,
+      workflow,
+      prompt: `${getStyleModifier(style)}, ${prompt}`,
+      negativePrompt: buildComfyNegativePrompt(style),
+      referenceImage: typeof referenceImage === "string" && referenceImage.startsWith("data:image")
+        ? referenceImage
+        : undefined,
+      width: width || 1024,
+      height: height || 1024,
+      seed,
+    });
+    promptId = submitted.promptId;
+    promptSeed = submitted.seed;
+    nextJob = updateStoredComfyJobState(nextJob, {
+      promptId,
+      seed: promptSeed,
+      submittedAt: nowIso(),
+    });
+    upsertTaskJob(nextJob);
+  }
+
+  const result = await waitForComfyWorkflowResult({
+    comfyuiUrl: mergedConfig.apiUrl,
+    promptId,
+    seed: promptSeed ?? 0,
+  });
+
+  return {
+    image: result.image,
+    promptSnapshot: prompt,
+    job: nextJob,
   };
 }
 
@@ -693,6 +761,13 @@ export async function enqueuePanelImageJobs(
   for (const panelIndex of uniquePanelIndices) {
     const existingJob = latestJobsByPanel.get(panelIndex);
     if (existingJob) {
+      const nextPayload = structuredClone({
+        ...existingJob.payload,
+        ...(durableImagePayload ?? {}),
+      }) as StoredImageJobPayload;
+      if (nextPayload.image) {
+        delete nextPayload.image.comfyui;
+      }
       const nextJob = updateJob(existingJob, {
         kind: "panel_image",
         status: "queued",
@@ -701,10 +776,7 @@ export async function enqueuePanelImageJobs(
         promptSnapshot: getPanel(task, panelIndex).imagePrompt,
         lastError: undefined,
         outputFileKey: existingJob.status === "attach_failed" ? existingJob.outputFileKey : undefined,
-        payload: {
-          ...existingJob.payload,
-          ...(durableImagePayload ?? {}),
-        },
+        payload: nextPayload,
       });
       upsertTaskJob(nextJob);
       continue;
@@ -825,7 +897,14 @@ export async function runTaskImageQueue(taskId: string, fallbackInput?: RunTaskI
           throw new Error(`Job ${liveJob.id} is missing imageConfig`);
         }
 
-        const generated = await generatePanelImage(task, panelIndex, imageConfig);
+        let generated: { image: string; promptSnapshot: string };
+        if (imageConfig.endpointType === "comfyui") {
+          const comfyGenerated = await generateOrResumeComfyPanelImage(task, panelIndex, imageConfig, liveJob);
+          liveJob = comfyGenerated.job;
+          generated = comfyGenerated;
+        } else {
+          generated = await generatePanelImage(task, panelIndex, imageConfig);
+        }
         liveJob = updateJob(liveJob, {
           status: "persisting",
           promptSnapshot: generated.promptSnapshot,

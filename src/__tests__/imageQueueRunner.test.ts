@@ -7,6 +7,8 @@ const state = vi.hoisted(() => {
   const persistedImageKeys = new Set<string>();
 
   const runComfyWorkflowMock = vi.fn();
+  const submitComfyWorkflowMock = vi.fn();
+  const waitForComfyWorkflowResultMock = vi.fn();
   const forwardImageGenerationRequestMock = vi.fn();
   const saveImageFileAsyncMock = vi.fn();
   const readImageByKeyMock = vi.fn();
@@ -116,6 +118,8 @@ const state = vi.hoisted(() => {
     jobs.clear();
     persistedImageKeys.clear();
     runComfyWorkflowMock.mockReset();
+    submitComfyWorkflowMock.mockReset();
+    waitForComfyWorkflowResultMock.mockReset();
     saveImageFileAsyncMock.mockReset();
     forwardImageGenerationRequestMock.mockReset();
     readImageByKeyMock.mockReset();
@@ -178,6 +182,8 @@ const state = vi.hoisted(() => {
     jobs,
     forwardImageGenerationRequestMock,
     runComfyWorkflowMock,
+    submitComfyWorkflowMock,
+    waitForComfyWorkflowResultMock,
     saveImageFileAsyncMock,
     readImageByKeyMock,
     registerImageMock,
@@ -230,6 +236,8 @@ vi.mock("@/lib/server/taskOrchestrator/store", () => ({
 
 vi.mock("@/lib/server/comfyuiClient", () => ({
   runComfyWorkflow: state.runComfyWorkflowMock,
+  submitComfyWorkflow: state.submitComfyWorkflowMock,
+  waitForComfyWorkflowResult: state.waitForComfyWorkflowResultMock,
 }));
 
 vi.mock("@/lib/server/imageGenerationService", () => ({
@@ -338,7 +346,10 @@ describe("image queue runner", () => {
         calibrationApproved: false,
       },
     }));
-    state.runComfyWorkflowMock
+    state.submitComfyWorkflowMock
+      .mockResolvedValueOnce({ promptId: "pid-1", seed: 1 })
+      .mockResolvedValueOnce({ promptId: "pid-2", seed: 2 });
+    state.waitForComfyWorkflowResultMock
       .mockResolvedValueOnce({ image: "data:image/png;base64,AAA", promptId: "pid-1", seed: 1 })
       .mockResolvedValueOnce({ image: "data:image/png;base64,BBB", promptId: "pid-2", seed: 2 });
 
@@ -350,7 +361,8 @@ describe("image queue runner", () => {
     });
     await runTaskImageQueue("task-image-queue");
 
-    expect(state.runComfyWorkflowMock).toHaveBeenCalledTimes(1);
+    expect(state.submitComfyWorkflowMock).toHaveBeenCalledTimes(1);
+    expect(state.waitForComfyWorkflowResultMock).toHaveBeenCalledTimes(1);
     expect(state.getJobs("task-image-queue")).toEqual([
       expect.objectContaining({ panelIndex: 0, status: "completed" }),
       expect.objectContaining({ panelIndex: 1, status: "calibrating" }),
@@ -371,7 +383,8 @@ describe("image queue runner", () => {
     await approveTaskCalibration("task-image-queue");
     await runTaskImageQueue("task-image-queue");
 
-    expect(state.runComfyWorkflowMock).toHaveBeenCalledTimes(2);
+    expect(state.submitComfyWorkflowMock).toHaveBeenCalledTimes(2);
+    expect(state.waitForComfyWorkflowResultMock).toHaveBeenCalledTimes(2);
     expect(state.getJobs("task-image-queue")).toEqual([
       expect.objectContaining({ panelIndex: 0, status: "completed" }),
       expect.objectContaining({ panelIndex: 1, status: "completed" }),
@@ -390,7 +403,11 @@ describe("image queue runner", () => {
     task.script!.panels[0].imageUrl = "file://task-image-queue_panel0_old";
     task.script!.panels[0].imageVersions = [{ imageUrl: "file://task-image-queue_panel0_old", createdAt: Date.now() - 1000 }];
     state.setTask(task);
-    state.runComfyWorkflowMock.mockResolvedValue({
+    state.submitComfyWorkflowMock.mockResolvedValue({
+      promptId: "pid-attach",
+      seed: 4,
+    });
+    state.waitForComfyWorkflowResultMock.mockResolvedValue({
       image: "data:image/png;base64,CCC",
       promptId: "pid-attach",
       seed: 4,
@@ -407,7 +424,8 @@ describe("image queue runner", () => {
     await runTaskImageQueue("task-image-queue");
 
     const failedJob = state.getJobs("task-image-queue")[0];
-    expect(state.runComfyWorkflowMock).toHaveBeenCalledTimes(1);
+    expect(state.submitComfyWorkflowMock).toHaveBeenCalledTimes(1);
+    expect(state.waitForComfyWorkflowResultMock).toHaveBeenCalledTimes(1);
     expect(state.saveImageFileAsyncMock).toHaveBeenCalledTimes(1);
     expect(failedJob.status).toBe("attach_failed");
     expect(failedJob.outputFileKey).toBeTruthy();
@@ -421,7 +439,8 @@ describe("image queue runner", () => {
     await runTaskImageQueue("task-image-queue");
 
     const recoveredTask = state.getTask("task-image-queue");
-    expect(state.runComfyWorkflowMock).toHaveBeenCalledTimes(1);
+    expect(state.submitComfyWorkflowMock).toHaveBeenCalledTimes(1);
+    expect(state.waitForComfyWorkflowResultMock).toHaveBeenCalledTimes(1);
     expect(recoveredTask?.script?.panels[0].imageUrl).toBe(`file://${failedJob.outputFileKey}`);
     expect(recoveredTask?.script?.panels[0].status).toBe("completed");
     expect(recoveredTask?.script?.panels[0].imageVersions).toEqual([
@@ -433,9 +452,70 @@ describe("image queue runner", () => {
     );
   });
 
+  it("resumes a submitted ComfyUI prompt from durable job payload instead of re-submitting it", async () => {
+    const task = makeTask({
+      status: "image_queue_running",
+    });
+    task.script!.panels[0].status = "generating";
+    state.setTask(task);
+    state.setJobs("task-image-queue", [{
+      id: "job-comfy-remote",
+      taskId: "task-image-queue",
+      kind: "panel_image",
+      status: "generating",
+      panelIndex: 0,
+      provider: "comfyui",
+      model: "sdxl",
+      promptSnapshot: "Prompt 1",
+      attemptCount: 1,
+      payload: {
+        image: {
+          fallback: {
+            apiUrl: "http://127.0.0.1:8188",
+            endpointType: "comfyui",
+            model: "sdxl",
+            size: "1024x1024",
+            comfyuiWorkflow: comfyImageConfig.comfyuiWorkflow,
+          },
+          comfyui: {
+            promptId: "pid-resume",
+            seed: 77,
+            submittedAt: "2026-04-05T00:00:00.000Z",
+          },
+        },
+      },
+      createdAt: "2026-04-05T00:00:00.000Z",
+      updatedAt: "2026-04-05T00:00:00.000Z",
+    }]);
+    state.waitForComfyWorkflowResultMock.mockResolvedValue({
+      image: "data:image/png;base64,RESUMED",
+      promptId: "pid-resume",
+      seed: 77,
+    });
+
+    const { runTaskImageQueue } = await import("@/lib/server/taskOrchestrator/imageRunner");
+    await runTaskImageQueue("task-image-queue");
+
+    expect(state.submitComfyWorkflowMock).not.toHaveBeenCalled();
+    expect(state.waitForComfyWorkflowResultMock).toHaveBeenCalledWith(expect.objectContaining({
+      comfyuiUrl: "http://127.0.0.1:8188",
+      promptId: "pid-resume",
+      seed: 77,
+    }));
+    expect(state.getJobs("task-image-queue")[0]).toEqual(expect.objectContaining({
+      status: "completed",
+      outputFileKey: expect.any(String),
+    }));
+    expect(state.getTask("task-image-queue")?.script?.panels[0].imageUrl).toMatch(/^file:\/\//);
+  });
+
   it("marks a first-time attach_failed panel as failed instead of leaving it generating", async () => {
     state.setTask(makeTask());
-    state.runComfyWorkflowMock.mockResolvedValue({
+    state.submitComfyWorkflowMock.mockResolvedValue({
+      promptId: "pid-first-attach",
+      seed: 11,
+    });
+    state.waitForComfyWorkflowResultMock.mockResolvedValue({
       image: "data:image/png;base64,FIRST",
       promptId: "pid-first-attach",
       seed: 11,
@@ -508,7 +588,11 @@ describe("image queue runner", () => {
     state.forwardImageGenerationRequestMock.mockResolvedValue({
       data: [{ b64_json: "REMOTE", content_type: "image/png" }],
     });
-    state.runComfyWorkflowMock.mockResolvedValue({
+    state.submitComfyWorkflowMock.mockResolvedValue({
+      promptId: "pid-local",
+      seed: 7,
+    });
+    state.waitForComfyWorkflowResultMock.mockResolvedValue({
       image: "data:image/png;base64,LOCAL",
       promptId: "pid-local",
       seed: 7,
@@ -581,7 +665,7 @@ describe("image queue runner", () => {
         strength: 0.42,
       }),
     }));
-    expect(state.runComfyWorkflowMock).toHaveBeenCalledWith(expect.objectContaining({
+    expect(state.submitComfyWorkflowMock).toHaveBeenCalledWith(expect.objectContaining({
       comfyuiUrl: "http://127.0.0.1:8188",
     }));
   });
@@ -629,7 +713,10 @@ describe("image queue runner", () => {
       createdAt: "2026-04-04T00:00:00.000Z",
       updatedAt: "2026-04-04T00:00:00.000Z",
     }]);
-    state.runComfyWorkflowMock
+    state.submitComfyWorkflowMock
+      .mockResolvedValueOnce({ promptId: "pid-1", seed: 1 })
+      .mockResolvedValueOnce({ promptId: "pid-2", seed: 2 });
+    state.waitForComfyWorkflowResultMock
       .mockResolvedValueOnce({ image: "data:image/png;base64,AAA", promptId: "pid-1", seed: 1 })
       .mockResolvedValueOnce({ image: "data:image/png;base64,BBB", promptId: "pid-2", seed: 2 });
 
@@ -644,7 +731,8 @@ describe("image queue runner", () => {
     const jobs = state.getJobs("task-image-queue");
     expect(jobs.find((job) => job.panelIndex === 1)).toEqual(expect.objectContaining({ status: "completed" }));
     expect(jobs.find((job) => job.panelIndex === 2)).toEqual(expect.objectContaining({ status: "calibrating" }));
-    expect(state.runComfyWorkflowMock).toHaveBeenCalledTimes(1);
+    expect(state.submitComfyWorkflowMock).toHaveBeenCalledTimes(1);
+    expect(state.waitForComfyWorkflowResultMock).toHaveBeenCalledTimes(1);
     expect(state.getTask("task-image-queue")?.status).toBe("calibrating");
   });
 
