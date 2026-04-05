@@ -14,7 +14,9 @@ import type {
   TaskJobRecord,
   UserAPIConfigV2,
   UserImageConfig,
+  UserLLMConfig,
 } from "@/lib/types";
+import { runPanelLightCheck } from "./lightCheck";
 import { createTaskJob, listTaskJobsByTaskId, summarizeTaskJobs } from "./store";
 
 const FILE_REF_PREFIX = "file://";
@@ -113,6 +115,38 @@ function buildImageConfig(config?: UserImageConfig): PartialImageGenConfig | und
     endpointType: config.endpointType as ImageEndpointType,
     comfyuiWorkflow: config.comfyuiWorkflow,
   };
+}
+
+function buildLLMConfig(config?: UserLLMConfig): PartialLLMConfig | undefined {
+  if (!config) return undefined;
+  return {
+    apiUrl: config.apiUrl,
+    apiKey: config.apiKey,
+    model: config.model,
+    provider: config.protocolType,
+  };
+}
+
+function resolveLightCheckConfig(
+  config: UserAPIConfigV2 | null,
+  fallback?: PartialLLMConfig,
+): PartialLLMConfig | undefined {
+  if (config?.activeVLMId) {
+    const matched = (config.vlmConfigs ?? []).find((candidate) => candidate.id === config.activeVLMId);
+    if (matched) {
+      return buildLLMConfig(matched);
+    }
+  }
+  if (fallback?.apiUrl && fallback.model && fallback.provider) {
+    return fallback;
+  }
+  if (config?.activeLLMId) {
+    const matched = config.llmConfigs.find((candidate) => candidate.id === config.activeLLMId);
+    if (matched) {
+      return buildLLMConfig(matched);
+    }
+  }
+  return buildLLMConfig(config?.llmConfigs[0]);
 }
 
 function buildDurableImageJobPayload(input: EnqueuePanelImageJobsInput): StoredImageJobPayload {
@@ -805,6 +839,20 @@ export async function runTaskImageQueue(taskId: string, fallbackInput?: RunTaskI
         });
         upsertTaskJob(liveJob);
         await attachPersistedImage(taskId, liveJob);
+      }
+
+      const lightCheckConfig = resolveLightCheckConfig(getConfig(), fallbackInput?.llmConfig);
+      if (lightCheckConfig?.apiUrl && lightCheckConfig.model && lightCheckConfig.provider) {
+        try {
+          const latestTask = getTaskById(taskId);
+          if (latestTask) {
+            const checkedTask = await runPanelLightCheck(latestTask, panelIndex, lightCheckConfig);
+            checkedTask.updatedAt = new Date();
+            upsertTask(checkedTask);
+          }
+        } catch (error) {
+          console.warn(`[TaskImageQueue] Light check failed for ${taskId} panel ${panelIndex}:`, error);
+        }
       }
 
       upsertTaskJob(updateJob(liveJob, {

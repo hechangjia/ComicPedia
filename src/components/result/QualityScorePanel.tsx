@@ -35,6 +35,7 @@ interface QualityScorePanelProps {
   onBeginVisualRepairExecution?: (params: { panelIndices: number[]; mode: VisualRepairExecutionMode; startedAt: string }) => Promise<void> | void;
   onCompleteVisualRepairExecution?: (score: VisualQualityScore, outcome: VisualRepairExecutionOutcome, finishedAt: string) => Promise<void> | void;
   onFailVisualRepairExecution?: (finishedAt: string) => Promise<void> | void;
+  onStartDeepReview?: (vlmConfig: PartialLLMConfig, panelIndices?: number[]) => Promise<void> | void;
   /** Callback to trigger targeted regeneration of specific panels */
   onRetryPanels?: (panelIndices: number[], patchedPrompts: Map<number, string>, patches?: Map<number, PromptPatch>) => Promise<void> | void;
   onRunDiagnosisRepair?: (
@@ -58,6 +59,7 @@ export function QualityScorePanel({
   onBeginVisualRepairExecution,
   onCompleteVisualRepairExecution,
   onFailVisualRepairExecution,
+  onStartDeepReview,
   onRetryPanels,
   onRunDiagnosisRepair,
 }: QualityScorePanelProps) {
@@ -142,6 +144,20 @@ export function QualityScorePanel({
   };
 
   const handleVisualEvaluate = async () => {
+    if (onStartDeepReview) {
+      setLoadingVisual(true);
+      setErrorVisual("");
+      try {
+        await onStartDeepReview(resolveSelectedVLM());
+        setVisualDiagnosisState("running");
+      } catch (err) {
+        setErrorVisual(err instanceof Error ? err.message : "深度复审启动失败");
+      } finally {
+        setLoadingVisual(false);
+      }
+      return;
+    }
+
     setLoadingVisual(true);
     setErrorVisual("");
     try {
@@ -157,6 +173,21 @@ export function QualityScorePanel({
   };
 
   const handleRunDiagnosis = async () => {
+    if (onStartDeepReview) {
+      setLoadingDiagnosis(true);
+      setErrorDiagnosis("");
+      setVisualDiagnosisState("running");
+      try {
+        await onStartDeepReview(resolveSelectedVLM());
+      } catch (err) {
+        setVisualDiagnosisState("failed");
+        setErrorDiagnosis(err instanceof Error ? err.message : "深度复审启动失败");
+      } finally {
+        setLoadingDiagnosis(false);
+      }
+      return;
+    }
+
     if (!visualScore || !onSaveVisualDiagnosisReport) return;
     setLoadingDiagnosis(true);
     setErrorDiagnosis("");

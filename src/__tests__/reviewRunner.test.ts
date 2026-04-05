@@ -4,9 +4,11 @@ import type { GenerateTask, TaskJobRecord, TaskQueueSummary, UserAPIConfigV2, Vi
 const {
   getConfigMock,
   evaluateVisualDiagnosisMock,
+  evaluateVisualQualityMock,
 } = vi.hoisted(() => ({
   getConfigMock: vi.fn(),
   evaluateVisualDiagnosisMock: vi.fn(),
+  evaluateVisualQualityMock: vi.fn(),
 }));
 
 const state = vi.hoisted(() => {
@@ -134,6 +136,10 @@ vi.mock("@/lib/vlmDiagnosis", () => ({
       panel.issues.some((issue) => issue.actionability !== "manual_only")).length,
     crossPanelIssueCount: 0,
   })),
+}));
+
+vi.mock("@/lib/vlmScorer", () => ({
+  evaluateVisualQuality: evaluateVisualQualityMock,
 }));
 
 function makeConfig(): UserAPIConfigV2 {
@@ -294,6 +300,7 @@ describe("reviewRunner", () => {
     state.reset();
     getConfigMock.mockReset();
     evaluateVisualDiagnosisMock.mockReset();
+    evaluateVisualQualityMock.mockReset();
   });
 
   it("runs queued deep-review jobs and merges targeted reports back into the task", async () => {
@@ -312,6 +319,37 @@ describe("reviewRunner", () => {
       }),
     ]);
     getConfigMock.mockReturnValue(makeConfig());
+    evaluateVisualQualityMock.mockResolvedValue({
+      overall: 6.5,
+      panels: [
+        {
+          panelIndex: 0,
+          textImageAlignment: 7,
+          styleAdherence: 7,
+          artifactScore: 7,
+          compositionQuality: 7,
+          overall: 7,
+          issues: [],
+        },
+        {
+          panelIndex: 1,
+          textImageAlignment: 5,
+          styleAdherence: 6,
+          artifactScore: 5,
+          compositionQuality: 5,
+          overall: 5.25,
+          issues: ["composition mismatch"],
+        },
+      ],
+      retryRecommendations: [
+        {
+          panelIndex: 1,
+          reason: "composition mismatch",
+          suggestedFix: "tighten framing",
+        },
+      ],
+      evaluatedAt: "2026-04-05T00:00:00.000Z",
+    });
     evaluateVisualDiagnosisMock.mockResolvedValue(makeReport(1));
 
     const { runTaskDeepReviewQueue } = await import("@/lib/server/taskOrchestrator/reviewRunner");

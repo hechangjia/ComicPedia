@@ -476,6 +476,33 @@ describe("useTaskActions queue helpers", () => {
     });
   });
 
+  it("posts start_deep_review with the selected VLM config and syncs the returned task snapshot", async () => {
+    const returnedTask = makeQueueTask("deep_review_running");
+    fetchMock.mockResolvedValueOnce(makeActionResponse({ success: true, task: returnedTask }));
+
+    const { hook, setTask } = renderTaskActionsHook();
+    await hook.handleStartDeepReview({
+      apiUrl: "https://vlm.example.com/v1",
+      apiKey: "secret",
+      model: "gpt-4o-mini",
+      provider: "openai-compatible",
+    }, [0]);
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      action: "start_deep_review",
+      panelIndices: [0],
+      vlmConfig: {
+        apiUrl: "https://vlm.example.com/v1",
+        apiKey: "secret",
+        model: "gpt-4o-mini",
+        provider: "openai-compatible",
+      },
+    });
+    expect(saveTaskMock).toHaveBeenCalledWith(returnedTask);
+    expect(notifyListenersMock).toHaveBeenCalledWith(returnedTask);
+    expect(setTask).toHaveBeenCalledWith(returnedTask);
+  });
+
   it.each([
     ["pause", "handlePauseQueue"],
     ["resume", "handleResumeQueue"],

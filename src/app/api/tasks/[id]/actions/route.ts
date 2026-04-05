@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTaskById } from "@/lib/server/db";
+import { startDeepReview } from "@/lib/server/taskOrchestrator/deepReviewRunner";
 import { approveTaskCalibration, enqueuePanelImageJobs } from "@/lib/server/taskOrchestrator/imageRunner";
 import { pauseTaskJobs, reconcileTaskJobs, resumeTaskJobs } from "@/lib/server/taskOrchestrator/reconcile";
 import { getTaskRuntime } from "@/lib/server/taskOrchestrator/runtime";
@@ -16,6 +17,7 @@ interface TaskActionRequestBody {
   imageConfigId?: string;
   imageConfig?: PartialImageGenConfig;
   llmConfig?: PartialLLMConfig;
+  vlmConfig?: PartialLLMConfig;
 }
 
 function getQueueablePanelIndices(taskId: string, forceAll: boolean): number[] {
@@ -41,6 +43,9 @@ function getActionErrorStatus(error: unknown): number {
   if (
     message.includes("缺少可重放的图片配置")
     || message.includes("无有效面板")
+    || message.includes("缺少视觉评审配置")
+    || message.includes("缺少可重放的视觉评审配置")
+    || message.includes("没有可用于深度复审的已生成面板")
   ) {
     return 400;
   }
@@ -98,6 +103,22 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         task: updatedTask,
         queueSummary: updatedTask.queueSummary,
       });
+    }
+
+    if (action === "start_deep_review") {
+      if (!body.vlmConfig) {
+        return NextResponse.json({ error: "缺少视觉评审配置" }, { status: 400 });
+      }
+      const updatedTask = await startDeepReview(id, {
+        panelIndices: body.panelIndices,
+        vlmConfig: body.vlmConfig,
+      });
+      getTaskRuntime().enqueueDeepReview(id);
+      return NextResponse.json({
+        success: true,
+        task: updatedTask,
+        queueSummary: updatedTask.queueSummary,
+      }, { status: 202 });
     }
 
     if (action === "approve_image_calibration") {

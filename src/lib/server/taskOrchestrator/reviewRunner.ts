@@ -1,6 +1,7 @@
 import { getAllTasks, getConfig, getTaskById, upsertTask, upsertTaskJob } from "@/lib/server/db";
 import type {
   GenerateTask,
+  PanelReview,
   PartialLLMConfig,
   TaskJobRecord,
   UserAPIConfigV2,
@@ -9,6 +10,8 @@ import type {
 } from "@/lib/types";
 import { evaluateVisualDiagnosis, summarizeDiagnosisReport } from "@/lib/vlmDiagnosis";
 import { markDiagnosisFailed, markDiagnosisRunning, markDiagnosisSucceeded } from "@/lib/vlmDiagnosisState";
+import { buildTaskReviewStatus } from "@/lib/vlmRetry";
+import { evaluateVisualQuality } from "@/lib/vlmScorer";
 import { listTaskJobsByTaskId, summarizeTaskJobs } from "./store";
 
 const PROCESSABLE_REVIEW_JOB_STATUSES = new Set<TaskJobRecord["status"]>([
@@ -161,6 +164,15 @@ function mergeDiagnosisReports(
   };
 }
 
+function buildPanelReviewFromScore(task: GenerateTask): PanelReview[] {
+  return (task.visualQualityScore?.panels ?? []).map((panelScore) => ({
+    panelIndex: panelScore.panelIndex,
+    status: panelScore.overall < 6 ? "needs_repair" : "reviewed",
+    score: panelScore.overall,
+    issues: panelScore.issues,
+  }));
+}
+
 function resetDiagnosisStateAfterPause(task: GenerateTask): void {
   task.visualDiagnosisState = task.visualDiagnosisReport ? "succeeded" : "idle";
 }
@@ -238,19 +250,6 @@ export async function runTaskDeepReviewQueue(
       continue;
     }
 
-    if (!task.visualQualityScore) {
-      const message = "视觉评分尚未完成，无法继续深度评审";
-      markDiagnosisFailed(task);
-      task.updatedAt = new Date();
-      upsertTask(task);
-      upsertTaskJob(updateJob(liveJob, {
-        status: "failed",
-        lastError: message,
-      }));
-      await persistReviewState(taskId);
-      continue;
-    }
-
     markDiagnosisRunning(task);
     task.status = "deep_review_running";
     task.updatedAt = new Date();
@@ -272,9 +271,40 @@ export async function runTaskDeepReviewQueue(
     }
 
     try {
+      let visualScore = task.visualQualityScore;
+      if (!visualScore || task.visualDiagnosisStale) {
+        visualScore = await evaluateVisualQuality(task.script, resolvedConfig);
+        const latestTaskForScore = getTaskById(taskId);
+        if (!latestTaskForScore) {
+          throw new Error(`Task not found before deep review scoring: ${taskId}`);
+        }
+        latestTaskForScore.visualQualityScore = visualScore;
+        latestTaskForScore.panelReview = buildPanelReviewFromScore({
+          ...latestTaskForScore,
+          visualQualityScore: visualScore,
+        });
+        latestTaskForScore.reviewStatus = buildTaskReviewStatus(latestTaskForScore.panelReview);
+        latestTaskForScore.lastReviewAt = visualScore.evaluatedAt;
+        latestTaskForScore.updatedAt = new Date();
+        upsertTask(latestTaskForScore);
+
+        const latestJobForScore = await getLatestDeepReviewJob(taskId, liveJob.id);
+        if (latestJobForScore?.status === "paused") {
+          resetDiagnosisStateAfterPause(latestTaskForScore);
+          latestTaskForScore.updatedAt = new Date();
+          upsertTask(latestTaskForScore);
+          await persistReviewState(taskId);
+          continue;
+        }
+      }
+
+      if (!visualScore) {
+        throw new Error("视觉评分尚未完成，无法继续深度评审");
+      }
+
       const report = await evaluateVisualDiagnosis(
         task.script,
-        task.visualQualityScore,
+        visualScore,
         resolvedConfig,
         getTargetPanels(readyJob, task.script.panels.length),
       );

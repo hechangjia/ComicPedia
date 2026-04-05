@@ -89,6 +89,7 @@ export default function ResultPage() {
     handleContinueRemaining,
     handlePauseQueue,
     handleResumeQueue,
+    handleStartDeepReview,
     handleRetryFailed,
     handleReferenceImageChange,
     handleReferenceImagesChange,
@@ -603,6 +604,7 @@ export default function ResultPage() {
                 onBeginVisualRepairExecution={handleBeginVisualRepairExecution}
                 onCompleteVisualRepairExecution={handleCompleteVisualRepairExecution}
                 onFailVisualRepairExecution={handleFailVisualRepairExecution}
+                onStartDeepReview={handleStartDeepReview}
                 onRetryPanels={handleVlmRetry}
                 onRunDiagnosisRepair={handleRunDiagnosisRepair}
               />

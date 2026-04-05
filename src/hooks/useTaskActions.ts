@@ -48,6 +48,7 @@ interface TaskActionBody {
   imageConfigId?: string;
   imageConfig?: PartialImageGenConfig;
   llmConfig?: PartialLLMConfig;
+  vlmConfig?: PartialLLMConfig;
 }
 
 export function applyVisualQualityScoreUpdate(task: GenerateTask, visualQualityScore: VisualQualityScore): GenerateTask {
@@ -536,6 +537,23 @@ export function useTaskActions(
     }
   }, [postTaskAction, showError]);
 
+  const handleStartDeepReview = useCallback(async (vlmConfig: PartialLLMConfig, panelIndices?: number[]) => {
+    setGeneratingAll(true);
+    try {
+      await postTaskAction({
+        action: "start_deep_review",
+        panelIndices,
+        vlmConfig,
+      });
+    } catch (err) {
+      console.error("Start deep review failed:", err);
+      showError(`深度复审失败: ${err instanceof Error ? err.message : "未知错误"}`);
+      throw err;
+    } finally {
+      setGeneratingAll(false);
+    }
+  }, [postTaskAction, showError]);
+
   // 参考图变更
   const handleReferenceImageChange = useCallback(
     (base64: string | undefined) => {
@@ -730,6 +748,7 @@ export function useTaskActions(
     handleContinueRemaining,
     handlePauseQueue,
     handleResumeQueue,
+    handleStartDeepReview,
     handleRetryFailed,
     handleReferenceImageChange,
     handleReferenceImagesChange,

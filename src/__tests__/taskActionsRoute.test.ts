@@ -5,6 +5,7 @@ const {
   getTaskByIdMock,
   enqueuePanelImageJobsMock,
   approveTaskCalibrationMock,
+  startDeepReviewMock,
   pauseTaskJobsMock,
   reconcileTaskJobsMock,
   resumeTaskJobsMock,
@@ -14,6 +15,7 @@ const {
   getTaskByIdMock: vi.fn(),
   enqueuePanelImageJobsMock: vi.fn(),
   approveTaskCalibrationMock: vi.fn(),
+  startDeepReviewMock: vi.fn(),
   pauseTaskJobsMock: vi.fn(),
   reconcileTaskJobsMock: vi.fn(),
   resumeTaskJobsMock: vi.fn(),
@@ -28,6 +30,10 @@ vi.mock("@/lib/server/db", () => ({
 vi.mock("@/lib/server/taskOrchestrator/imageRunner", () => ({
   enqueuePanelImageJobs: enqueuePanelImageJobsMock,
   approveTaskCalibration: approveTaskCalibrationMock,
+}));
+
+vi.mock("@/lib/server/taskOrchestrator/deepReviewRunner", () => ({
+  startDeepReview: startDeepReviewMock,
 }));
 
 vi.mock("@/lib/server/taskOrchestrator/reconcile", () => ({
@@ -49,6 +55,7 @@ describe("/api/tasks/[id]/actions POST", () => {
     getTaskByIdMock.mockReset();
     enqueuePanelImageJobsMock.mockReset();
     approveTaskCalibrationMock.mockReset();
+    startDeepReviewMock.mockReset();
     pauseTaskJobsMock.mockReset();
     reconcileTaskJobsMock.mockReset();
     resumeTaskJobsMock.mockReset();
@@ -271,6 +278,80 @@ describe("/api/tasks/[id]/actions POST", () => {
     expect(body).toEqual(expect.objectContaining({
       success: true,
       queueSummary: expect.objectContaining({ queued: 1 }),
+      task: expect.objectContaining({ status: "deep_review_running" }),
+    }));
+  });
+
+  it("starts deep review through the action route and schedules the review runtime", async () => {
+    getTaskByIdMock.mockReturnValue({
+      id: "task-actions",
+      status: "completed",
+      progress: 100,
+      script: {
+        title: "Task Actions",
+        topic: "Topic",
+        style: "anime",
+        panels: [
+          { id: 1, scene: "Scene 1", dialogue: "Dialogue 1", imagePrompt: "Prompt 1", imageUrl: "file://panel-1", status: "completed" },
+        ],
+      },
+      createdAt: new Date("2026-04-05T00:00:00.000Z"),
+      updatedAt: new Date("2026-04-05T00:00:00.000Z"),
+    });
+    startDeepReviewMock.mockResolvedValue({
+      id: "task-actions",
+      status: "deep_review_running",
+      progress: 100,
+      queueSummary: {
+        queued: 1,
+        running: 0,
+        paused: 0,
+        failed: 0,
+        attachFailed: 0,
+        completed: 0,
+        calibrationPending: 0,
+      },
+      script: {
+        title: "Task Actions",
+        topic: "Topic",
+        style: "anime",
+        panels: [
+          { id: 1, scene: "Scene 1", dialogue: "Dialogue 1", imagePrompt: "Prompt 1", imageUrl: "file://panel-1", status: "completed" },
+        ],
+      },
+      createdAt: new Date("2026-04-05T00:00:00.000Z"),
+      updatedAt: new Date("2026-04-05T00:00:00.000Z"),
+    });
+
+    const { POST } = await import("@/app/api/tasks/[id]/actions/route");
+    const request = new NextRequest("http://localhost:3000/api/tasks/task-actions/actions", {
+      method: "POST",
+      body: JSON.stringify({
+        action: "start_deep_review",
+        panelIndices: [0],
+        vlmConfig: {
+          apiUrl: "https://vlm.example.com/v1",
+          apiKey: "secret",
+          model: "gpt-4o-mini",
+          provider: "openai-compatible",
+        },
+      }),
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ id: "task-actions" }) });
+    const body = await response.json();
+
+    expect(response.status).toBe(202);
+    expect(startDeepReviewMock).toHaveBeenCalledWith("task-actions", expect.objectContaining({
+      panelIndices: [0],
+      vlmConfig: expect.objectContaining({
+        apiUrl: "https://vlm.example.com/v1",
+        model: "gpt-4o-mini",
+      }),
+    }));
+    expect(enqueueDeepReviewMock).toHaveBeenCalledWith("task-actions");
+    expect(body).toEqual(expect.objectContaining({
+      success: true,
       task: expect.objectContaining({ status: "deep_review_running" }),
     }));
   });

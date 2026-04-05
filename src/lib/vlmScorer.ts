@@ -257,6 +257,31 @@ function parsePanelScore(panelIndex: number, content: string): PanelVisualScore 
   }
 }
 
+export async function evaluateSinglePanelVisualQuality(
+  script: ComicScript,
+  panelIndex: number,
+  vlmConfig: PartialLLMConfig,
+): Promise<PanelVisualScore> {
+  const panel = script.panels[panelIndex];
+  if (!panel?.imageUrl) {
+    throw new Error(`Panel ${panelIndex} has no image`);
+  }
+
+  const imageBase64 = await resolveImageToBase64(panel.imageUrl);
+  if (!imageBase64) {
+    throw new Error(`Panel ${panelIndex} image could not be resolved`);
+  }
+
+  return evaluatePanel(
+    panelIndex,
+    imageBase64,
+    panel.imagePrompt,
+    panel.styleOverride ?? script.style,
+    script.panels.length,
+    vlmConfig,
+  );
+}
+
 // ============================================================
 // 公共 API
 // ============================================================
