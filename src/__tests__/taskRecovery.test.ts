@@ -219,6 +219,42 @@ describe("task recovery", () => {
     ]);
   });
 
+  it("prefers active deep review jobs over historical image jobs when reconciling", async () => {
+    state.setTask(makeTask({
+      status: "deep_review_running",
+    }));
+    state.setJobs("task-recovery", [
+      makeJob({
+        id: "job-image-history",
+        panelIndex: 0,
+        status: "completed",
+      }),
+      makeJob({
+        id: "job-deep-review",
+        kind: "deep_review",
+        status: "queued",
+      }),
+    ]);
+
+    const { reconcileTaskJobs } = await import("@/lib/server/taskOrchestrator/reconcile");
+    const reconciledTask = await reconcileTaskJobs("task-recovery");
+
+    expect(reconciledTask.status).toBe("deep_review_paused");
+    expect(reconciledTask.queueSummary).toEqual({
+      queued: 0,
+      running: 0,
+      paused: 1,
+      failed: 0,
+      attachFailed: 0,
+      completed: 1,
+      calibrationPending: 0,
+    });
+    expect(state.listJobs("task-recovery")).toEqual([
+      expect.objectContaining({ id: "job-image-history", kind: "panel_image", status: "completed" }),
+      expect.objectContaining({ id: "job-deep-review", kind: "deep_review", status: "paused" }),
+    ]);
+  });
+
   it("pauses queue work on pagehide only for pauseable task states", async () => {
     const pauseTask = vi.fn();
     const target = new EventTarget();

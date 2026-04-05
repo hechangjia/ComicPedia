@@ -75,7 +75,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     if (action === "resume") {
       const updatedTask = await resumeTaskJobs(id);
-      if (updatedTask.queueSummary && (updatedTask.queueSummary.queued > 0 || updatedTask.queueSummary.running > 0)) {
+      if (updatedTask.status === "deep_review_running") {
+        getTaskRuntime().enqueueDeepReview(id);
+      } else if (
+        updatedTask.status === "image_queue_running"
+        || updatedTask.status === "calibrating"
+      ) {
         getTaskRuntime().enqueueImageQueue(id);
       }
       return NextResponse.json({

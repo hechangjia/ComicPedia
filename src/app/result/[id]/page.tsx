@@ -105,17 +105,23 @@ export default function ResultPage() {
 
   const [viewMode, setViewMode] = useState<"edit" | "read" | "play">("edit");
 
-  const handleGenerateAllOrResume = useCallback(async () => {
-    if (task?.status === "image_queue_paused") {
+  const handleResumePausedTask = useCallback(async () => {
+    if (task?.status === "image_queue_paused" || task?.status === "deep_review_paused") {
       const resumedTask = await resumeTaskLifecycle(taskId);
       if (resumedTask) {
         setTask(resumedTask);
       }
+    }
+  }, [setTask, task?.status, taskId]);
+
+  const handleGenerateAllOrResume = useCallback(async () => {
+    if (task?.status === "image_queue_paused") {
+      await handleResumePausedTask();
       return;
     }
 
     await handleGenerateAll();
-  }, [handleGenerateAll, setTask, task?.status, taskId]);
+  }, [handleGenerateAll, handleResumePausedTask, task?.status]);
 
   // Script editor save handler
   const handleScriptEditorSave = useCallback((panels: import("@/lib/types").ComicPanel[]) => {
@@ -221,8 +227,11 @@ export default function ResultPage() {
   const isScriptReady = task.status === "script_ready" || task.status === "image_queue_paused";
   const isLegacyGenerating = task.status === "generating";
   const isQueueRunning = task.status === "image_queue_running";
+  const isDeepReviewRunning = task.status === "deep_review_running";
+  const isDeepReviewPaused = task.status === "deep_review_paused";
   const isGenerating = isLegacyGenerating || isQueueRunning;
   const isCompleted = task.status === "completed";
+  const showPausedResume = task.status === "image_queue_paused" || isDeepReviewPaused;
   const showAnimation = isScripting || isGenerating;
   const animationStatus = isGenerating
     ? "generating"
@@ -480,6 +489,22 @@ export default function ResultPage() {
         </div>
       )}
 
+      {showPausedResume && (
+        <div className="p-4 rounded-xl border bg-warning/5 no-print">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-warning">
+              {task.status === "image_queue_paused" ? "离页后图片队列已暂停。" : "离页后深度评审已暂停。"}
+            </p>
+            <button
+              onClick={handleResumePausedTask}
+              className="px-4 py-2 text-sm bg-warning text-white rounded-lg hover:bg-warning/90 transition-colors min-h-[40px] shrink-0"
+            >
+              继续处理
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* script_ready 状态提示 + 全部生成按钮 */}
       {isScriptReady && task.script && (
         <ScriptReadyBar
@@ -501,7 +526,7 @@ export default function ResultPage() {
       )}
 
       {/* Detail tabs: Accuracy / Script Validation / Quality Score */}
-      {(isScriptReady || isCompleted) && (
+      {(isScriptReady || isCompleted || isDeepReviewRunning || isDeepReviewPaused) && (
         <DetailTabs tabs={[
           {
             id: "accuracy",
@@ -525,7 +550,7 @@ export default function ResultPage() {
             id: "quality",
             label: "质量评分",
             badge: task.visualDiagnosisReport?.summary.highSeverityCount,
-            content: isCompleted && task.script ? (
+            content: (isCompleted || isDeepReviewRunning || isDeepReviewPaused) && task.script ? (
               <QualityScorePanel
                 script={task.script}
                 cachedScore={task.qualityScore}
@@ -544,7 +569,7 @@ export default function ResultPage() {
                 onRunDiagnosisRepair={handleRunDiagnosisRepair}
               />
             ) : null,
-            visible: isCompleted && !!task.script,
+            visible: (isCompleted || isDeepReviewRunning || isDeepReviewPaused) && !!task.script,
           },
         ]} />
       )}

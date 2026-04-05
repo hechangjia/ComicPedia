@@ -1,6 +1,6 @@
 import { getTaskById, upsertTask, upsertTaskJob } from "@/lib/server/db";
 import { listTaskJobsByTaskId, summarizeTaskJobs } from "./store";
-import type { GenerateTask, TaskJobRecord, TaskQueueSummary } from "@/lib/types";
+import type { GenerateTask, TaskJobKind, TaskJobRecord, TaskQueueSummary } from "@/lib/types";
 
 const RUNNING_JOB_STATUSES = new Set<TaskJobRecord["status"]>([
   "generating",
@@ -17,6 +17,16 @@ const RECONCILE_PAUSEABLE_JOB_STATUSES = new Set<TaskJobRecord["status"]>([
 
 const EXPLICIT_PAUSE_JOB_STATUSES = new Set<TaskJobRecord["status"]>(["queued"]);
 const RESUMABLE_JOB_STATUSES = new Set<TaskJobRecord["status"]>(["paused"]);
+const NON_TERMINAL_JOB_STATUSES = new Set<TaskJobRecord["status"]>([
+  "queued",
+  "calibrating",
+  "generating",
+  "persisting",
+  "light_check",
+  "paused",
+  "attach_failed",
+  "failed",
+]);
 
 function updateJob(job: TaskJobRecord, patch: Partial<TaskJobRecord>): TaskJobRecord {
   return {
@@ -84,13 +94,41 @@ function buildDeepReviewStatus(task: GenerateTask, summary: TaskQueueSummary): G
     : task.status;
 }
 
-function buildTaskStatus(task: GenerateTask, jobs: TaskJobRecord[]): GenerateTask["status"] {
-  const summary = summarizeTaskJobs(jobs);
+function summarizeJobsForKind(jobs: TaskJobRecord[], kind: TaskJobKind): TaskQueueSummary {
+  return summarizeTaskJobs(jobs.filter((job) => job.kind === kind));
+}
+
+function hasActiveJobsForKind(jobs: TaskJobRecord[], kind: TaskJobKind): boolean {
+  return jobs.some((job) => job.kind === kind && NON_TERMINAL_JOB_STATUSES.has(job.status));
+}
+
+function getActiveTaskJobKind(task: GenerateTask, jobs: TaskJobRecord[]): TaskJobKind | undefined {
+  if (hasActiveJobsForKind(jobs, "deep_review")) {
+    return "deep_review";
+  }
+  if (hasActiveJobsForKind(jobs, "panel_image")) {
+    return "panel_image";
+  }
+  if ((task.status === "deep_review_running" || task.status === "deep_review_paused")
+    && jobs.some((job) => job.kind === "deep_review")) {
+    return "deep_review";
+  }
   if (jobs.some((job) => job.kind === "panel_image")) {
-    return buildImageQueueStatus(task, summary);
+    return "panel_image";
   }
   if (jobs.some((job) => job.kind === "deep_review")) {
-    return buildDeepReviewStatus(task, summary);
+    return "deep_review";
+  }
+  return undefined;
+}
+
+function buildTaskStatus(task: GenerateTask, jobs: TaskJobRecord[]): GenerateTask["status"] {
+  const activeKind = getActiveTaskJobKind(task, jobs);
+  if (activeKind === "panel_image") {
+    return buildImageQueueStatus(task, summarizeJobsForKind(jobs, activeKind));
+  }
+  if (activeKind === "deep_review") {
+    return buildDeepReviewStatus(task, summarizeJobsForKind(jobs, activeKind));
   }
   return task.status;
 }
