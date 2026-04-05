@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTasksPaginated, upsertTask, clearAllTasks, getAllTaskIds } from "@/lib/server/db";
 import { extractTaskImagesAsync, fileRefsToUrls, trashTaskImages } from "@/lib/server/imageExtractor";
+import { listTaskJobsByTaskId, summarizeTaskJobs } from "@/lib/server/taskOrchestrator/store";
 import type { GenerateTask } from "@/lib/types";
 
 /** 将 task 精简为列表所需的最小字段集，再转换 file:// 引用 */
-function toListItem(task: GenerateTask) {
+async function toListItem(task: GenerateTask) {
+  const queueSummary = task.queueSummary ?? summarizeTaskJobs(await listTaskJobsByTaskId(task.id));
   const stripped = {
     id: task.id,
     status: task.status,
     progress: task.progress,
+    queueSummary,
     reviewStatus: task.reviewStatus,
     lastReviewAt: task.lastReviewAt,
     visualQualityScore: task.visualQualityScore ? {
@@ -45,7 +48,7 @@ export async function GET(request: NextRequest) {
     const pageSize = Math.min(Math.max(1, parseInt(searchParams.get("pageSize") || "100")), 200);
 
     const { tasks, total } = getTasksPaginated(page, pageSize);
-    const items = tasks.map(toListItem);
+    const items = await Promise.all(tasks.map(toListItem));
 
     return NextResponse.json({ tasks: items, total, page, pageSize });
   } catch (error) {

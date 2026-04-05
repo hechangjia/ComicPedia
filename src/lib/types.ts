@@ -395,6 +395,69 @@ export interface GenerateRequest {
 }
 
 /** 生成任务状态 */
+export type GenerateTaskStatus =
+  | "pending"
+  | "scripting"
+  | "script_ready"
+  | "generating"
+  | "completed"
+  | "failed"
+  | "created"
+  | "research_running"
+  | "script_running"
+  | "calibrating"
+  | "image_queue_running"
+  | "image_queue_paused"
+  | "deep_review_running"
+  | "deep_review_paused";
+
+export type TaskJobKind = "panel" | "script" | "research" | "light_check" | "deep_review" | "reconcile";
+
+export type TaskJobStatus =
+  | "queued"
+  | "calibrating"
+  | "generating"
+  | "persisting"
+  | "light_check"
+  | "paused"
+  | "attach_failed"
+  | "failed"
+  | "completed";
+
+export interface TaskQueueSummary {
+  queued: number;
+  running: number;
+  paused: number;
+  completed: number;
+  failed: number;
+  total: number;
+}
+
+export interface TaskJobRecord {
+  id: string;
+  taskId: string;
+  kind: TaskJobKind;
+  status: TaskJobStatus;
+  payload?: Record<string, unknown>;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GenerationPresetSnapshot {
+  presetId: string;
+  research?: Record<string, unknown>;
+  script?: Record<string, unknown>;
+  imageQueue?: Record<string, unknown>;
+  lightweightCheck?: Record<string, unknown>;
+  deepReview?: Record<string, unknown>;
+  imageProvider?: string;
+  imageModel?: string;
+  calibrationRequired?: boolean;
+  calibrationApproved?: boolean;
+  concurrencyPolicy?: string;
+}
+
 /** Pipeline stage trace entry for observability */
 export interface PipelineStageTrace {
   stage: "research" | "director" | "script" | "validate" | "repair" | "accuracy" | "images" | "vlm" | "quality";
@@ -408,7 +471,7 @@ export interface PipelineStageTrace {
 
 export interface GenerateTask {
   id: string;
-  status: "pending" | "scripting" | "script_ready" | "generating" | "completed" | "failed";
+  status: GenerateTaskStatus;
   progress: number; // 0-100
   script?: ComicScript;
   character?: Character; // Store character info if used
@@ -507,6 +570,10 @@ export interface GenerateTask {
   };
   /** Pipeline stage trace for observability */
   pipelineTrace?: PipelineStageTrace[];
+  /** Durable queue-state projection for orchestration list rendering */
+  queueSummary?: TaskQueueSummary;
+  /** Frozen generation preset and override snapshot for explainability */
+  presetSnapshot?: GenerationPresetSnapshot;
   /** User-assigned tags for organization */
   tags?: string[];
   /** Whether the user has favorited this task */

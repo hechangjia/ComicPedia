@@ -67,6 +67,14 @@ describe("/api/tasks GET", () => {
             { panelIndex: 0, status: "needs_repair", score: 8.3, issues: ["blur"] },
           ],
           lastReviewAt: "2026-03-27T01:00:00.000Z",
+          queueSummary: {
+            queued: 0,
+            running: 0,
+            paused: 0,
+            completed: 1,
+            failed: 0,
+            total: 1,
+          },
         },
       ],
     });
@@ -82,6 +90,7 @@ describe("/api/tasks GET", () => {
       reviewStatus: "needs_repair",
       visualQualityScore: expect.objectContaining({ overall: 8.3 }),
       visualRetrySummary: expect.objectContaining({ status: "skipped" }),
+      queueSummary: expect.objectContaining({ completed: 1, total: 1 }),
     });
     expect(body.tasks[0].visualQualityScore.retryRecommendations).toHaveLength(1);
   });

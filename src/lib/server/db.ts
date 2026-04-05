@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
-import type { GenerateTask, Character, CharacterRelation, UserAPIConfigV2, ComicScript } from "@/lib/types";
+import type { GenerateTask, Character, CharacterRelation, UserAPIConfigV2, ComicScript, TaskJobRecord } from "@/lib/types";
 import type { Series } from "@/lib/series";
 
 // ============================================================
@@ -32,6 +32,20 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_tasks_created ON tasks(created_at);
   CREATE INDEX IF NOT EXISTS idx_tasks_status  ON tasks(status);
+
+  CREATE TABLE IF NOT EXISTS task_jobs (
+    id          TEXT PRIMARY KEY,
+    task_id     TEXT NOT NULL,
+    kind        TEXT NOT NULL,
+    status      TEXT NOT NULL,
+    payload     TEXT,
+    error       TEXT,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_task_jobs_task_id ON task_jobs(task_id);
+  CREATE INDEX IF NOT EXISTS idx_task_jobs_status ON task_jobs(status);
+  CREATE INDEX IF NOT EXISTS idx_task_jobs_task_status ON task_jobs(task_id, status);
 
   CREATE TABLE IF NOT EXISTS characters (
     id                TEXT PRIMARY KEY,
@@ -142,6 +156,13 @@ const stmtClearTasks = db.prepare("DELETE FROM tasks");
 
 const stmtPatchTaskTags = db.prepare("UPDATE tasks SET tags = @tags, updated_at = @updated_at WHERE id = @id");
 const stmtPatchTaskFavorited = db.prepare("UPDATE tasks SET favorited = @favorited, updated_at = @updated_at WHERE id = @id");
+
+const stmtUpsertTaskJob = db.prepare(`
+  INSERT OR REPLACE INTO task_jobs (id, task_id, kind, status, payload, error, created_at, updated_at)
+  VALUES (@id, @task_id, @kind, @status, @payload, @error, @created_at, @updated_at)
+`);
+const stmtListTaskJobsByTaskId = db.prepare("SELECT * FROM task_jobs WHERE task_id = ? ORDER BY created_at ASC, id ASC");
+const stmtClearTaskJobsByTaskId = db.prepare("DELETE FROM task_jobs WHERE task_id = ?");
 
 function taskToRow(task: GenerateTask) {
   // Pack non-core fields into a single metadata JSON column
@@ -499,6 +520,46 @@ export function patchTask(id: string, patch: { tags?: string[]; favorited?: bool
     if (r.changes > 0) changed = true;
   }
   return changed;
+}
+
+function taskJobToRow(job: TaskJobRecord) {
+  return {
+    id: job.id,
+    task_id: job.taskId,
+    kind: job.kind,
+    status: job.status,
+    payload: job.payload ? JSON.stringify(job.payload) : null,
+    error: job.error ?? null,
+    created_at: job.createdAt,
+    updated_at: job.updatedAt,
+  };
+}
+
+function rowToTaskJob(row: Record<string, unknown>): TaskJobRecord {
+  return {
+    id: row.id as string,
+    taskId: row.task_id as string,
+    kind: row.kind as TaskJobRecord["kind"],
+    status: row.status as TaskJobRecord["status"],
+    payload: safeJsonParse<Record<string, unknown>>(row.payload as string | null),
+    error: (row.error as string) ?? undefined,
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
+  };
+}
+
+export function upsertTaskJob(job: TaskJobRecord): void {
+  stmtUpsertTaskJob.run(taskJobToRow(job));
+}
+
+export function listTaskJobsByTaskId(taskId: string): TaskJobRecord[] {
+  const rows = stmtListTaskJobsByTaskId.all(taskId) as Record<string, unknown>[];
+  return rows.map(rowToTaskJob);
+}
+
+export function clearTaskJobsByTaskId(taskId: string): number {
+  const result = stmtClearTaskJobsByTaskId.run(taskId);
+  return result.changes;
 }
 
 // ============================================================
