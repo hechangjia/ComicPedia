@@ -392,6 +392,8 @@ export interface GenerateRequest {
   allowGuideCharacter?: boolean;
   /** Series ID for continuity context (arc snapshots + episode numbering) */
   seriesId?: string;
+  /** Frozen preset/override snapshot for durable orchestration persistence */
+  presetSnapshot?: GenerationPresetSnapshot;
 }
 
 /** 生成任务状态 */
@@ -445,8 +447,8 @@ export interface TaskJobRecord {
   promptSnapshot?: string;
   outputFileKey?: string;
   lastError?: string;
-  attemptCount?: number;
-  payload?: Record<string, unknown>;
+  attemptCount: number;
+  payload: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }

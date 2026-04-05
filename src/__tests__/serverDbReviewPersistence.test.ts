@@ -404,6 +404,7 @@ describe("server db review persistence", () => {
       status: "queued",
       panelIndex: 0,
       attemptCount: 1,
+      payload: {},
       createdAt: "2026-03-27T00:00:00.000Z",
       updatedAt: "2026-03-27T00:00:00.000Z",
     });
@@ -424,6 +425,7 @@ describe("server db review persistence", () => {
       status: "queued",
       panelIndex: 0,
       attemptCount: 1,
+      payload: {},
       createdAt: "2026-03-27T00:00:00.000Z",
       updatedAt: "2026-03-27T00:00:00.000Z",
     });
@@ -431,5 +433,31 @@ describe("server db review persistence", () => {
     expect(dbModule.listTaskJobsByTaskId(task.id)).toHaveLength(1);
     dbModule.clearAllTasks();
     expect(dbModule.listTaskJobsByTaskId(task.id)).toHaveLength(0);
+  });
+
+  it("fails closed to empty payload when task_jobs payload JSON is malformed", async () => {
+    const dbModule = await loadIsolatedDb();
+    const task = makeTask();
+    dbModule.upsertTask(task);
+    dbModule.upsertTaskJob({
+      id: "job-malformed-payload",
+      taskId: task.id,
+      kind: "panel_image",
+      status: "queued",
+      panelIndex: 0,
+      attemptCount: 2,
+      payload: { ok: true },
+      createdAt: "2026-03-27T00:00:00.000Z",
+      updatedAt: "2026-03-27T00:00:00.000Z",
+    });
+
+    const dbPath = path.join(tempDir!, "data", "comicpedia.db");
+    const sqlite = new Database(dbPath);
+    sqlite.prepare("UPDATE task_jobs SET payload = ? WHERE id = ?").run("{invalid-json", "job-malformed-payload");
+    sqlite.close();
+
+    const [job] = dbModule.listTaskJobsByTaskId(task.id);
+    expect(job.payload).toEqual({});
+    expect(job.attemptCount).toBe(2);
   });
 });

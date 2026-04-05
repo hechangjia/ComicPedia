@@ -40,8 +40,8 @@ export async function createTaskJob(input: CreateTaskJobInput): Promise<TaskJobR
     promptSnapshot: input.promptSnapshot,
     outputFileKey: input.outputFileKey,
     lastError: input.lastError,
-    attemptCount: input.attemptCount,
-    payload: input.payload,
+    attemptCount: input.attemptCount ?? 0,
+    payload: input.payload ?? {},
     createdAt: now,
     updatedAt: now,
   };

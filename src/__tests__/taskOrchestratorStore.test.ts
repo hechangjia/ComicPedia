@@ -76,6 +76,24 @@ describe("taskOrchestrator store", () => {
     });
   });
 
+  it("defaults attemptCount and payload for newly created jobs", async () => {
+    const store = await loadIsolatedStore();
+
+    const created = await store.createTaskJob({
+      taskId: "task-defaults",
+      kind: "panel_image",
+      status: "queued",
+      panelIndex: 0,
+    });
+
+    expect(created.attemptCount).toBe(0);
+    expect(created.payload).toEqual({});
+
+    const [persisted] = await store.listTaskJobsByTaskId("task-defaults");
+    expect(persisted.attemptCount).toBe(0);
+    expect(persisted.payload).toEqual({});
+  });
+
   it("summarizes queue status buckets", async () => {
     const store = await loadIsolatedStore();
 

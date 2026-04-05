@@ -559,8 +559,8 @@ function taskJobToRow(job: TaskJobRecord) {
     prompt_snapshot: job.promptSnapshot ?? null,
     output_file_key: job.outputFileKey ?? null,
     last_error: job.lastError ?? null,
-    attempt_count: job.attemptCount ?? 0,
-    payload: job.payload ? JSON.stringify(job.payload) : null,
+    attempt_count: job.attemptCount,
+    payload: JSON.stringify(job.payload),
     created_at: job.createdAt,
     updated_at: job.updatedAt,
   };
@@ -578,8 +578,8 @@ function rowToTaskJob(row: Record<string, unknown>): TaskJobRecord {
     promptSnapshot: (row.prompt_snapshot as string) ?? undefined,
     outputFileKey: (row.output_file_key as string) ?? undefined,
     lastError: (row.last_error as string) ?? ((row.error as string) ?? undefined),
-    attemptCount: typeof row.attempt_count === "number" ? row.attempt_count : undefined,
-    payload: safeJsonParse<Record<string, unknown>>(row.payload as string | null),
+    attemptCount: typeof row.attempt_count === "number" ? row.attempt_count : 0,
+    payload: safeJsonParse<Record<string, unknown>>(row.payload as string | null, {}) ?? {},
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   };
