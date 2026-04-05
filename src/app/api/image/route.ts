@@ -1,5 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { forwardImageGenerationRequest, ImageGenerationServiceError } from "@/lib/server/imageGenerationService";
+import {
+  forwardImageGenerationRequest,
+  ImageGenerationServiceError,
+  type ForwardRawImageGenerationResponse,
+} from "@/lib/server/imageGenerationService";
+
+function isForwardRawImageGenerationResponse(
+  result: Awaited<ReturnType<typeof forwardImageGenerationRequest>>,
+): result is ForwardRawImageGenerationResponse {
+  return typeof result.body === "string" && typeof result.contentType === "string";
+}
 
 /**
  * Image generation API proxy route.
@@ -22,7 +32,7 @@ export async function POST(request: NextRequest) {
       payload,
     });
 
-    if ("body" in result && typeof result.body === "string") {
+    if (isForwardRawImageGenerationResponse(result)) {
       return new NextResponse(result.body, {
         status: 200,
         headers: { "Content-Type": result.contentType || "text/plain" },

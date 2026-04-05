@@ -1,6 +1,6 @@
 import type { GenerationPresetSnapshot } from "@/lib/types";
 
-type GenerationPresetDefinition = GenerationPresetSnapshot & {
+type GenerationPresetDefinition = Omit<GenerationPresetSnapshot, "presetId"> & {
   id: string;
   label: string;
 };
