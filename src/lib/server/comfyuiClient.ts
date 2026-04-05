@@ -157,10 +157,9 @@ function injectParams(
 }
 
 export async function runComfyWorkflow(input: RunComfyWorkflowInput): Promise<RunComfyWorkflowResult> {
-  const { comfyuiUrl, workflow, prompt, width, height, negativePrompt, referenceImage } = input;
+  const { comfyuiUrl, workflow, prompt, width, height, seed, negativePrompt, referenceImage } = input;
   const baseUrl = comfyuiUrl.replace(/\/+$/, "");
-  // Keep route-equivalent behavior: always randomize seed to avoid cached empty outputs.
-  const effectiveSeed = Math.floor(Math.random() * 2 ** 53);
+  const effectiveSeed = seed ?? Math.floor(Math.random() * 2 ** 53);
   const injectedWorkflow = injectParams(workflow, prompt, width, height, effectiveSeed, negativePrompt);
 
   if (referenceImage && hasIPAdapter(injectedWorkflow)) {

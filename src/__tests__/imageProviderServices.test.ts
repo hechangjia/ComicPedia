@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
 import { forwardImageGenerationRequest } from "@/lib/server/imageGenerationService";
 import { runComfyWorkflow } from "@/lib/server/comfyuiClient";
 
 describe("image provider services", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("runComfyWorkflow returns base64 image after prompt -> history -> view", async () => {
@@ -67,6 +69,56 @@ describe("image provider services", () => {
     expect(result.image).toBe("data:image/png;base64,AQID");
   });
 
+  it("runComfyWorkflow honors explicit seed when provided", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.98765);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/prompt")) {
+        const reqBody = JSON.parse(String(init?.body));
+        expect(reqBody.prompt["2"].inputs.seed).toBe(424242);
+        return new Response(JSON.stringify({ prompt_id: "pid-seed" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.endsWith("/history/pid-seed")) {
+        return new Response(JSON.stringify({
+          "pid-seed": {
+            status: { completed: true },
+            outputs: {
+              "save-1": {
+                images: [{ filename: "seed.png", subfolder: "", type: "output" }],
+              },
+            },
+          },
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.includes("/view?")) {
+        return new Response(new Uint8Array([4, 2]), {
+          status: 200,
+          headers: { "Content-Type": "image/png" },
+        });
+      }
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runComfyWorkflow({
+      comfyuiUrl: "http://127.0.0.1:8188",
+      workflow: {
+        "1": { class_type: "CLIPTextEncode", inputs: { text: "old prompt" } },
+        "2": { class_type: "KSampler", inputs: { seed: 1, positive: ["1", 0] } },
+      },
+      prompt: "seed prompt",
+      seed: 424242,
+    });
+
+    expect(result.seed).toBe(424242);
+  });
+
   it("forwardImageGenerationRequest parses JSON and resolves external image URLs", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -103,5 +155,35 @@ describe("image provider services", () => {
     expect(json.data[0].url).toMatch(/^data:image\/png;base64,/);
     expect(json.choices[0].message.content).toMatch(/^data:image\/png;base64,/);
     expect(json.output[0].url).toMatch(/^data:image\/png;base64,/);
+  });
+
+  it("/api/image preserves upstream content-type for non-JSON success responses", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "https://api.example.com/raw") {
+        return new Response("<svg></svg>", {
+          status: 200,
+          headers: { "Content-Type": "image/svg+xml" },
+        });
+      }
+      throw new Error(`Unexpected fetch call: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const request = new NextRequest("http://localhost:3000/api/image", {
+      method: "POST",
+      body: JSON.stringify({
+        targetUrl: "https://api.example.com/raw",
+        headers: {},
+        payload: { prompt: "x" },
+      }),
+    });
+
+    const { POST } = await import("@/app/api/image/route");
+    const response = await POST(request);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("image/svg+xml");
+    expect(await response.text()).toBe("<svg></svg>");
   });
 });

@@ -9,6 +9,11 @@ export interface ForwardImageGenerationRequestInput {
   payload?: unknown;
 }
 
+export interface ForwardRawImageGenerationResponse {
+  body: string;
+  contentType: string;
+}
+
 export class ImageGenerationServiceError extends Error {
   status: number;
 
@@ -133,7 +138,9 @@ async function resolveExternalImageUrls(data: Record<string, any>): Promise<void
   }
 }
 
-export async function forwardImageGenerationRequest(input: ForwardImageGenerationRequestInput): Promise<Record<string, unknown> | string> {
+export async function forwardImageGenerationRequest(
+  input: ForwardImageGenerationRequestInput,
+): Promise<Record<string, unknown> | ForwardRawImageGenerationResponse> {
   const { targetUrl, headers: clientHeaders, payload } = input;
   const urlCheck = isUrlSafe(targetUrl);
   if (!urlCheck.safe) {
@@ -163,7 +170,10 @@ export async function forwardImageGenerationRequest(input: ForwardImageGeneratio
 
   const rawText = await safeReadText(response, MAX_RESPONSE_BYTES);
   if (!contentType.includes("application/json")) {
-    return rawText;
+    return {
+      body: rawText,
+      contentType: contentType || "text/plain",
+    };
   }
 
   try {
@@ -175,6 +185,9 @@ export async function forwardImageGenerationRequest(input: ForwardImageGeneratio
     }
     return data;
   } catch {
-    return rawText;
+    return {
+      body: rawText,
+      contentType: "text/plain",
+    };
   }
 }

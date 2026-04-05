@@ -22,10 +22,10 @@ export async function POST(request: NextRequest) {
       payload,
     });
 
-    if (typeof result === "string") {
-      return new NextResponse(result, {
+    if ("body" in result && typeof result.body === "string") {
+      return new NextResponse(result.body, {
         status: 200,
-        headers: { "Content-Type": "text/plain" },
+        headers: { "Content-Type": result.contentType || "text/plain" },
       });
     }
 
