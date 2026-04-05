@@ -4,6 +4,7 @@
 
 | 时间 | 操作 | 说明 |
 |------|------|------|
+| 2026-04-05 | 发版同步 | `dev` 已完成 durable orchestration、accuracy loop、visual diagnosis、角色关系图谱与体验改版；API 路由更新为 32 个，tracked 测试文件更新为 62 个 |
 | 2026-04-02 | 增量扫描 | 新增准确性闭环、VLM 视觉诊断/修复、导演大纲、脚本校验/修复、Wikipedia 代理、模型发现、ComfyUI 等模块文档；API 路由从 23 增至 28；测试文件从 0 增至 31；更新模块索引与结构图 |
 | 2026-03-27 | 交付流程 | 新增 GitHub Actions CI 与 `pnpm ship:check` 本地发版检查 |
 | 2026-03-21 | 架构优化 | 新增 Wikipedia 百科漫画、并发自适应 |
@@ -97,10 +98,10 @@ graph TD
     SRC --> LIB["lib/"]
     SRC --> STORES["stores/"]
     SRC --> PROMPTS["prompts/"]
-    SRC --> TESTS["__tests__/ (31 test files)"]
+    SRC --> TESTS["__tests__/ (62 test files)"]
 
     APP --> PAGES["pages (/, /gallery, /create,\n/characters, /history,\n/settings, /trash,\n/poetry, /series,\n/migrate, /result/[id])"]
-    APP --> API["api/ (28 endpoints)"]
+    APP --> API["api/ (32 endpoints)"]
 
     API --> API_LLM["llm/, llm-stream/\n(LLM proxy)"]
     API --> API_IMG["image/, images/,\nproxy-image/, save-image/,\ncomfyui/\n(image proxy + storage)"]
@@ -123,9 +124,9 @@ graph TD
 
 | 路径 | 职责 | 关键文件 |
 |------|------|----------|
-| `src/app/` | Next.js App Router：11 页面 + 28 API 路由 | `layout.tsx`, `page.tsx`, `api/*/route.ts` |
-| `src/components/` | React UI 组件（约 55 个） | `ScienceForm.tsx`, `WikipediaForm.tsx`, `PoetryForm.tsx`, `NovelForm.tsx`, `XhsForm.tsx`, `ComicReader.tsx`, `DownloadMenu.tsx`, `result/VisualDiagnosisWorkbench.tsx`, `result/QualityScorePanel.tsx`, `result/AccuracySummary.tsx`, `settings/AccuracyProviderSection.tsx` 等 |
-| `src/hooks/` | 自定义 React Hooks（7 个） | `useAPIConfig.ts`, `useTaskSubscription.ts`, `useContentForm.ts`, `useTaskActions.ts`, `useConfigForm.ts`, `useModelDiscovery.ts`, `useUndoRedo.ts` |
+| `src/app/` | Next.js App Router：11 页面 + 32 API 路由 | `layout.tsx`, `page.tsx`, `api/*/route.ts` |
+| `src/components/` | React UI 组件（约 95 个） | `ScienceForm.tsx`, `WikipediaForm.tsx`, `PoetryForm.tsx`, `NovelForm.tsx`, `XhsForm.tsx`, `ComicReader.tsx`, `DownloadMenu.tsx`, `result/VisualDiagnosisWorkbench.tsx`, `result/QualityScorePanel.tsx`, `result/AccuracySummary.tsx`, `settings/AccuracyProviderSection.tsx` 等 |
+| `src/hooks/` | 自定义 React Hooks（11 个） | `useAPIConfig.ts`, `useTaskSubscription.ts`, `useContentForm.ts`, `useTaskActions.ts`, `useConfigForm.ts`, `useModelDiscovery.ts`, `useUndoRedo.ts` |
 | `src/lib/client/` | 客户端核心逻辑（生成管线、DB、事件总线） | `generator.ts` (facade), `taskLifecycle.ts`, `panelManager.ts`, `referenceManager.ts`, `db.ts`, `eventBus.ts`, `abortManager.ts`, `imageStore.ts`, `promptEnhancer.ts` |
 | `src/lib/server/` | 服务端核心逻辑（SQLite、图片文件系统、Wikipedia） | `db.ts`, `imageStorage.ts`, `imageExtractor.ts`, `demoSeed.ts`, `wikipedia.ts` |
 | `src/lib/config/` | 配置数据源（风格、质量、模板、预设） | `styles.ts`, `quality.ts`, `templates.ts`, `presets.ts`, `characterPresets.ts` |
@@ -136,7 +137,7 @@ graph TD
 | `src/lib/` (Core) | 共享工具库 | `llm.ts`, `types.ts`, `security.ts`, `concurrency.ts`, `retryQueue.ts`, `errors.ts`, `series.ts`, `contentRegistry.ts`, `downloadUtils.ts`, `exportImport.ts`, `shareCard.ts`, `quizGenerator.ts`, `relatedTopics.ts`, `aiEditor.ts`, `guideCharacterPolicy.ts`, `utils.ts` |
 | `src/prompts/` | LLM Prompt 模板（按内容类型分离） | `scriptGenerator.ts`, `poetryGenerator.ts`, `novelGenerator.ts`, `xhsGenerator.ts`, `wikipediaGenerator.ts` |
 | `src/stores/` | Zustand 状态管理 | `taskStore.ts`, `listCache.ts` |
-| `src/__tests__/` | Vitest 单元/集成测试（31 文件） | `security.test.ts`, `taskLifecycle.test.ts`, `vlmDiagnosis.test.ts`, `accuracyResearch.test.ts`, `director.test.ts`, `scriptValidator.test.ts` 等 |
+| `src/__tests__/` | Vitest 单元/集成测试（62 文件） | `security.test.ts`, `taskLifecycle.test.ts`, `vlmDiagnosis.test.ts`, `accuracyResearch.test.ts`, `director.test.ts`, `scriptValidator.test.ts` 等 |
 | `docs/` | 项目文档 | `ai/handoff.md`, `ai/ship.md` |
 
 ---
