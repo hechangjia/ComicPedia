@@ -20,7 +20,7 @@ interface TaskActionResponse {
 
 interface BindTaskPageLifecycleOptions {
   getTask: () => GenerateTask | null;
-  pauseTask: (task: GenerateTask) => void | Promise<void>;
+  pauseTask: (task: GenerateTask) => void | Promise<unknown>;
 }
 
 export function isTaskPagePauseable(task: GenerateTask | null): task is GenerateTask {

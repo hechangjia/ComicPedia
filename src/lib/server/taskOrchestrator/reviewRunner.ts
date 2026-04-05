@@ -1,5 +1,6 @@
 import { getAllTasks, getConfig, getTaskById, upsertTask, upsertTaskJob } from "@/lib/server/db";
 import type {
+  GenerateTask,
   PartialLLMConfig,
   TaskJobRecord,
   UserAPIConfigV2,

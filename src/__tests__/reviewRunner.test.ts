@@ -146,6 +146,7 @@ function makeConfig(): UserAPIConfigV2 {
       name: "Vision Reviewer",
       provider: "custom",
       apiUrl: "http://127.0.0.1:11434/v1",
+      apiKey: "",
       model: "vision-model",
       protocolType: "openai-compatible",
     }],
