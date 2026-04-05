@@ -1,5 +1,80 @@
-import { describe, expect, it } from "vitest";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GenerateTask, VisualDiagnosisReport, VisualQualityScore } from "@/lib/types";
+const {
+  cancelGenerationMock,
+  changeStyleAndRegenerateMock,
+  generateAllImagesMock,
+  getStoredRequestConfigsMock,
+  getTaskMock,
+  img2imgGenerateMock,
+  notifyListenersMock,
+  regeneratePanelMock,
+  regenerateRefImageMock,
+  regenerateScriptMock,
+  reorderPanelsMock,
+  saveTaskMock,
+  setActiveVersionMock,
+  setRefActiveVersionMock,
+  updateControlModeMock,
+  updatePanelMock,
+  updateReferenceEntriesMock,
+  updateReferenceImageMock,
+  updateReferenceImagesMock,
+} = vi.hoisted(() => ({
+  cancelGenerationMock: vi.fn(),
+  changeStyleAndRegenerateMock: vi.fn(),
+  generateAllImagesMock: vi.fn(),
+  getStoredRequestConfigsMock: vi.fn(),
+  getTaskMock: vi.fn(),
+  img2imgGenerateMock: vi.fn(),
+  notifyListenersMock: vi.fn(),
+  regeneratePanelMock: vi.fn(),
+  regenerateRefImageMock: vi.fn(),
+  regenerateScriptMock: vi.fn(),
+  reorderPanelsMock: vi.fn(),
+  saveTaskMock: vi.fn(),
+  setActiveVersionMock: vi.fn(),
+  setRefActiveVersionMock: vi.fn(),
+  updateControlModeMock: vi.fn(),
+  updatePanelMock: vi.fn(),
+  updateReferenceEntriesMock: vi.fn(),
+  updateReferenceImageMock: vi.fn(),
+  updateReferenceImagesMock: vi.fn(),
+}));
+
+vi.mock("@/lib/client/generator", () => ({
+  regeneratePanel: regeneratePanelMock,
+  generateAllImages: generateAllImagesMock,
+  updatePanel: updatePanelMock,
+  cancelGeneration: cancelGenerationMock,
+  setActiveVersion: setActiveVersionMock,
+  reorderPanels: reorderPanelsMock,
+  updateReferenceImage: updateReferenceImageMock,
+  updateReferenceImages: updateReferenceImagesMock,
+  updateControlMode: updateControlModeMock,
+  regenerateRefImage: regenerateRefImageMock,
+  img2imgGenerate: img2imgGenerateMock,
+  setRefActiveVersion: setRefActiveVersionMock,
+  updateReferenceEntries: updateReferenceEntriesMock,
+  regenerateScript: regenerateScriptMock,
+  changeStyleAndRegenerate: changeStyleAndRegenerateMock,
+}));
+
+vi.mock("@/lib/client/db", () => ({
+  getTask: getTaskMock,
+  saveTask: saveTaskMock,
+}));
+
+vi.mock("@/lib/client/eventBus", () => ({
+  notifyListeners: notifyListenersMock,
+}));
+
+vi.mock("@/hooks/useAPIConfig", () => ({
+  getStoredRequestConfigs: getStoredRequestConfigsMock,
+}));
+
 import {
   applyDiagnosisInvalidation,
   applyVisualDiagnosisFailureUpdate,
@@ -8,7 +83,11 @@ import {
   beginVisualRepairExecution,
   completeVisualRepairExecution,
   failVisualRepairExecution,
+  useTaskActions,
 } from "@/hooks/useTaskActions";
+
+const originalFetch = globalThis.fetch;
+const fetchMock = vi.fn();
 
 function makeTask(): GenerateTask {
   return {
@@ -34,6 +113,75 @@ function makeTask(): GenerateTask {
     updatedAt: new Date("2026-03-27T00:00:00.000Z"),
   };
 }
+
+function makeQueueTask(status: GenerateTask["status"] = "image_queue_running"): GenerateTask {
+  return {
+    ...makeTask(),
+    id: "task-actions-queue",
+    status,
+    queueSummary: {
+      queued: 1,
+      running: status === "image_queue_running" ? 1 : 0,
+      paused: status === "image_queue_paused" ? 1 : 0,
+      failed: 0,
+      attachFailed: 0,
+      completed: 0,
+      calibrationPending: 0,
+    },
+  };
+}
+
+function makeActionResponse(
+  payload: unknown,
+  init: { ok?: boolean; status?: number } = {},
+): { ok: boolean; status: number; json: ReturnType<typeof vi.fn> } {
+  return {
+    ok: init.ok ?? true,
+    status: init.status ?? 200,
+    json: vi.fn().mockResolvedValue(payload),
+  };
+}
+
+function renderTaskActionsHook(options: {
+  selectedImageId?: string | null;
+  selectedLLMId?: string | null;
+} = {}) {
+  let currentHook: ReturnType<typeof useTaskActions> | undefined;
+  const setTask = vi.fn();
+
+  function Harness() {
+    currentHook = useTaskActions(
+      "task-actions-queue",
+      setTask as React.Dispatch<React.SetStateAction<GenerateTask | null>>,
+      options.selectedImageId ?? "img-1",
+      options.selectedLLMId ?? "llm-1",
+    );
+    return null;
+  }
+
+  renderToStaticMarkup(React.createElement(Harness));
+
+  if (!currentHook) {
+    throw new Error("useTaskActions did not render");
+  }
+
+  return { hook: currentHook, setTask };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  fetchMock.mockReset();
+  globalThis.fetch = fetchMock as typeof fetch;
+  saveTaskMock.mockResolvedValue(undefined);
+  getStoredRequestConfigsMock.mockImplementation((llmId?: string, imageId?: string) => ({
+    llmConfig: llmId ? { model: `${llmId}-model`, temperature: 0.2 } : undefined,
+    imageConfig: imageId ? { model: `${imageId}-model`, quality: "fine" } : undefined,
+  }));
+});
+
+afterAll(() => {
+  globalThis.fetch = originalFetch;
+});
 
 function makeDiagnosisReport(): VisualDiagnosisReport {
   return {
@@ -281,5 +429,85 @@ describe("visual repair execution helpers", () => {
     expect(task.visualRepairExecution?.status).toBe("failed");
     expect(task.visualRepairExecution?.finishedAt).toBe("2026-03-27T02:05:00.000Z");
     expect(task.visualDiagnosisStale).toBe(true);
+  });
+});
+
+describe("useTaskActions queue helpers", () => {
+  it("posts queue_panel_images with selected indices and syncs the returned task snapshot", async () => {
+    const returnedTask = makeQueueTask("image_queue_running");
+    fetchMock.mockResolvedValueOnce(makeActionResponse({ success: true, task: returnedTask }));
+
+    const { hook, setTask } = renderTaskActionsHook();
+    await hook.handleQueueSelectedPanels([2, 0]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/tasks/task-actions-queue/actions",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      action: "queue_panel_images",
+      panelIndices: [2, 0],
+      imageConfigId: "img-1",
+      imageConfig: { model: "img-1-model", quality: "fine" },
+      llmConfig: { model: "llm-1-model", temperature: 0.2 },
+    });
+    expect(saveTaskMock).toHaveBeenCalledWith(returnedTask);
+    expect(notifyListenersMock).toHaveBeenCalledWith(returnedTask);
+    expect(setTask).toHaveBeenCalledWith(returnedTask);
+  });
+
+  it("posts generate_all_images when continuing the remaining queue", async () => {
+    fetchMock.mockResolvedValueOnce(makeActionResponse({ success: true, task: makeQueueTask("image_queue_running") }));
+
+    const { hook } = renderTaskActionsHook();
+    await hook.handleContinueRemaining();
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      action: "generate_all_images",
+      forceAll: false,
+      imageConfigId: "img-1",
+      imageConfig: { model: "img-1-model", quality: "fine" },
+      llmConfig: { model: "llm-1-model", temperature: 0.2 },
+    });
+  });
+
+  it.each([
+    ["pause", "handlePauseQueue"],
+    ["resume", "handleResumeQueue"],
+  ] as const)("posts %s through the task action route", async (action, handlerName) => {
+    fetchMock.mockResolvedValueOnce(makeActionResponse({ success: true, task: makeQueueTask("image_queue_paused") }));
+
+    const { hook } = renderTaskActionsHook();
+    await hook[handlerName]();
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({ action });
+  });
+
+  it("avoids task snapshot sync when queueing a single panel fails", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValueOnce(makeActionResponse({ error: "无有效面板" }, { ok: false, status: 400 }));
+
+    const { hook, setTask } = renderTaskActionsHook();
+    await hook.handleQueuePanel(1);
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      action: "queue_panel_images",
+      panelIndices: [1],
+      imageConfigId: "img-1",
+      imageConfig: { model: "img-1-model", quality: "fine" },
+      llmConfig: { model: "llm-1-model", temperature: 0.2 },
+    });
+    expect(consoleErrorSpy).toHaveBeenCalledWith("Queue single panel failed:", expect.any(Error));
+    expect(saveTaskMock).not.toHaveBeenCalled();
+    expect(notifyListenersMock).not.toHaveBeenCalled();
+    expect(setTask).not.toHaveBeenCalled();
+    consoleErrorSpy.mockRestore();
   });
 });

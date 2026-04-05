@@ -122,9 +122,6 @@ export async function reorderPanels(
   const [moved] = panels.splice(fromIndex, 1);
   panels.splice(toIndex, 0, moved);
 
-  // 重新编号 panel.id
-  panels.forEach((p, i) => { p.id = i + 1; });
-
   task.script.panels = panels;
   task.updatedAt = new Date();
   await saveTask(task);

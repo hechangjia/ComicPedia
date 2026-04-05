@@ -19,7 +19,7 @@ interface ImageConfig {
 interface ScriptReadyWorkspaceProps {
   taskStatus: GenerateTask["status"];
   panels: ComicPanel[];
-  selectedPanelIndices: number[];
+  selectedPanelIds: number[];
   queueSummary?: TaskQueueSummary;
   generatingAll: boolean;
   llmConfigs: LLMConfig[];
@@ -31,7 +31,7 @@ interface ScriptReadyWorkspaceProps {
   onSelectedLLMIdChange: (id: string) => void;
   onSelectedImageIdChange: (id: string) => void;
   onRegenerateScript: () => void;
-  onTogglePanelSelection: (panelIndex: number, checked: boolean) => void;
+  onTogglePanelSelection: (panelId: number, checked: boolean) => void;
   onQueuePanel: (panelIndex: number) => void;
   onQueueSelected: () => void;
   onContinueRemaining: () => void;
@@ -49,7 +49,7 @@ function getPanelStatusLabel(panel: ComicPanel): string {
 export function ScriptReadyWorkspace({
   taskStatus,
   panels,
-  selectedPanelIndices,
+  selectedPanelIds,
   queueSummary,
   generatingAll,
   llmConfigs,
@@ -92,7 +92,7 @@ export function ScriptReadyWorkspace({
       <PanelQueueToolbar
         taskStatus={taskStatus}
         pendingPanels={pendingPanels}
-        selectedCount={selectedPanelIndices.length}
+        selectedCount={selectedPanelIds.length}
         queueSummary={queueSummary}
         actionPending={generatingAll}
         onQueueSelected={onQueueSelected}
@@ -108,8 +108,8 @@ export function ScriptReadyWorkspace({
               <input
                 type="checkbox"
                 aria-label={`选择第 ${index + 1} 格`}
-                checked={selectedPanelIndices.includes(index)}
-                onChange={(event) => onTogglePanelSelection(index, event.target.checked)}
+                checked={selectedPanelIds.includes(panel.id)}
+                onChange={(event) => onTogglePanelSelection(panel.id, event.target.checked)}
                 className="mt-1 h-4 w-4 rounded border-border"
               />
               <div className="space-y-1">

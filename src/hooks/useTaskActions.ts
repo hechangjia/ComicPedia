@@ -613,7 +613,6 @@ export function useTaskActions(
         const panels = [...prev.script.panels];
         const [moved] = panels.splice(fromIndex, 1);
         panels.splice(toIndex, 0, moved);
-        panels.forEach((p, i) => { p.id = i + 1; });
         const nextTask = { ...prev, script: { ...prev.script, panels } };
         applyDiagnosisInvalidation(nextTask);
         return nextTask;

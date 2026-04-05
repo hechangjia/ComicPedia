@@ -42,7 +42,7 @@ function renderWorkspace(overrides: Partial<React.ComponentProps<typeof ScriptRe
     React.createElement(ScriptReadyWorkspace, {
       taskStatus: "script_ready",
       panels: makePanels(),
-      selectedPanelIndices: [],
+      selectedPanelIds: [],
       queueSummary: makeQueueSummary(),
       generatingAll: false,
       llmConfigs: [
@@ -85,7 +85,7 @@ describe("ScriptReadyWorkspace", () => {
   it("enables generate selected and swaps to resume queue when the queue is paused", () => {
     const html = renderWorkspace({
       taskStatus: "image_queue_paused",
-      selectedPanelIndices: [0],
+      selectedPanelIds: [1],
       queueSummary: makeQueueSummary({
         queued: 0,
         paused: 2,
@@ -96,5 +96,15 @@ describe("ScriptReadyWorkspace", () => {
     expect(html).toContain("队列已暂停");
     expect(html).toContain("恢复队列");
     expect(html).not.toMatch(/aria-label="生成选中"[^>]*disabled=""/);
+  });
+
+  it("keeps checkbox selection attached to panel identity after reorder", () => {
+    const html = renderWorkspace({
+      panels: [makePanels()[1], makePanels()[0]],
+      selectedPanelIds: [2],
+    });
+
+    expect(html).toMatch(/aria-label="选择第 1 格"[^>]*checked=""/);
+    expect(html).not.toMatch(/aria-label="选择第 2 格"[^>]*checked=""/);
   });
 });

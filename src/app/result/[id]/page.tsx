@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -108,11 +108,7 @@ export default function ResultPage() {
   } = useTaskActions(taskId, setTask, selectedImageId, selectedLLMId);
 
   const [viewMode, setViewMode] = useState<"edit" | "read" | "play">("edit");
-  const [selectedPanelIndices, setSelectedPanelIndices] = useState<number[]>([]);
-  const validSelectedPanelIndices = useMemo(() => {
-    const panelCount = task?.script?.panels.length ?? 0;
-    return selectedPanelIndices.filter((panelIndex) => panelIndex >= 0 && panelIndex < panelCount);
-  }, [selectedPanelIndices, task?.script?.panels.length]);
+  const [selectedPanelIds, setSelectedPanelIds] = useState<number[]>([]);
 
   const handleResumePausedTask = useCallback(async () => {
     if (task?.status === "image_queue_paused" || task?.status === "deep_review_paused") {
@@ -123,20 +119,36 @@ export default function ResultPage() {
     }
   }, [setTask, task?.status, taskId]);
 
-  const handleTogglePanelSelection = useCallback((panelIndex: number, checked: boolean) => {
-    setSelectedPanelIndices((prev) => {
+  useEffect(() => {
+    const validPanelIds = new Set(task?.script?.panels.map((panel) => panel.id) ?? []);
+    setSelectedPanelIds((prev) => {
+      const next = prev.filter((panelId) => validPanelIds.has(panelId));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [task?.script?.panels]);
+
+  const selectedPanelIndices = useMemo(() => {
+    if (!task?.script) return [];
+    const selectedIdSet = new Set(selectedPanelIds);
+    return task.script.panels.flatMap((panel, panelIndex) => (
+      selectedIdSet.has(panel.id) ? [panelIndex] : []
+    ));
+  }, [selectedPanelIds, task?.script]);
+
+  const handleTogglePanelSelection = useCallback((panelId: number, checked: boolean) => {
+    setSelectedPanelIds((prev) => {
       if (checked) {
-        if (prev.includes(panelIndex)) return prev;
-        return [...prev, panelIndex].sort((left, right) => left - right);
+        if (prev.includes(panelId)) return prev;
+        return [...prev, panelId];
       }
-      return prev.filter((value) => value !== panelIndex);
+      return prev.filter((value) => value !== panelId);
     });
   }, []);
 
   const handleQueueSelected = useCallback(async () => {
-    await handleQueueSelectedPanels(validSelectedPanelIndices);
-    setSelectedPanelIndices([]);
-  }, [handleQueueSelectedPanels, validSelectedPanelIndices]);
+    await handleQueueSelectedPanels(selectedPanelIndices);
+    setSelectedPanelIds([]);
+  }, [handleQueueSelectedPanels, selectedPanelIndices]);
 
   // Script editor save handler
   const handleScriptEditorSave = useCallback((panels: import("@/lib/types").ComicPanel[]) => {
@@ -529,7 +541,7 @@ export default function ResultPage() {
         <ScriptReadyWorkspace
           taskStatus={task.status}
           panels={task.script.panels}
-          selectedPanelIndices={validSelectedPanelIndices}
+          selectedPanelIds={selectedPanelIds}
           queueSummary={task.queueSummary}
           generatingAll={generatingAll}
           llmConfigs={storedConfigs.llmConfigs}
