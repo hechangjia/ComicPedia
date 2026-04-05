@@ -5,7 +5,7 @@ import Link from "next/link";
 import { getAllComics, deleteComic, clearAllComics, saveTask } from "@/lib/client/db";
 import { useListCache } from "@/stores/listCache";
 import { recoverZombieTask } from "@/lib/client/generator";
-import { reconcileTaskLifecycle } from "@/hooks/useTaskPageLifecycle";
+import { reconcileTaskLifecycle, shouldAttemptOffPageReconcile } from "@/hooks/useTaskPageLifecycle";
 import { GenerateTask, ComicStyle } from "@/lib/types";
 import { STYLE_DESCRIPTIONS } from "@/lib/config/styles";
 import { exportTasksAsZip, importDataFromFile } from "@/lib/exportImport";
@@ -15,19 +15,6 @@ import { StorageIndicator } from "@/components/StorageIndicator";
 import { Spinner } from "@/components/ui/Spinner";
 import { ChevronLeft, Clock, Download, Image as ImageIcon, Trash2, Upload, X } from "lucide-react";
 
-const ACTIVE_SCRIPT_STATUSES = new Set<GenerateTask["status"]>([
-  "pending",
-  "scripting",
-  "created",
-  "research_running",
-  "script_running",
-]);
-
-const STUCK_SERVER_TASK_STATUSES = new Set<GenerateTask["status"]>([
-  "image_queue_running",
-  "deep_review_running",
-]);
-
 /** 从 STYLE_DESCRIPTIONS 提取简短中文名称 */
 const styleNames: Record<string, string> = Object.fromEntries(
   (Object.keys(STYLE_DESCRIPTIONS) as ComicStyle[]).map((key) => [
@@ -35,6 +22,62 @@ const styleNames: Record<string, string> = Object.fromEntries(
     STYLE_DESCRIPTIONS[key].split("，")[0].replace(/风格$/, ""),
   ])
 );
+
+function getHistoryStatusBadgeClass(status: GenerateTask["status"]): string {
+  switch (status) {
+    case "completed":
+      return "bg-success text-white";
+    case "script_ready":
+      return "bg-info text-white";
+    case "generating":
+    case "created":
+    case "research_running":
+    case "script_running":
+    case "scripting":
+    case "pending":
+    case "image_queue_running":
+    case "deep_review_running":
+      return "bg-warning text-white";
+    case "image_queue_paused":
+    case "deep_review_paused":
+    case "calibrating":
+      return "bg-secondary text-secondary-foreground";
+    default:
+      return "bg-error text-white";
+  }
+}
+
+function getHistoryStatusLabel(status: GenerateTask["status"]): string {
+  switch (status) {
+    case "completed":
+      return "已完成";
+    case "script_ready":
+      return "待生成";
+    case "generating":
+      return "生成中";
+    case "created":
+      return "已创建";
+    case "research_running":
+      return "研究中";
+    case "script_running":
+    case "scripting":
+      return "脚本生成中";
+    case "pending":
+      return "等待中";
+    case "image_queue_running":
+      return "图片队列中";
+    case "image_queue_paused":
+      return "图片队列已暂停";
+    case "deep_review_running":
+      return "深度评审中";
+    case "deep_review_paused":
+      return "深度评审已暂停";
+    case "calibrating":
+      return "校准中";
+    default:
+      return "失败";
+  }
+}
 
 interface HistoryCardProps {
   item: GenerateTask;
@@ -114,25 +157,9 @@ const HistoryCard = memo(function HistoryCard({
         )}
         {/* 状态标签 */}
         <div
-          className={`absolute top-2 right-2 px-2 py-0.5 text-xs rounded-full ${
-            item.status === "completed"
-              ? "bg-success text-white"
-              : item.status === "script_ready"
-              ? "bg-info text-white"
-              : item.status === "generating" || ACTIVE_SCRIPT_STATUSES.has(item.status)
-              ? "bg-warning text-white"
-              : "bg-error text-white"
-          }`}
+          className={`absolute top-2 right-2 px-2 py-0.5 text-xs rounded-full ${getHistoryStatusBadgeClass(item.status)}`}
         >
-          {item.status === "completed" ? "已完成"
-            : item.status === "script_ready" ? "待生成"
-            : item.status === "generating" ? "生成中"
-            : item.status === "created" ? "已创建"
-            : item.status === "research_running" ? "研究中"
-            : item.status === "script_running" ? "脚本生成中"
-            : item.status === "scripting" ? "脚本生成中"
-            : item.status === "pending" ? "等待中"
-            : "失败"}
+          {getHistoryStatusLabel(item.status)}
         </div>
         {/* 删除按钮 - 导出模式下隐藏 */}
         {!exportMode && (
@@ -209,7 +236,7 @@ export default function HistoryPage() {
         .filter((t) => t.status === "generating" || t.status === "scripting")
         .map((t) => t.id);
       const stuckServerTaskIds = tasks
-        .filter((t) => STUCK_SERVER_TASK_STATUSES.has(t.status))
+        .filter((t) => shouldAttemptOffPageReconcile(t))
         .map((t) => t.id);
 
       if (zombieIds.length > 0 || stuckServerTaskIds.length > 0) {

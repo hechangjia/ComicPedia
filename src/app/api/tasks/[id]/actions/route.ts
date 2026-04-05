@@ -44,7 +44,7 @@ function getActionErrorStatus(error: unknown): number {
   ) {
     return 400;
   }
-  if (message.includes("任务脚本尚未生成")) {
+  if (message.includes("任务脚本尚未生成") || message.includes("深度评审恢复尚未开放")) {
     return 409;
   }
   if (message.includes("任务不存在")) {
@@ -75,9 +75,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     if (action === "resume") {
       const updatedTask = await resumeTaskJobs(id);
-      if (updatedTask.status === "deep_review_running") {
-        getTaskRuntime().enqueueDeepReview(id);
-      } else if (
+      if (
         updatedTask.status === "image_queue_running"
         || updatedTask.status === "calibrating"
       ) {

@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { GenerateTask } from "@/lib/types";
 import { getTask } from "@/lib/client/db";
 import { recoverZombieTask } from "@/lib/client/generator";
-import { reconcileTaskLifecycle } from "@/hooks/useTaskPageLifecycle";
+import { reconcileTaskLifecycle, shouldAttemptOffPageReconcile } from "@/hooks/useTaskPageLifecycle";
 import { useTaskStore } from "@/stores/taskStore";
 
 /** Terminal states that no longer need polling */
@@ -54,20 +54,21 @@ export function useTaskSubscription(taskId: string) {
 
     async function hydrateTask() {
       try {
-        const reconciledTask = await reconcileTaskLifecycle(taskId).catch(() => undefined);
-        if (cancelled) return;
-
-        if (reconciledTask) {
-          useTaskStore.getState().updateTask(reconciledTask);
-          setTask(reconciledTask);
-        }
-
         let loadedTask = await useTaskStore.getState().loadTask(taskId);
         if (!loadedTask) {
           if (!cancelled) {
             setError("Task not found");
           }
           return;
+        }
+
+        if (shouldAttemptOffPageReconcile(loadedTask)) {
+          const reconciledTask = await reconcileTaskLifecycle(taskId).catch(() => undefined);
+          if (cancelled) return;
+          if (reconciledTask) {
+            useTaskStore.getState().updateTask(reconciledTask);
+            loadedTask = reconciledTask;
+          }
         }
 
         if (RECOVERABLE_LOCAL_STATUSES.has(loadedTask.status)) {

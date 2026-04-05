@@ -283,4 +283,24 @@ describe("task recovery", () => {
       status: "image_queue_running",
     }));
   });
+
+  it("pauses queue work on in-app leave without needing pagehide", async () => {
+    const pauseTask = vi.fn();
+    const target = new EventTarget();
+
+    const { createTaskPageLifecycleController } = await import("@/hooks/useTaskPageLifecycle");
+    const controller = createTaskPageLifecycleController(target, {
+      getTask: () => makeTask({ status: "image_queue_running" }),
+      pauseTask,
+    });
+
+    controller.requestPause();
+    controller.cleanup();
+
+    expect(pauseTask).toHaveBeenCalledTimes(1);
+    expect(pauseTask).toHaveBeenCalledWith(expect.objectContaining({
+      id: "task-recovery",
+      status: "image_queue_running",
+    }));
+  });
 });

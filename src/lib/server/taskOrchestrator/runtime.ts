@@ -4,17 +4,10 @@ import { listReplayableImageTasks, runTaskImageQueue, type RunTaskImageQueueInpu
 import { hydrateReplayRequest } from "./replay";
 import { runResearchAndScriptTask } from "./scriptRunner";
 
-async function runTaskDeepReview(_taskId: string): Promise<void> {
-  // Deep-review orchestration lands in a later task; Task 5 only needs an
-  // explicit runtime dispatch surface so pause/resume/reconcile can round-trip
-  // the currently active durable job kind without misrouting to image queues.
-}
-
 export class TaskRuntime {
   private readonly scriptRuns = new Map<string, Promise<void>>();
   private readonly imageRuns = new Map<string, Promise<void>>();
   private readonly pendingImageRuns = new Map<string, RunTaskImageQueueInput | undefined>();
-  private readonly deepReviewRuns = new Map<string, Promise<void>>();
   private replayInitialized = false;
 
   enqueueScript(taskId: string, request: GenerateRequest): void {
@@ -50,23 +43,6 @@ export class TaskRuntime {
     }
 
     this.startImageQueueRun(taskId, input as RunTaskImageQueueInput | undefined);
-  }
-
-  enqueueDeepReview(taskId: string): void {
-    if (this.deepReviewRuns.has(taskId)) {
-      return;
-    }
-
-    const run = Promise.resolve()
-      .then(() => runTaskDeepReview(taskId))
-      .catch((error) => {
-        console.error(`[TaskRuntime] Deep review run failed for ${taskId}:`, error);
-      })
-      .finally(() => {
-        this.deepReviewRuns.delete(taskId);
-      });
-
-    this.deepReviewRuns.set(taskId, run);
   }
 
   private startImageQueueRun(taskId: string, input?: RunTaskImageQueueInput): void {

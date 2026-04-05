@@ -246,6 +246,10 @@ export async function resumeTaskJobs(taskId: string): Promise<GenerateTask> {
   }
 
   const jobs = await listTaskJobsByTaskId(taskId);
+  if (getActiveTaskJobKind(task, jobs) === "deep_review") {
+    throw new Error("深度评审恢复尚未开放");
+  }
+
   let jobsChanged = false;
   const nextJobs = jobs.map((job) => {
     if (!RESUMABLE_JOB_STATUSES.has(job.status)) {
