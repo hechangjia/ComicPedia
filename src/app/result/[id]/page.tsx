@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -109,6 +109,10 @@ export default function ResultPage() {
 
   const [viewMode, setViewMode] = useState<"edit" | "read" | "play">("edit");
   const [selectedPanelIndices, setSelectedPanelIndices] = useState<number[]>([]);
+  const validSelectedPanelIndices = useMemo(() => {
+    const panelCount = task?.script?.panels.length ?? 0;
+    return selectedPanelIndices.filter((panelIndex) => panelIndex >= 0 && panelIndex < panelCount);
+  }, [selectedPanelIndices, task?.script?.panels.length]);
 
   const handleResumePausedTask = useCallback(async () => {
     if (task?.status === "image_queue_paused" || task?.status === "deep_review_paused") {
@@ -118,11 +122,6 @@ export default function ResultPage() {
       }
     }
   }, [setTask, task?.status, taskId]);
-
-  useEffect(() => {
-    const panelCount = task?.script?.panels.length ?? 0;
-    setSelectedPanelIndices((prev) => prev.filter((panelIndex) => panelIndex >= 0 && panelIndex < panelCount));
-  }, [task?.script?.panels.length]);
 
   const handleTogglePanelSelection = useCallback((panelIndex: number, checked: boolean) => {
     setSelectedPanelIndices((prev) => {
@@ -135,9 +134,9 @@ export default function ResultPage() {
   }, []);
 
   const handleQueueSelected = useCallback(async () => {
-    await handleQueueSelectedPanels(selectedPanelIndices);
+    await handleQueueSelectedPanels(validSelectedPanelIndices);
     setSelectedPanelIndices([]);
-  }, [handleQueueSelectedPanels, selectedPanelIndices]);
+  }, [handleQueueSelectedPanels, validSelectedPanelIndices]);
 
   // Script editor save handler
   const handleScriptEditorSave = useCallback((panels: import("@/lib/types").ComicPanel[]) => {
@@ -530,7 +529,7 @@ export default function ResultPage() {
         <ScriptReadyWorkspace
           taskStatus={task.status}
           panels={task.script.panels}
-          selectedPanelIndices={selectedPanelIndices}
+          selectedPanelIndices={validSelectedPanelIndices}
           queueSummary={task.queueSummary}
           generatingAll={generatingAll}
           llmConfigs={storedConfigs.llmConfigs}
