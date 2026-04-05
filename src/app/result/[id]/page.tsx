@@ -27,6 +27,7 @@ import { CompositeScore } from "@/components/result/CompositeScore";
 import { DetailTabs } from "@/components/result/DetailTabs";
 import { StickyActionBar } from "@/components/result/StickyActionBar";
 import { ScriptEditor } from "@/components/editor/ScriptEditor";
+import { DirectorSidebar } from "@/components/result/DirectorSidebar";
 import "@/app/result/print.css";
 import { resolveResultBackHref } from "@/app/history/historyNavigation";
 import { AlertTriangle, ChevronLeft, RefreshCw, X } from "lucide-react";
@@ -617,6 +618,14 @@ export default function ResultPage() {
               />
             ) : null,
             visible: (isCompleted || isDeepReviewRunning || isDeepReviewPaused) && !!task.script,
+          },
+          {
+            id: "director",
+            label: "AI 导演",
+            content: task.script ? (
+              <DirectorSidebar task={task} />
+            ) : null,
+            visible: !!task.script,
           },
         ]} />
       )}
