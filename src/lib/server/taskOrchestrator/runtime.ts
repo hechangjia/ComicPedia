@@ -83,18 +83,18 @@ export class TaskRuntime {
     };
   }
 
-  enqueueDeepReview(taskId: string, input?: { llmConfig?: PartialLLMConfig }): void {
+  enqueueDeepReview(taskId: string): void {
     if (this.reviewRuns.has(taskId)) {
       this.pendingReviewRuns.add(taskId);
       return;
     }
 
-    this.startDeepReviewRun(taskId, input);
+    this.startDeepReviewRun(taskId);
   }
 
-  private startDeepReviewRun(taskId: string, input?: { llmConfig?: PartialLLMConfig }): void {
+  private startDeepReviewRun(taskId: string): void {
     const run = Promise.resolve()
-      .then(() => runTaskDeepReviewQueue(taskId, input))
+      .then(() => runTaskDeepReviewQueue(taskId))
       .catch((error) => {
         console.error(`[TaskRuntime] Deep review run failed for ${taskId}:`, error);
       })
@@ -102,7 +102,7 @@ export class TaskRuntime {
         this.reviewRuns.delete(taskId);
         if (this.pendingReviewRuns.has(taskId)) {
           this.pendingReviewRuns.delete(taskId);
-          this.startDeepReviewRun(taskId, input);
+          this.startDeepReviewRun(taskId);
         }
       });
 

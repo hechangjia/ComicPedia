@@ -12,6 +12,7 @@ const {
 const state = vi.hoisted(() => {
   const tasks = new Map<string, GenerateTask>();
   const jobs = new Map<string, TaskJobRecord[]>();
+  let onUpsertTaskJob: ((job: TaskJobRecord) => void) | undefined;
 
   function clone<T>(value: T): T {
     return structuredClone(value);
@@ -84,11 +85,17 @@ const state = vi.hoisted(() => {
       nextJobs.push(clone(job));
     }
     jobs.set(job.taskId, nextJobs);
+    onUpsertTaskJob?.(clone(job));
+  }
+
+  function setJobUpsertHook(hook?: (job: TaskJobRecord) => void): void {
+    onUpsertTaskJob = hook;
   }
 
   function reset(): void {
     tasks.clear();
     jobs.clear();
+    onUpsertTaskJob = undefined;
   }
 
   return {
@@ -96,6 +103,7 @@ const state = vi.hoisted(() => {
     getTask,
     listJobs,
     reset,
+    setJobUpsertHook,
     setJobs,
     setTask,
     summarize,
@@ -398,6 +406,43 @@ describe("reviewRunner", () => {
     expect(state.getTask("task-review-batch")).toEqual(expect.objectContaining({
       status: "deep_review_paused",
       queueSummary: expect.objectContaining({ paused: 1, completed: 1 }),
+    }));
+  });
+
+  it("skips the diagnosis call when pause lands after the runner marks a job active but before evaluation starts", async () => {
+    state.setTask(makeTask({
+      id: "task-review-race",
+      status: "deep_review_running",
+    }));
+    state.setJobs("task-review-race", [
+      makeJob({
+        id: "job-review-race",
+        taskId: "task-review-race",
+        panelIndex: 0,
+      }),
+    ]);
+    getConfigMock.mockReturnValue(makeConfig());
+    state.setJobUpsertHook((job) => {
+      if (job.id !== "job-review-race" || job.status !== "light_check") {
+        return;
+      }
+      state.setJobUpsertHook(undefined);
+      state.upsertTaskJob({
+        ...job,
+        status: "paused",
+      });
+    });
+
+    const { runTaskDeepReviewQueue } = await import("@/lib/server/taskOrchestrator/reviewRunner");
+    await runTaskDeepReviewQueue("task-review-race");
+
+    expect(evaluateVisualDiagnosisMock).not.toHaveBeenCalled();
+    expect(state.listJobs("task-review-race")).toEqual([
+      expect.objectContaining({ id: "job-review-race", status: "paused" }),
+    ]);
+    expect(state.getTask("task-review-race")).toEqual(expect.objectContaining({
+      status: "deep_review_paused",
+      visualDiagnosisState: "idle",
     }));
   });
 });

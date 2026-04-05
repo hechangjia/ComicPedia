@@ -153,8 +153,8 @@ describe("TaskRuntime replay", () => {
     });
 
     expect(listReplayableDeepReviewTasksMock).toHaveBeenCalledTimes(1);
-    expect(runTaskDeepReviewQueueMock).toHaveBeenNthCalledWith(1, "task-review-1", undefined);
-    expect(runTaskDeepReviewQueueMock).toHaveBeenNthCalledWith(2, "task-review-2", undefined);
+    expect(runTaskDeepReviewQueueMock).toHaveBeenNthCalledWith(1, "task-review-1");
+    expect(runTaskDeepReviewQueueMock).toHaveBeenNthCalledWith(2, "task-review-2");
 
     getTaskRuntime();
     await Promise.resolve();
@@ -186,7 +186,7 @@ describe("TaskRuntime replay", () => {
     await vi.waitFor(() => {
       expect(runTaskDeepReviewQueueMock).toHaveBeenCalledTimes(2);
     });
-    expect(runTaskDeepReviewQueueMock).toHaveBeenNthCalledWith(1, "task-review", undefined);
-    expect(runTaskDeepReviewQueueMock).toHaveBeenNthCalledWith(2, "task-review", undefined);
+    expect(runTaskDeepReviewQueueMock).toHaveBeenNthCalledWith(1, "task-review");
+    expect(runTaskDeepReviewQueueMock).toHaveBeenNthCalledWith(2, "task-review");
   });
 });

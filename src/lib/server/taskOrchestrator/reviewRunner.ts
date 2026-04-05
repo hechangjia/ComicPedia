@@ -79,7 +79,6 @@ function getReviewConfigCandidates(config: UserAPIConfigV2 | null): UserLLMConfi
 function resolveReviewConfig(
   payload: StoredReviewJobPayload["review"],
   config: UserAPIConfigV2 | null,
-  fallback?: PartialLLMConfig,
 ): PartialLLMConfig | undefined {
   const candidates = getReviewConfigCandidates(config);
 
@@ -99,10 +98,6 @@ function resolveReviewConfig(
     if (isLocalApiUrl(payload.fallback.apiUrl)) {
       return payload.fallback;
     }
-  }
-
-  if (fallback) {
-    return fallback;
   }
 
   if (config?.activeVLMId) {
@@ -165,6 +160,10 @@ function mergeDiagnosisReports(
   };
 }
 
+function resetDiagnosisStateAfterPause(task: GenerateTask): void {
+  task.visualDiagnosisState = task.visualDiagnosisReport ? "succeeded" : "idle";
+}
+
 async function persistReviewState(taskId: string): Promise<void> {
   const task = getTaskById(taskId);
   if (!task) {
@@ -195,9 +194,6 @@ async function getLatestDeepReviewJob(taskId: string, jobId: string): Promise<Ta
 
 export async function runTaskDeepReviewQueue(
   taskId: string,
-  input?: {
-    llmConfig?: PartialLLMConfig;
-  },
 ): Promise<void> {
   const baseTask = getTaskById(taskId);
   if (!baseTask?.script) {
@@ -227,7 +223,6 @@ export async function runTaskDeepReviewQueue(
     const resolvedConfig = resolveReviewConfig(
       (liveJob.payload as StoredReviewJobPayload).review,
       getConfig(),
-      input?.llmConfig,
     );
     if (!resolvedConfig?.apiUrl || !resolvedConfig.model || !resolvedConfig.provider) {
       const message = "缺少可用的视觉评审模型配置，无法继续深度评审";
@@ -263,13 +258,24 @@ export async function runTaskDeepReviewQueue(
       status: "light_check",
       lastError: undefined,
     }));
+    const readyJob = await getLatestDeepReviewJob(taskId, liveJob.id);
+    if (!readyJob || readyJob.status === "paused" || !PROCESSABLE_REVIEW_JOB_STATUSES.has(readyJob.status)) {
+      const latestTask = getTaskById(taskId);
+      if (latestTask) {
+        resetDiagnosisStateAfterPause(latestTask);
+        latestTask.updatedAt = new Date();
+        upsertTask(latestTask);
+      }
+      await persistReviewState(taskId);
+      continue;
+    }
 
     try {
       const report = await evaluateVisualDiagnosis(
         task.script,
         task.visualQualityScore,
         resolvedConfig,
-        getTargetPanels(liveJob, task.script.panels.length),
+        getTargetPanels(readyJob, task.script.panels.length),
       );
       const latestTask = getTaskById(taskId);
       const latestJob = await getLatestDeepReviewJob(taskId, liveJob.id);
@@ -280,7 +286,7 @@ export async function runTaskDeepReviewQueue(
         throw new Error(`Deep review job not found after execution: ${liveJob.id}`);
       }
       if (latestJob.status === "paused") {
-        latestTask.visualDiagnosisState = latestTask.visualDiagnosisReport ? "succeeded" : "idle";
+        resetDiagnosisStateAfterPause(latestTask);
         latestTask.updatedAt = new Date();
         upsertTask(latestTask);
         await persistReviewState(taskId);
@@ -299,7 +305,7 @@ export async function runTaskDeepReviewQueue(
       const latestTask = getTaskById(taskId);
       const latestJob = await getLatestDeepReviewJob(taskId, liveJob.id);
       if (latestTask && latestJob?.status === "paused") {
-        latestTask.visualDiagnosisState = latestTask.visualDiagnosisReport ? "succeeded" : "idle";
+        resetDiagnosisStateAfterPause(latestTask);
         latestTask.updatedAt = new Date();
         upsertTask(latestTask);
       } else if (latestTask) {
