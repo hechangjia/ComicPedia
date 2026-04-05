@@ -24,6 +24,10 @@ export interface ServerScriptReplayPayload {
   };
 }
 
+function requestNeedsImageReplay(request: GenerateRequest): boolean {
+  return Boolean(request.imageConfigId || request.imageConfig);
+}
+
 function sanitizeLLMConfig(config?: PartialLLMConfig): SanitizedLLMConfig | undefined {
   if (!config) return undefined;
   const { apiKey: _apiKey, ...sanitized } = config;
@@ -158,6 +162,21 @@ export function buildServerScriptReplayPayload(request: GenerateRequest): Server
       fallback: isSafeInlineImageConfig(request, sanitizedImage) ? sanitizedImage : undefined,
     } : undefined,
   };
+}
+
+export function validateServerReplayPayload(
+  request: GenerateRequest,
+  payload: ServerScriptReplayPayload,
+): string | null {
+  if (!payload.llm?.configId && !payload.llm?.fallback) {
+    return "缺少可重放的 LLM 配置，请重新选择有效的模型配置后再试";
+  }
+
+  if (requestNeedsImageReplay(request) && !payload.image?.configId && !payload.image?.fallback) {
+    return "缺少可重放的图片配置，请重新选择有效的图片模型配置后再试";
+  }
+
+  return null;
 }
 
 export function hydrateReplayRequest(payload: ServerScriptReplayPayload): GenerateRequest {

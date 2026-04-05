@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTasksPaginated, upsertTask, clearAllTasks, getAllTaskIds } from "@/lib/server/db";
 import { extractTaskImagesAsync, fileRefsToUrls, trashTaskImages } from "@/lib/server/imageExtractor";
 import { getTaskRuntime } from "@/lib/server/taskOrchestrator/runtime";
-import { buildServerScriptReplayPayload } from "@/lib/server/taskOrchestrator/replay";
+import { buildServerScriptReplayPayload, validateServerReplayPayload } from "@/lib/server/taskOrchestrator/replay";
 import { listTaskJobsByTaskId, summarizeTaskJobs } from "@/lib/server/taskOrchestrator/store";
 import type { GenerateRequest, GenerateTask } from "@/lib/types";
 
@@ -72,6 +72,15 @@ export async function POST(request: NextRequest) {
     const createRequest = body.request as GenerateRequest | undefined;
 
     if (createRequest) {
+      const replayPayload = buildServerScriptReplayPayload(createRequest);
+      const replayValidationError = validateServerReplayPayload(createRequest, replayPayload);
+      if (replayValidationError) {
+        return NextResponse.json(
+          { error: replayValidationError },
+          { status: 400 },
+        );
+      }
+
       const now = new Date();
       const serverTask: GenerateTask = {
         id: randomUUID(),
@@ -82,10 +91,10 @@ export async function POST(request: NextRequest) {
         updatedAt: now,
       };
       const persistedTask: GenerateTask & {
-        serverScriptReplay: ReturnType<typeof buildServerScriptReplayPayload>;
+        serverScriptReplay: typeof replayPayload;
       } = {
         ...serverTask,
-        serverScriptReplay: buildServerScriptReplayPayload(createRequest),
+        serverScriptReplay: replayPayload,
       };
       upsertTask(persistedTask);
       getTaskRuntime().enqueueScript(serverTask.id, createRequest);

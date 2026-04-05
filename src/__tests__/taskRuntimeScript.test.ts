@@ -28,6 +28,7 @@ const {
   searchWikipediaMock,
   getWikipediaSummaryMock,
   buildServerScriptReplayPayloadMock,
+  validateServerReplayPayloadMock,
 } = vi.hoisted(() => ({
   getTaskByIdMock: vi.fn(),
   upsertTaskMock: vi.fn(),
@@ -54,6 +55,7 @@ const {
   searchWikipediaMock: vi.fn(),
   getWikipediaSummaryMock: vi.fn(),
   buildServerScriptReplayPayloadMock: vi.fn(),
+  validateServerReplayPayloadMock: vi.fn(),
 }));
 
 vi.mock("@/lib/server/db", () => ({
@@ -125,6 +127,7 @@ vi.mock("@/lib/server/wikipedia", () => ({
 
 vi.mock("@/lib/server/taskOrchestrator/replay", () => ({
   buildServerScriptReplayPayload: buildServerScriptReplayPayloadMock,
+  validateServerReplayPayload: validateServerReplayPayloadMock,
 }));
 
 function makeGeneratedScript() {
@@ -195,6 +198,8 @@ describe("task runtime task creation", () => {
     enqueueScriptMock.mockReset();
     extractTaskImagesAsyncMock.mockReset();
     buildServerScriptReplayPayloadMock.mockReset();
+    validateServerReplayPayloadMock.mockReset();
+    validateServerReplayPayloadMock.mockReturnValue(null);
   });
 
   it("creates a server-owned task for request mode and enqueues scripting", async () => {
@@ -257,6 +262,41 @@ describe("task runtime task creation", () => {
       success: true,
       id: persistedTask.id,
     });
+  });
+
+  it("rejects request mode when the LLM config cannot be replayed safely", async () => {
+    const requestPayload = makeRequest({
+      llmConfigId: undefined,
+      llmConfig: {
+        apiUrl: "https://api.example.com/v1",
+        apiKey: "secret-key",
+        model: "gpt-4o",
+        provider: "openai-compatible",
+      },
+    });
+    buildServerScriptReplayPayloadMock.mockReturnValue({
+      request: {
+        topic: requestPayload.topic,
+        style: requestPayload.style,
+      },
+      llm: undefined,
+    });
+    validateServerReplayPayloadMock.mockReturnValue("缺少可重放的 LLM 配置，请重新选择有效的模型配置后再试");
+
+    const { POST } = await import("@/app/api/tasks/route");
+    const request = new NextRequest("http://localhost:3000/api/tasks", {
+      method: "POST",
+      body: JSON.stringify({ request: requestPayload }),
+      headers: { "content-type": "application/json" },
+    });
+
+    const response = await POST(request);
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error).toContain("缺少可重放的 LLM 配置");
+    expect(upsertTaskMock).not.toHaveBeenCalled();
+    expect(enqueueScriptMock).not.toHaveBeenCalled();
   });
 });
 

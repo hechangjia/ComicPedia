@@ -8,6 +8,7 @@ import { RelationGraph } from "@/components/characters/RelationGraph";
 import { EpisodeProposalModal } from "@/components/characters/EpisodeProposalModal";
 import { Spinner } from "@/components/ui/Spinner";
 import { useToast } from "@/components/ui/Toast";
+import { getStoredConfigs, getStoredRequestConfigs } from "@/hooks/useAPIConfig";
 import { ChevronLeft } from "lucide-react";
 import type { CharacterRelation, RelationType, ComicStyle, ContentType } from "@/lib/types";
 import { startGeneration } from "@/lib/client/generator";
@@ -47,19 +48,31 @@ export default function CharacterRelationsPage() {
         .map(c => c.id);
 
       try {
+        const storedConfigs = getStoredConfigs();
+        const { llmConfig, imageConfig } = getStoredRequestConfigs(
+          storedConfigs.activeLLMId ?? undefined,
+          storedConfigs.activeImageId ?? undefined,
+        );
+        if (!llmConfig || !storedConfigs.activeLLMId) {
+          throw new Error("请先在设置中配置 LLM");
+        }
         const taskId = await startGeneration({
           topic,
           style,
           contentType,
           characterIds,
           seriesId,
+          llmConfigId: storedConfigs.activeLLMId,
+          imageConfigId: storedConfigs.activeImageId ?? undefined,
+          llmConfig,
+          imageConfig,
         });
         setProposalData(null);
         toast("success", "剧集生成已启动，正在跳转...");
         router.push(`/result/${taskId}`);
       } catch (err) {
         console.error("Failed to start episode generation:", err);
-        toast("error", "剧集生成启动失败，请稍后重试");
+        toast("error", err instanceof Error ? err.message : "剧集生成启动失败，请稍后重试");
       }
     },
     [characters, proposalData, router, toast],
