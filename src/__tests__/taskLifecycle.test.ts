@@ -872,294 +872,50 @@ describe("taskLifecycle automatic visual review", () => {
   });
 });
 
-describe("taskLifecycle scripting director beat plan", () => {
+describe("taskLifecycle startGeneration", () => {
   beforeEach(() => {
+    saveTaskMock.mockReset();
+    getTaskMock.mockReset();
     vi.mocked(generateTopicResearch).mockReset();
-    vi.mocked(buildEnhancedTopicFromResearch).mockReset();
-    vi.mocked(generateScript).mockReset();
     vi.mocked(generateScriptStream).mockReset();
-    vi.mocked(generateNarrativeOutline).mockReset();
-    vi.mocked(buildOutlineGuidance).mockReset();
-    vi.mocked(validateScript).mockReset();
-    reviewPanelClaimsMock.mockReset();
-    repairAccuracyIssuesMock.mockReset();
-
-    vi.mocked(generateTopicResearch).mockResolvedValue({
-      originalTopic: "为什么会打雷",
-      expandedDescription: "expanded topic",
-      keyFacts: ["fact 1"],
-      narrativeAngle: "angle 1",
-      narrativeAngles: [],
-      knowledgeMap: { core: [], sub: [], related: [] },
-    });
-    vi.mocked(buildEnhancedTopicFromResearch).mockReturnValue("expanded topic");
-    vi.mocked(generateScriptStream).mockResolvedValue(makeGeneratedScript());
-    vi.mocked(generateScript).mockResolvedValue(makeGeneratedScript());
-    vi.mocked(buildOutlineGuidance).mockReturnValue("\n\n[Director Outline]\n");
-    vi.mocked(validateScript).mockReturnValue({
-      passed: true,
-      characterConsistency: true,
-      compositionVariety: true,
-      styleAlignment: true,
-      languagePurity: true,
-      warnings: [],
-    });
-    reviewPanelClaimsMock.mockReturnValue({
-      status: "passed",
-      blockingIssueCount: 0,
-      repairableIssueCount: 0,
-      panelClaims: [],
-      panels: [],
-      sourceCoverage: { anchor: true, whitelist: false, open_web: false },
-    });
-    repairAccuracyIssuesMock.mockResolvedValue(null);
-
     fetchMock.mockReset();
     vi.stubGlobal("fetch", fetchMock);
-    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.startsWith("/api/accuracy/research")) {
-        return mockJsonResponse({
-          factPack: makeFactPack(),
-          researchBrief: makeResearchBrief(),
-        });
-      }
-      if (url.startsWith("/api/wikipedia")) {
-        return mockJsonResponse({ results: [] }, false);
-      }
-      if (url.startsWith("/api/relations")) {
-        return mockJsonResponse([]);
-      }
-      throw new Error(`Unexpected fetch: ${url}`);
-    });
   });
 
   afterAll(() => {
     vi.unstubAllGlobals();
   });
 
-  it("stores a beat-plan capable outline on science scripting tasks", async () => {
-    let storedTask: GenerateTask | undefined;
-    saveTaskMock.mockImplementation(async (task: GenerateTask) => {
-      storedTask = task;
-    });
-    getTaskMock.mockImplementation(async () => storedTask);
-    vi.mocked(generateNarrativeOutline).mockResolvedValue(makeBeatPlan());
+  it("posts the request to /api/tasks and returns the durable task id", async () => {
+    fetchMock.mockResolvedValue(
+      mockJsonResponse({
+        success: true,
+        id: "task-server-owned-1",
+      }),
+    );
 
-    const taskId = await startGeneration({
+    const request = {
       topic: "为什么会打雷",
-      style: "flat",
-      contentType: "science",
-      quality: "standard",
-      llmConfig: { model: "gpt-4o", provider: "openai-compatible" },
-    });
+      style: "flat" as const,
+      contentType: "science" as const,
+      quality: "standard" as const,
+      llmConfig: { model: "gpt-4o", provider: "openai-compatible" as const },
+    };
 
-    await vi.waitFor(() => {
-      expect(storedTask?.id).toBe(taskId);
-      expect(storedTask?.status).toBe("script_ready");
-      expect(storedTask?.narrativeOutline?.templateType).toBe("mechanism");
-      expect(storedTask?.narrativeOutline?.panels[0].shotIntent).toBe("hook-closeup");
-      expect(storedTask?.narrativeOutline?.source).toBe("beat-plan");
-    });
-  });
+    const taskId = await startGeneration(request);
 
-  it("stores fact pack and research brief on science scripting tasks and passes fact pack into stream generation", async () => {
-    let storedTask: GenerateTask | undefined;
-    saveTaskMock.mockImplementation(async (task: GenerateTask) => {
-      storedTask = task;
-    });
-    getTaskMock.mockImplementation(async () => storedTask);
-    vi.mocked(generateNarrativeOutline).mockResolvedValue(makeBeatPlan());
-
-    await startGeneration({
-      topic: "为什么会打雷",
-      style: "flat",
-      contentType: "science",
-      quality: "standard",
-      llmConfig: { model: "gpt-4o", provider: "openai-compatible" },
-    });
-
-    await vi.waitFor(() => {
-      expect(storedTask?.status).toBe("script_ready");
-      expect(storedTask?.factPack?.hardFacts[0].object).toContain("雷声");
-      expect(storedTask?.researchBrief?.verifiedHardFactCount).toBe(1);
-      expect(fetchMock).toHaveBeenCalledWith("/api/accuracy/research", expect.any(Object));
-      const streamCall = vi.mocked(generateScriptStream).mock.calls.at(-1);
-      expect(streamCall?.at(-1)).toEqual(storedTask?.factPack);
-    });
-  });
-
-  it("falls back to legacy scripting when director outline generation fails", async () => {
-    let storedTask: GenerateTask | undefined;
-    saveTaskMock.mockImplementation(async (task: GenerateTask) => {
-      storedTask = task;
-    });
-    getTaskMock.mockImplementation(async () => storedTask);
-    vi.mocked(generateNarrativeOutline).mockRejectedValue(new Error("director failed"));
-
-    await startGeneration({
-      topic: "为什么会打雷",
-      style: "flat",
-      contentType: "science",
-      quality: "standard",
-      llmConfig: { model: "gpt-4o", provider: "openai-compatible" },
-    });
-
-    await vi.waitFor(() => {
-      expect(storedTask?.status).toBe("script_ready");
-      expect(storedTask?.script?.title).toBe("雷电从哪里来");
-      expect(storedTask?.narrativeOutline).toBeUndefined();
-    });
-  });
-
-  it("passes fact pack into non-stream fallback generation for wikipedia tasks", async () => {
-    let storedTask: GenerateTask | undefined;
-    saveTaskMock.mockImplementation(async (task: GenerateTask) => {
-      storedTask = task;
-    });
-    getTaskMock.mockImplementation(async () => storedTask);
-    vi.mocked(generateNarrativeOutline).mockResolvedValue(makeBeatPlan());
-    vi.mocked(generateScriptStream).mockRejectedValue(new Error("stream failed"));
-
-    await startGeneration({
-      topic: "DNA",
-      style: "flat",
-      contentType: "wikipedia",
-      quality: "standard",
-      wikipediaContent: {
-        title: "DNA",
-        extract: "DNA is a molecule carrying hereditary information.",
-        lang: "en",
-      },
-      llmConfig: { model: "gpt-4o", provider: "openai-compatible" },
-    });
-
-    await vi.waitFor(() => {
-      expect(storedTask?.status).toBe("script_ready");
-      expect(storedTask?.factPack).toBeDefined();
-      const fallbackCall = vi.mocked(generateScript).mock.calls.at(-1);
-      expect(fallbackCall?.at(-1)).toEqual(storedTask?.factPack);
-    });
-  });
-
-  it("fails the task when high-risk factual conflicts remain after claim review", async () => {
-    let storedTask: GenerateTask | undefined;
-    saveTaskMock.mockImplementation(async (task: GenerateTask) => {
-      storedTask = task;
-    });
-    getTaskMock.mockImplementation(async () => storedTask);
-    vi.mocked(generateNarrativeOutline).mockResolvedValue(makeBeatPlan());
-    reviewPanelClaimsMock.mockReturnValue({
-      status: "blocked",
-      blockingIssueCount: 1,
-      repairableIssueCount: 0,
-      panelClaims: [
-        {
-          panelIndex: 0,
-          hardClaims: [
-            {
-              claimType: "date",
-              rawText: "1642年",
-              normalizedValue: "1642",
-              matchedFactId: "fact-1",
-              matchStatus: "conflicting",
-            },
-          ],
-          unsupportedClaims: [],
-          riskLevel: "high",
-        },
-      ],
-      panels: [
-        { panelIndex: 0, claimType: "date", rawText: "1642年", reason: "conflicts with fact pack", matchedFactId: "fact-1" },
-      ],
-      sourceCoverage: { anchor: true, whitelist: false, open_web: false },
-    });
-
-    await startGeneration({
-      topic: "为什么会打雷",
-      style: "flat",
-      contentType: "science",
-      quality: "standard",
-      llmConfig: { model: "gpt-4o", provider: "openai-compatible" },
-    });
-
-    await vi.waitFor(() => {
-      expect(storedTask?.status).toBe("failed");
-      expect(storedTask?.error).toBe("高风险事实冲突，脚本未通过准确性校验");
-    });
-  });
-
-  it("runs factual repair for repair_required reviews before entering script_ready", async () => {
-    let storedTask: GenerateTask | undefined;
-    saveTaskMock.mockImplementation(async (task: GenerateTask) => {
-      storedTask = task;
-    });
-    getTaskMock.mockImplementation(async () => storedTask);
-    vi.mocked(generateNarrativeOutline).mockResolvedValue(makeBeatPlan());
-    reviewPanelClaimsMock
-      .mockReturnValueOnce({
-        status: "repair_required",
-        blockingIssueCount: 0,
-        repairableIssueCount: 1,
-        panelClaims: [],
-        panels: [],
-        sourceCoverage: { anchor: true, whitelist: false, open_web: false },
-      })
-      .mockReturnValueOnce({
-        status: "passed",
-        blockingIssueCount: 0,
-        repairableIssueCount: 0,
-        panelClaims: [],
-        panels: [],
-        sourceCoverage: { anchor: true, whitelist: false, open_web: false },
-      });
-    repairAccuracyIssuesMock.mockResolvedValue({
-      ...makeGeneratedScript(),
-      panels: [
-        {
-          ...makeGeneratedScript().panels[0],
-          dialogue: "修复后的事实表达",
-        },
-        makeGeneratedScript().panels[1],
-      ],
-    });
-
-    await startGeneration({
-      topic: "为什么会打雷",
-      style: "flat",
-      contentType: "science",
-      quality: "standard",
-      llmConfig: { model: "gpt-4o", provider: "openai-compatible" },
-    });
-
-    await vi.waitFor(() => {
-      expect(repairAccuracyIssuesMock).toHaveBeenCalledTimes(1);
-      expect(storedTask?.status).toBe("script_ready");
-      expect(storedTask?.script?.panels[0].dialogue).toBe("修复后的事实表达");
-    });
-  });
-
-  it("does not require beat-plan metadata for non science wikipedia scripting", async () => {
-    let storedTask: GenerateTask | undefined;
-    saveTaskMock.mockImplementation(async (task: GenerateTask) => {
-      storedTask = task;
-    });
-    getTaskMock.mockImplementation(async () => storedTask);
-    vi.mocked(generateNarrativeOutline).mockResolvedValue(null);
-
-    await startGeneration({
-      topic: "春晓",
-      style: "inkwash",
-      contentType: "poetry",
-      quality: "standard",
-      poetryGenre: "shi",
-      llmConfig: { model: "gpt-4o", provider: "openai-compatible" },
-    });
-
-    await vi.waitFor(() => {
-      expect(storedTask?.status).toBe("script_ready");
-      expect(storedTask?.narrativeOutline).toBeUndefined();
-      expect(storedTask?.script?.title).toBe("雷电从哪里来");
-    });
+    expect(taskId).toBe("task-server-owned-1");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/tasks",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ request }),
+      }),
+    );
+    expect(saveTaskMock).not.toHaveBeenCalled();
+    expect(getTaskMock).not.toHaveBeenCalled();
+    expect(vi.mocked(generateTopicResearch)).not.toHaveBeenCalled();
+    expect(vi.mocked(generateScriptStream)).not.toHaveBeenCalled();
   });
 });

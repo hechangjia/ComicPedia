@@ -1,8 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getTasksPaginated, upsertTask, clearAllTasks, getAllTaskIds } from "@/lib/server/db";
 import { extractTaskImagesAsync, fileRefsToUrls, trashTaskImages } from "@/lib/server/imageExtractor";
+import { getTaskRuntime } from "@/lib/server/taskOrchestrator/runtime";
 import { listTaskJobsByTaskId, summarizeTaskJobs } from "@/lib/server/taskOrchestrator/store";
-import type { GenerateTask } from "@/lib/types";
+import type { GenerateRequest, GenerateTask } from "@/lib/types";
 
 /** 将 task 精简为列表所需的最小字段集，再转换 file:// 引用 */
 async function toListItem(task: GenerateTask) {
@@ -64,11 +66,27 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const task = body.task as GenerateTask;
+    const task = body.task as GenerateTask | undefined;
+    const createRequest = body.request as GenerateRequest | undefined;
+
+    if (createRequest) {
+      const now = new Date();
+      const serverTask: GenerateTask = {
+        id: randomUUID(),
+        status: "created",
+        progress: 0,
+        presetSnapshot: createRequest.presetSnapshot,
+        createdAt: now,
+        updatedAt: now,
+      };
+      upsertTask(serverTask);
+      getTaskRuntime().enqueueScript(serverTask.id, createRequest);
+      return NextResponse.json({ success: true, id: serverTask.id });
+    }
 
     if (!task?.id) {
       return NextResponse.json(
-        { error: "缺少 task.id" },
+        { error: "缺少 task.id 或 request" },
         { status: 400 },
       );
     }

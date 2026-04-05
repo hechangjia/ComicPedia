@@ -30,23 +30,21 @@ const traceEnd = traceEndShared;
  * 生成完成后任务状态为 "script_ready"，等待用户审查后手动触发图片生成。
  */
 export async function startGeneration(request: GenerateRequest): Promise<string> {
-  const taskId = generateId();
-
-  const task: GenerateTask = {
-    id: taskId,
-    status: "scripting",
-    progress: 0,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-
-  await saveTask(task);
-
-  processScripting(taskId, request).catch((err) => {
-    console.error("Background scripting failed:", err);
+  const response = await fetch("/api/tasks", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ request }),
   });
+  const body = await response.json().catch(() => ({}));
 
-  return taskId;
+  if (!response.ok) {
+    throw new Error(body.error || `API error: ${response.status}`);
+  }
+  if (!body?.id || typeof body.id !== "string") {
+    throw new Error("Task creation response missing id");
+  }
+
+  return body.id;
 }
 
 /** Phase 1: Generate comic script, stop at script_ready when done */
