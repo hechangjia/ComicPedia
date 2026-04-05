@@ -11,6 +11,7 @@ import { downloadTextFile } from "@/lib/downloadUtils";
 import { GeneratingAnimation } from "@/components/GeneratingAnimation";
 import { TitleSkeleton, ComicGridSkeleton } from "@/components/Skeleton";
 import { useTaskSubscription } from "@/hooks/useTaskSubscription";
+import { resumeTaskLifecycle, useTaskPageLifecycle } from "@/hooks/useTaskPageLifecycle";
 import { useTaskActions } from "@/hooks/useTaskActions";
 import { getStoredConfigs, getStoredRequestConfigs } from "@/hooks/useAPIConfig";
 import { StyleSwitcher } from "@/components/result/StyleSwitcher";
@@ -60,6 +61,7 @@ export default function ResultPage() {
   const taskId = params.id as string;
 
   const { task, setTask, error } = useTaskSubscription(taskId);
+  useTaskPageLifecycle(task);
 
   // --- Model selection ---
   const storedConfigs = useMemo(() => getStoredConfigs(), []);
@@ -102,6 +104,18 @@ export default function ResultPage() {
   } = useTaskActions(taskId, setTask, selectedImageId, selectedLLMId);
 
   const [viewMode, setViewMode] = useState<"edit" | "read" | "play">("edit");
+
+  const handleGenerateAllOrResume = useCallback(async () => {
+    if (task?.status === "image_queue_paused") {
+      const resumedTask = await resumeTaskLifecycle(taskId);
+      if (resumedTask) {
+        setTask(resumedTask);
+      }
+      return;
+    }
+
+    await handleGenerateAll();
+  }, [handleGenerateAll, setTask, task?.status, taskId]);
 
   // Script editor save handler
   const handleScriptEditorSave = useCallback((panels: import("@/lib/types").ComicPanel[]) => {
@@ -204,8 +218,10 @@ export default function ResultPage() {
   }
 
   const isScripting = SCRIPT_IN_PROGRESS_STATUSES.has(task.status);
-  const isScriptReady = task.status === "script_ready";
-  const isGenerating = task.status === "generating";
+  const isScriptReady = task.status === "script_ready" || task.status === "image_queue_paused";
+  const isLegacyGenerating = task.status === "generating";
+  const isQueueRunning = task.status === "image_queue_running";
+  const isGenerating = isLegacyGenerating || isQueueRunning;
   const isCompleted = task.status === "completed";
   const showAnimation = isScripting || isGenerating;
   const animationStatus = isGenerating
@@ -450,7 +466,7 @@ export default function ResultPage() {
             completedPanels={completedPanels}
             qualityLevel={(task.generationConfig?.quality as "fast" | "standard" | "fine") || "standard"}
           />
-          {isGenerating && (
+          {isLegacyGenerating && (
             <div className="flex justify-center">
               <button
                 onClick={() => cancelGeneration(taskId, -1)}
@@ -480,7 +496,7 @@ export default function ResultPage() {
           onSelectedLLMIdChange={setSelectedLLMId}
           onSelectedImageIdChange={setSelectedImageId}
           onRegenerateScript={handleRegenerateScript}
-          onGenerateAll={handleGenerateAll}
+          onGenerateAll={handleGenerateAllOrResume}
         />
       )}
 

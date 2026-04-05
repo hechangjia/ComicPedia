@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { GenerateTask } from "@/lib/types";
 import { getTask } from "@/lib/client/db";
 import { recoverZombieTask } from "@/lib/client/generator";
+import { reconcileTaskLifecycle } from "@/hooks/useTaskPageLifecycle";
 import { useTaskStore } from "@/stores/taskStore";
 
 /** Terminal states that no longer need polling */
@@ -9,6 +10,7 @@ const TERMINAL_STATUSES = new Set<GenerateTask["status"]>(["completed", "failed"
 
 /** Browser-owned active states where real-time updates come via notifyListeners → Zustand store. */
 const REALTIME_STATUSES = new Set<GenerateTask["status"]>(["generating", "scripting", "pending"]);
+const RECOVERABLE_LOCAL_STATUSES = new Set<GenerateTask["status"]>(["generating", "scripting"]);
 
 /**
  * Subscribe to task state changes.
@@ -48,15 +50,47 @@ export function useTaskSubscription(taskId: string) {
   useEffect(() => {
     if (!taskId) return;
 
-    recoverZombieTask(taskId).then(() => {
-      useTaskStore.getState().loadTask(taskId).then((t) => {
-        if (t) {
-          setTask(t);
-        } else {
-          setError("Task not found");
+    let cancelled = false;
+
+    async function hydrateTask() {
+      try {
+        const reconciledTask = await reconcileTaskLifecycle(taskId).catch(() => undefined);
+        if (cancelled) return;
+
+        if (reconciledTask) {
+          useTaskStore.getState().updateTask(reconciledTask);
+          setTask(reconciledTask);
         }
-      });
-    });
+
+        let loadedTask = await useTaskStore.getState().loadTask(taskId);
+        if (!loadedTask) {
+          if (!cancelled) {
+            setError("Task not found");
+          }
+          return;
+        }
+
+        if (RECOVERABLE_LOCAL_STATUSES.has(loadedTask.status)) {
+          await recoverZombieTask(taskId);
+          loadedTask = await getTask(taskId) ?? loadedTask;
+          useTaskStore.getState().updateTask(loadedTask);
+        }
+
+        if (!cancelled) {
+          setTask(loadedTask);
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError instanceof Error ? loadError.message : "Task load failed");
+        }
+      }
+    }
+
+    void hydrateTask();
+
+    return () => {
+      cancelled = true;
+    };
   }, [taskId]);
 
   // Adaptive polling fallback (refreshes store via loadTask; store changes auto-trigger selector)

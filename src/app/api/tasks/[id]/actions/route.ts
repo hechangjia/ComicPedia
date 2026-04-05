@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTaskById } from "@/lib/server/db";
 import { approveTaskCalibration, enqueuePanelImageJobs } from "@/lib/server/taskOrchestrator/imageRunner";
+import { pauseTaskJobs, reconcileTaskJobs, resumeTaskJobs } from "@/lib/server/taskOrchestrator/reconcile";
 import { getTaskRuntime } from "@/lib/server/taskOrchestrator/runtime";
 import type { PartialImageGenConfig, PartialLLMConfig } from "@/lib/types";
 
@@ -63,11 +64,42 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const body = await request.json() as TaskActionRequestBody;
     const action = body.action;
 
+    if (action === "pause") {
+      const updatedTask = await pauseTaskJobs(id);
+      return NextResponse.json({
+        success: true,
+        task: updatedTask,
+        queueSummary: updatedTask.queueSummary,
+      });
+    }
+
+    if (action === "resume") {
+      const updatedTask = await resumeTaskJobs(id);
+      if (updatedTask.queueSummary && (updatedTask.queueSummary.queued > 0 || updatedTask.queueSummary.running > 0)) {
+        getTaskRuntime().enqueueImageQueue(id);
+      }
+      return NextResponse.json({
+        success: true,
+        task: updatedTask,
+        queueSummary: updatedTask.queueSummary,
+      }, { status: 202 });
+    }
+
+    if (action === "reconcile") {
+      const updatedTask = await reconcileTaskJobs(id);
+      return NextResponse.json({
+        success: true,
+        task: updatedTask,
+        queueSummary: updatedTask.queueSummary,
+      });
+    }
+
     if (action === "approve_image_calibration") {
       const updatedTask = await approveTaskCalibration(id);
       getTaskRuntime().enqueueImageQueue(id);
       return NextResponse.json({
         success: true,
+        task: updatedTask,
         enqueuedPanelIndices: [],
         queueSummary: updatedTask.queueSummary,
       }, { status: 202 });
@@ -102,6 +134,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({
       success: true,
+      task: result.task,
       enqueuedPanelIndices: result.enqueuedPanelIndices,
       queueSummary: result.queueSummary,
     }, { status: 202 });

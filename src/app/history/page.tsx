@@ -5,6 +5,7 @@ import Link from "next/link";
 import { getAllComics, deleteComic, clearAllComics, saveTask } from "@/lib/client/db";
 import { useListCache } from "@/stores/listCache";
 import { recoverZombieTask } from "@/lib/client/generator";
+import { reconcileTaskLifecycle } from "@/hooks/useTaskPageLifecycle";
 import { GenerateTask, ComicStyle } from "@/lib/types";
 import { STYLE_DESCRIPTIONS } from "@/lib/config/styles";
 import { exportTasksAsZip, importDataFromFile } from "@/lib/exportImport";
@@ -20,6 +21,11 @@ const ACTIVE_SCRIPT_STATUSES = new Set<GenerateTask["status"]>([
   "created",
   "research_running",
   "script_running",
+]);
+
+const STUCK_SERVER_TASK_STATUSES = new Set<GenerateTask["status"]>([
+  "image_queue_running",
+  "deep_review_running",
 ]);
 
 /** 从 STYLE_DESCRIPTIONS 提取简短中文名称 */
@@ -199,12 +205,18 @@ export default function HistoryPage() {
       const result = await getAllComics(page, 50);
 
       const tasks = result.items;
-      // 恢复僵尸状态的任务（仅限本地浏览器驱动的 generating/scripting）
       const zombieIds = tasks
         .filter((t) => t.status === "generating" || t.status === "scripting")
         .map((t) => t.id);
-      if (zombieIds.length > 0) {
-        await Promise.all(zombieIds.map((id) => recoverZombieTask(id)));
+      const stuckServerTaskIds = tasks
+        .filter((t) => STUCK_SERVER_TASK_STATUSES.has(t.status))
+        .map((t) => t.id);
+
+      if (zombieIds.length > 0 || stuckServerTaskIds.length > 0) {
+        await Promise.allSettled([
+          ...zombieIds.map((id) => recoverZombieTask(id)),
+          ...stuckServerTaskIds.map((id) => reconcileTaskLifecycle(id)),
+        ]);
         const refreshed = await getAllComics(page, 50);
         if (page === 1) {
           setHistory(refreshed.items);
