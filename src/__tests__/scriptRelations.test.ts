@@ -1,73 +1,87 @@
-import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
-import type { Character, CharacterRelation, GenerateTask } from "@/lib/types";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { Character, CharacterRelation, GenerateRequest, GenerateTask } from "@/lib/types";
 
 const {
   getTaskMock,
-  saveTaskMock,
-  notifyListenersMock,
-  fetchMock,
-  getCharacterMock,
+  upsertTaskMock,
+  getCharacterByIdMock,
+  getAllRelationsMock,
+  getSeriesByIdMock,
+  getEpisodeArcSnapshotsMock,
+  getConfigMock,
+  generateTopicResearchMock,
+  buildEnhancedTopicFromResearchMock,
+  generateScriptStreamMock,
+  generateScriptMock,
+  validateScriptMock,
+  applyCanonicalCharacterDescMock,
+  repairScriptMock,
+  reviewPanelClaimsMock,
+  repairAccuracyIssuesMock,
+  searchWikipediaMock,
+  getWikipediaSummaryMock,
 } = vi.hoisted(() => ({
   getTaskMock: vi.fn(),
-  saveTaskMock: vi.fn(),
-  notifyListenersMock: vi.fn(),
-  fetchMock: vi.fn(),
-  getCharacterMock: vi.fn(),
+  upsertTaskMock: vi.fn(),
+  getCharacterByIdMock: vi.fn(),
+  getAllRelationsMock: vi.fn(),
+  getSeriesByIdMock: vi.fn(),
+  getEpisodeArcSnapshotsMock: vi.fn(),
+  getConfigMock: vi.fn(),
+  generateTopicResearchMock: vi.fn(),
+  buildEnhancedTopicFromResearchMock: vi.fn(),
+  generateScriptStreamMock: vi.fn(),
+  generateScriptMock: vi.fn(),
+  validateScriptMock: vi.fn(),
+  applyCanonicalCharacterDescMock: vi.fn(),
+  repairScriptMock: vi.fn(),
+  reviewPanelClaimsMock: vi.fn(),
+  repairAccuracyIssuesMock: vi.fn(),
+  searchWikipediaMock: vi.fn(),
+  getWikipediaSummaryMock: vi.fn(),
 }));
 
-vi.mock("@/lib/client/db", () => ({
-  getTask: getTaskMock,
-  saveTask: saveTaskMock,
-  getCharacter: getCharacterMock,
+vi.mock("@/lib/server/db", () => ({
+  getTaskById: getTaskMock,
+  upsertTask: upsertTaskMock,
+  getCharacterById: getCharacterByIdMock,
+  getAllRelations: getAllRelationsMock,
+  getSeriesById: getSeriesByIdMock,
+  getEpisodeArcSnapshots: getEpisodeArcSnapshotsMock,
+  getConfig: getConfigMock,
 }));
-
-vi.mock("@/lib/client/eventBus", () => ({
-  notifyListeners: notifyListenersMock,
-  saveTaskThrottled: vi.fn(),
-  flushThrottledSave: vi.fn(),
-  cleanupTaskState: vi.fn(),
-}));
-
-vi.mock("@/lib/concurrency", () => ({ withConcurrency: vi.fn() }));
-vi.mock("@/lib/qualityScore", () => ({ evaluateQuality: vi.fn() }));
-vi.mock("@/lib/vlmScorer", () => ({ evaluateVisualQuality: vi.fn() }));
-vi.mock("@/hooks/useAPIConfig", () => ({ getStoredRequestConfigs: vi.fn() }));
 
 vi.mock("@/lib/llm", () => ({
-  generateScript: vi.fn(),
-  generateScriptStream: vi.fn(),
-  generateTopicResearch: vi.fn(),
-  buildEnhancedTopicFromResearch: vi.fn(),
+  generateScript: generateScriptMock,
+  generateScriptStream: generateScriptStreamMock,
+  generateTopicResearch: generateTopicResearchMock,
+  buildEnhancedTopicFromResearch: buildEnhancedTopicFromResearchMock,
 }));
-
-vi.mock("@/lib/imageGen", () => ({ getImageAdapter: vi.fn() }));
 
 vi.mock("@/lib/scriptValidator", () => ({
-  validateScript: vi.fn().mockReturnValue({ warnings: [] }),
-  applyCanonicalCharacterDesc: vi.fn((s) => s),
+  validateScript: validateScriptMock,
+  applyCanonicalCharacterDesc: applyCanonicalCharacterDescMock,
 }));
 
-vi.mock("@/lib/scriptRepair", () => ({ repairScript: vi.fn() }));
+vi.mock("@/lib/scriptRepair", () => ({ repairScript: repairScriptMock }));
 vi.mock("@/lib/director", () => ({
   generateNarrativeOutline: vi.fn(),
   buildOutlineGuidance: vi.fn().mockReturnValue(""),
 }));
 vi.mock("@/lib/accuracy/claimReview", () => ({
-  reviewPanelClaims: vi.fn().mockReturnValue({ status: "pass", panelClaims: [], panels: [], sourceCoverage: {} }),
+  reviewPanelClaims: reviewPanelClaimsMock,
 }));
-vi.mock("@/lib/accuracy/repair", () => ({ repairAccuracyIssues: vi.fn() }));
+vi.mock("@/lib/accuracy/repair", () => ({ repairAccuracyIssues: repairAccuracyIssuesMock }));
+vi.mock("@/lib/accuracy/research", () => ({
+  runAccuracyResearch: vi.fn(),
+}));
 vi.mock("@/lib/guideCharacterPolicy", () => ({
   stripDisallowedGuideCharacterFromScript: vi.fn((s) => s),
 }));
-vi.mock("@/lib/retryQueue", () => ({ withRetry: vi.fn((fn) => fn()) }));
-vi.mock("@/lib/client/imageStore", () => ({ urlToBase64: vi.fn() }));
-vi.mock("@/lib/client/promptEnhancer", () => ({
-  mergeReferenceImage: vi.fn((p) => p),
-  buildEnhancedPromptWithLog: vi.fn((p) => ({ prompt: p, log: [] })),
+vi.mock("@/lib/server/wikipedia", () => ({
+  searchWikipedia: searchWikipediaMock,
+  getWikipediaSummary: getWikipediaSummaryMock,
 }));
-
-import { startGeneration } from "@/lib/client/generator";
-import { generateScriptStream } from "@/lib/llm";
 
 function makeCharacter(id: string, name: string): Character {
   return {
@@ -99,8 +113,14 @@ function makeRelation(fromId: string, toId: string, type: string = "friend"): Ch
   };
 }
 
-function mockJsonResponse(body: unknown, ok = true) {
-  return { ok, json: vi.fn().mockResolvedValue(body) } as unknown as Response;
+function makeRequest(overrides: Partial<GenerateRequest> = {}): GenerateRequest {
+  return {
+    topic: "Test topic",
+    style: "flat",
+    contentType: "science",
+    quality: "fast",
+    ...overrides,
+  };
 }
 
 const baseScript = {
@@ -112,17 +132,61 @@ const baseScript = {
 
 describe("script phase: relation fetching", () => {
   beforeEach(() => {
+    vi.resetModules();
     getTaskMock.mockReset();
-    saveTaskMock.mockReset();
-    notifyListenersMock.mockReset();
-    fetchMock.mockReset();
-    getCharacterMock.mockReset();
-    vi.mocked(generateScriptStream).mockReset();
-    vi.stubGlobal("fetch", fetchMock);
-  });
+    upsertTaskMock.mockReset();
+    getCharacterByIdMock.mockReset();
+    getAllRelationsMock.mockReset();
+    getSeriesByIdMock.mockReset();
+    getEpisodeArcSnapshotsMock.mockReset();
+    getConfigMock.mockReset();
+    generateTopicResearchMock.mockReset();
+    buildEnhancedTopicFromResearchMock.mockReset();
+    generateScriptStreamMock.mockReset();
+    generateScriptMock.mockReset();
+    validateScriptMock.mockReset();
+    applyCanonicalCharacterDescMock.mockReset();
+    repairScriptMock.mockReset();
+    reviewPanelClaimsMock.mockReset();
+    repairAccuracyIssuesMock.mockReset();
+    searchWikipediaMock.mockReset();
+    getWikipediaSummaryMock.mockReset();
 
-  afterAll(() => {
-    vi.unstubAllGlobals();
+    getSeriesByIdMock.mockReturnValue(null);
+    getEpisodeArcSnapshotsMock.mockReturnValue([]);
+    getConfigMock.mockReturnValue(null);
+    generateTopicResearchMock.mockResolvedValue({
+      originalTopic: "Test topic",
+      expandedDescription: "Expanded topic",
+      keyFacts: [],
+      narrativeAngle: "Explain it simply",
+      narrativeAngles: [],
+      knowledgeMap: { core: [], sub: [], related: [] },
+    });
+    buildEnhancedTopicFromResearchMock.mockReturnValue("Enhanced topic");
+    generateScriptStreamMock.mockResolvedValue(baseScript);
+    generateScriptMock.mockResolvedValue(baseScript);
+    validateScriptMock.mockReturnValue({
+      passed: true,
+      characterConsistency: true,
+      compositionVariety: true,
+      styleAlignment: true,
+      languagePurity: true,
+      warnings: [],
+    });
+    applyCanonicalCharacterDescMock.mockImplementation(() => {});
+    reviewPanelClaimsMock.mockReturnValue({
+      status: "passed",
+      blockingIssueCount: 0,
+      repairableIssueCount: 0,
+      panelClaims: [],
+      panels: [],
+      sourceCoverage: { anchor: false, whitelist: false, open_web: false },
+    });
+    repairScriptMock.mockResolvedValue(null);
+    repairAccuracyIssuesMock.mockResolvedValue(null);
+    searchWikipediaMock.mockResolvedValue([]);
+    getWikipediaSummaryMock.mockResolvedValue(null);
   });
 
   it("fetches relations and includes them in character context when characters are provided", async () => {
@@ -131,49 +195,33 @@ describe("script phase: relation fetching", () => {
     const relation = makeRelation("c1", "c2", "ally");
     const unrelatedRelation = makeRelation("c3", "c4", "enemy");
 
-    getCharacterMock.mockImplementation(async (id: string) => {
+    getCharacterByIdMock.mockImplementation((id: string) => {
       if (id === "c1") return alice;
       if (id === "c2") return bob;
       return null;
     });
 
-    let storedTask: GenerateTask | undefined;
-    saveTaskMock.mockImplementation(async (task: GenerateTask) => {
+    let storedTask: GenerateTask = {
+      id: "task-relations-1",
+      status: "created",
+      progress: 0,
+      createdAt: new Date("2026-04-05T00:00:00.000Z"),
+      updatedAt: new Date("2026-04-05T00:00:00.000Z"),
+    };
+    upsertTaskMock.mockImplementation((task: GenerateTask) => {
       storedTask = task;
     });
-    getTaskMock.mockImplementation(async () => storedTask);
+    getTaskMock.mockImplementation(() => storedTask);
+    getAllRelationsMock.mockReturnValue([relation, unrelatedRelation]);
 
-    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.startsWith("/api/relations")) {
-        return mockJsonResponse([relation, unrelatedRelation]);
-      }
-      if (url.startsWith("/api/accuracy/research")) {
-        return mockJsonResponse({ factPack: null, researchBrief: null });
-      }
-      return mockJsonResponse({}, false);
-    });
-
-    vi.mocked(generateScriptStream).mockResolvedValue(baseScript);
-
-    const taskId = await startGeneration({
-      topic: "Test topic",
-      style: "flat",
-      contentType: "science",
+    const { runResearchAndScriptTask } = await import("@/lib/server/taskOrchestrator/scriptRunner");
+    await runResearchAndScriptTask(storedTask.id, makeRequest({
       characterIds: ["c1", "c2"],
-    });
+    }));
 
-    // Wait for async pipeline to complete
-    await vi.waitFor(() => {
-      expect(storedTask?.status).toBe("script_ready");
-    }, { timeout: 2000 });
-
-    // Verify relations API was called
-    const fetchCalls = fetchMock.mock.calls.map((c: unknown[]) => String(c[0]));
-    expect(fetchCalls).toContain("/api/relations");
-
-    // Verify the script generation received character context with relations
-    const streamCall = vi.mocked(generateScriptStream).mock.calls[0];
+    expect(storedTask.status).toBe("script_ready");
+    expect(getAllRelationsMock).toHaveBeenCalledTimes(1);
+    const streamCall = generateScriptStreamMock.mock.calls[0];
     const topicArg = streamCall[0] as string;
     expect(topicArg).toContain("CHARACTER RELATIONSHIPS");
     expect(topicArg).toContain("Alice");
@@ -183,82 +231,59 @@ describe("script phase: relation fetching", () => {
 
   it("degrades gracefully when relations API fails", async () => {
     const alice = makeCharacter("c1", "Alice");
-    getCharacterMock.mockImplementation(async (id: string) => {
+    getCharacterByIdMock.mockImplementation((id: string) => {
       if (id === "c1") return alice;
       return null;
     });
 
-    let storedTask: GenerateTask | undefined;
-    saveTaskMock.mockImplementation(async (task: GenerateTask) => {
+    let storedTask: GenerateTask = {
+      id: "task-relations-2",
+      status: "created",
+      progress: 0,
+      createdAt: new Date("2026-04-05T00:00:00.000Z"),
+      updatedAt: new Date("2026-04-05T00:00:00.000Z"),
+    };
+    upsertTaskMock.mockImplementation((task: GenerateTask) => {
       storedTask = task;
     });
-    getTaskMock.mockImplementation(async () => storedTask);
-
-    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.startsWith("/api/relations")) {
-        throw new Error("Network error");
-      }
-      if (url.startsWith("/api/accuracy/research")) {
-        return mockJsonResponse({ factPack: null, researchBrief: null });
-      }
-      return mockJsonResponse({}, false);
+    getTaskMock.mockImplementation(() => storedTask);
+    getAllRelationsMock.mockImplementation(() => {
+      throw new Error("relations unavailable");
     });
 
-    vi.mocked(generateScriptStream).mockResolvedValue(baseScript);
-
-    await startGeneration({
-      topic: "Test topic",
-      style: "flat",
-      contentType: "science",
+    const { runResearchAndScriptTask } = await import("@/lib/server/taskOrchestrator/scriptRunner");
+    await runResearchAndScriptTask(storedTask.id, makeRequest({
       characterIds: ["c1"],
-    });
+    }));
 
-    await vi.waitFor(() => {
-      expect(storedTask?.status).toBe("script_ready");
-    }, { timeout: 2000 });
-
-    // Script should still generate successfully without relations
-    const streamCall = vi.mocked(generateScriptStream).mock.calls[0];
+    expect(storedTask.status).toBe("script_ready");
+    const streamCall = generateScriptStreamMock.mock.calls[0];
     const topicArg = streamCall[0] as string;
     expect(topicArg).toContain("CHARACTERS IN THIS STORY");
     expect(topicArg).toContain("Alice");
-    // No relations section since API failed
     expect(topicArg).not.toContain("CHARACTER RELATIONSHIPS");
   });
 
   it("skips relation fetch when no characters are provided", async () => {
-    let storedTask: GenerateTask | undefined;
-    saveTaskMock.mockImplementation(async (task: GenerateTask) => {
+    let storedTask: GenerateTask = {
+      id: "task-relations-3",
+      status: "created",
+      progress: 0,
+      createdAt: new Date("2026-04-05T00:00:00.000Z"),
+      updatedAt: new Date("2026-04-05T00:00:00.000Z"),
+    };
+    upsertTaskMock.mockImplementation((task: GenerateTask) => {
       storedTask = task;
     });
-    getTaskMock.mockImplementation(async () => storedTask);
-
-    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.startsWith("/api/relations")) {
-        throw new Error("Should not be called");
-      }
-      if (url.startsWith("/api/accuracy/research")) {
-        return mockJsonResponse({ factPack: null, researchBrief: null });
-      }
-      return mockJsonResponse({}, false);
+    getTaskMock.mockImplementation(() => storedTask);
+    getAllRelationsMock.mockImplementation(() => {
+      throw new Error("Should not be called");
     });
 
-    vi.mocked(generateScriptStream).mockResolvedValue(baseScript);
+    const { runResearchAndScriptTask } = await import("@/lib/server/taskOrchestrator/scriptRunner");
+    await runResearchAndScriptTask(storedTask.id, makeRequest({ characterIds: undefined }));
 
-    await startGeneration({
-      topic: "Test topic",
-      style: "flat",
-      contentType: "science",
-    });
-
-    await vi.waitFor(() => {
-      expect(storedTask?.status).toBe("script_ready");
-    }, { timeout: 2000 });
-
-    // Verify relations API was NOT called
-    const fetchCalls = fetchMock.mock.calls.map((c: unknown[]) => String(c[0]));
-    expect(fetchCalls).not.toContain("/api/relations");
+    expect(storedTask.status).toBe("script_ready");
+    expect(getAllRelationsMock).not.toHaveBeenCalled();
   });
 });

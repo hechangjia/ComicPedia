@@ -216,9 +216,13 @@ function loadCharacters(request: GenerateRequest): Character[] {
 
   const characters: Character[] = [];
   for (const id of request.characterIds) {
-    const character = getCharacterById(id);
-    if (character) {
-      characters.push(character);
+    try {
+      const character = getCharacterById(id);
+      if (character) {
+        characters.push(character);
+      }
+    } catch (error) {
+      console.warn(`[TaskScriptRunner] Failed to load character ${id}, continuing without it:`, error);
     }
   }
   return characters;
@@ -232,24 +236,29 @@ function buildSeriesContext(
     return undefined;
   }
 
-  const series = getSeriesById(request.seriesId);
-  if (!series) {
+  try {
+    const series = getSeriesById(request.seriesId);
+    if (!series) {
+      return undefined;
+    }
+
+    const snapshots = getEpisodeArcSnapshots(
+      series.episodes.map((episode) => episode.taskId),
+      characters.map((character) => character.name),
+    );
+    const recap = snapshots
+      .map((snapshot) => `Episode ${snapshot.episodeNumber} "${snapshot.title}": ${snapshot.characterSummary}`)
+      .join("\n");
+
+    return {
+      episodeNumber: (series.episodes?.length ?? 0) + 1,
+      seriesTitle: series.title,
+      previousRecap: recap || undefined,
+    };
+  } catch (error) {
+    console.warn("[TaskScriptRunner] Failed to load series context, continuing without it:", error);
     return undefined;
   }
-
-  const snapshots = getEpisodeArcSnapshots(
-    series.episodes.map((episode) => episode.taskId),
-    characters.map((character) => character.name),
-  );
-  const recap = snapshots
-    .map((snapshot) => `Episode ${snapshot.episodeNumber} "${snapshot.title}": ${snapshot.characterSummary}`)
-    .join("\n");
-
-  return {
-    episodeNumber: (series.episodes?.length ?? 0) + 1,
-    seriesTitle: series.title,
-    previousRecap: recap || undefined,
-  };
 }
 
 async function runScriptPhase(
@@ -270,10 +279,14 @@ async function runScriptPhase(
 
   let relations: CharacterRelation[] = [];
   if (characters.length > 0) {
-    const characterIds = new Set(characters.map((item) => item.id));
-    relations = getAllRelations().filter((relation) =>
-      characterIds.has(relation.fromId) || characterIds.has(relation.toId),
-    );
+    try {
+      const characterIds = new Set(characters.map((item) => item.id));
+      relations = getAllRelations().filter((relation) =>
+        characterIds.has(relation.fromId) || characterIds.has(relation.toId),
+      );
+    } catch (error) {
+      console.warn("[TaskScriptRunner] Failed to load character relations, continuing without them:", error);
+    }
   }
 
   const seriesContext = buildSeriesContext(request, characters);
