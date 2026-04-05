@@ -511,4 +511,18 @@ describe("useTaskActions queue helpers", () => {
     expect(setTask).not.toHaveBeenCalled();
     consoleErrorSpy.mockRestore();
   });
+
+  it("returns false when queueing selected panels fails", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValueOnce(makeActionResponse({ error: "队列不可用" }, { ok: false, status: 503 }));
+
+    const { hook } = renderTaskActionsHook();
+    await expect(hook.handleQueueSelectedPanels([0, 1])).resolves.toBe(false);
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith("Queue selected panels failed:", expect.any(Error));
+    consoleErrorSpy.mockRestore();
+  });
 });

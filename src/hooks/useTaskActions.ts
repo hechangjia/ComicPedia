@@ -477,7 +477,7 @@ export function useTaskActions(
   }, [getSelectedQueueActionBody, postTaskAction, showError]);
 
   const handleQueueSelectedPanels = useCallback(async (panelIndices: number[]) => {
-    if (panelIndices.length === 0) return;
+    if (panelIndices.length === 0) return false;
 
     setGeneratingAll(true);
     try {
@@ -486,9 +486,11 @@ export function useTaskActions(
         panelIndices,
         ...getSelectedQueueActionBody(),
       });
+      return true;
     } catch (err) {
       console.error("Queue selected panels failed:", err);
       showError(`选中面板入队失败: ${err instanceof Error ? err.message : "未知错误"}`);
+      return false;
     } finally {
       setGeneratingAll(false);
     }

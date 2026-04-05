@@ -145,8 +145,10 @@ export default function ResultPage() {
   }, []);
 
   const handleQueueSelected = useCallback(async () => {
-    await handleQueueSelectedPanels(selectedPanelIndices);
-    setSelectedPanelIds([]);
+    const queued = await handleQueueSelectedPanels(selectedPanelIndices);
+    if (queued) {
+      setSelectedPanelIds([]);
+    }
   }, [handleQueueSelectedPanels, selectedPanelIndices]);
 
   // Script editor save handler

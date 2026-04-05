@@ -82,7 +82,7 @@ describe("ScriptReadyWorkspace", () => {
     expect(html).toMatch(/aria-label="生成选中"[^>]*disabled=""/);
   });
 
-  it("enables generate selected and swaps to resume queue when the queue is paused", () => {
+  it("shows resume queue and keeps enqueue actions disabled when the queue is paused", () => {
     const html = renderWorkspace({
       taskStatus: "image_queue_paused",
       selectedPanelIds: [1],
@@ -95,7 +95,7 @@ describe("ScriptReadyWorkspace", () => {
 
     expect(html).toContain("队列已暂停");
     expect(html).toContain("恢复队列");
-    expect(html).not.toMatch(/aria-label="生成选中"[^>]*disabled=""/);
+    expect(html).toMatch(/aria-label="生成选中"[^>]*disabled=""/);
   });
 
   it("keeps checkbox selection attached to panel identity after reorder", () => {

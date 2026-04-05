@@ -70,6 +70,7 @@ export function ScriptReadyWorkspace({
 }: ScriptReadyWorkspaceProps) {
   const completedPanels = panels.filter((panel) => panel.status === "completed").length;
   const pendingPanels = panels.filter((panel) => panel.status !== "completed").length;
+  const canEnqueuePanels = taskStatus === "script_ready";
 
   return (
     <div className="space-y-4 no-print">
@@ -127,7 +128,7 @@ export function ScriptReadyWorkspace({
               type="button"
               aria-label={`生成本张-${index}`}
               onClick={() => onQueuePanel(index)}
-              disabled={generatingAll}
+              disabled={generatingAll || !canEnqueuePanels}
               className="px-4 py-2 text-sm border rounded-lg hover:bg-muted transition-colors disabled:opacity-50 min-h-[40px] shrink-0"
             >
               生成本张

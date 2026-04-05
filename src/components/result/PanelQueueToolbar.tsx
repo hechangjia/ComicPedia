@@ -34,6 +34,7 @@ export function PanelQueueToolbar({
 }: PanelQueueToolbarProps) {
   const isQueueRunning = taskStatus === "image_queue_running";
   const isQueuePaused = taskStatus === "image_queue_paused";
+  const canEnqueuePanels = taskStatus === "script_ready";
 
   return (
     <div className="rounded-xl border bg-card p-4 space-y-3 no-print">
@@ -74,7 +75,7 @@ export function PanelQueueToolbar({
           type="button"
           aria-label="生成选中"
           onClick={onQueueSelected}
-          disabled={actionPending || selectedCount === 0}
+          disabled={actionPending || selectedCount === 0 || !canEnqueuePanels}
           className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2 min-h-[40px]"
         >
           <Rows4 className="w-4 h-4" />
@@ -84,7 +85,7 @@ export function PanelQueueToolbar({
           type="button"
           aria-label="继续剩余"
           onClick={onContinueRemaining}
-          disabled={actionPending || pendingPanels === 0}
+          disabled={actionPending || pendingPanels === 0 || !canEnqueuePanels}
           className="px-4 py-2 text-sm border rounded-lg hover:bg-muted transition-colors disabled:opacity-50 flex items-center gap-2 min-h-[40px]"
         >
           <ImageIcon className="w-4 h-4" />
