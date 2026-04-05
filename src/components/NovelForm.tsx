@@ -11,6 +11,8 @@ import { CharacterPicker } from "./CharacterPicker";
 import { ErrorAlert } from "./ErrorAlert";
 import { Spinner } from "./ui/Spinner";
 import { QualitySelector } from "./QualitySelector";
+import { GenerationPresetSelector } from "./GenerationPresetSelector";
+import { AdvancedGenerationSettings } from "./AdvancedGenerationSettings";
 
 const GENRES: { value: NovelGenre; label: string; desc: string }[] = [
   { value: "wuxia", label: "武侠", desc: "刀光剑影，江湖恩怨" },
@@ -181,6 +183,18 @@ export function NovelForm({ initialContent = "" }: { initialContent?: string }) 
 
         <ModelSelector type="llm" value={form.selectedLLMId} onChange={form.setSelectedLLMId} disabled={form.isLoading} />
         <ModelSelector type="image" value={form.selectedImageId} onChange={form.setSelectedImageId} disabled={form.isLoading} />
+
+        <GenerationPresetSelector
+          value={form.selectedPresetId}
+          onChange={form.setSelectedPresetId}
+          disabled={form.isLoading}
+        />
+
+        <AdvancedGenerationSettings
+          value={form.advancedSettings}
+          onChange={form.setAdvancedSettings}
+          disabled={form.isLoading}
+        />
 
         <StyleSelector value={form.style} onChange={form.setStyle} disabled={form.isLoading} recommendFor={"novel" as PoetryGenre} />
 

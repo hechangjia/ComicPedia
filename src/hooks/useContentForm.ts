@@ -8,6 +8,7 @@ import {
   DifficultyLevel,
   GenerateRequest,
   GenerationQuality,
+  GenerationPresetSnapshot,
   ReferenceImageEntry,
   ReferenceGenMode,
   Character,
@@ -18,6 +19,7 @@ import { generateReferenceImagePrompt, generateCharacterPrompts } from "@/lib/ll
 import { getImageAdapter } from "@/lib/imageGen";
 import { extractReferenceEntries } from "@/components/CharacterPicker";
 import { urlToBase64, createReferenceEntry } from "@/lib/utils";
+import { buildGenerationSnapshot, type GenerationPresetId } from "@/lib/config/generationPresets";
 
 // ============================================================
 // 类型定义
@@ -59,6 +61,10 @@ export interface ContentFormState {
   setSelectedLLMId: (s: string | null) => void;
   selectedImageId: string | null;
   setSelectedImageId: (s: string | null) => void;
+  selectedPresetId: GenerationPresetId;
+  setSelectedPresetId: React.Dispatch<React.SetStateAction<GenerationPresetId>>;
+  advancedSettings: Partial<GenerationPresetSnapshot>;
+  setAdvancedSettings: React.Dispatch<React.SetStateAction<Partial<GenerationPresetSnapshot>>>;
   quality: GenerationQuality;
   setQuality: (q: GenerationQuality) => void;
   difficulty: DifficultyLevel;
@@ -135,6 +141,8 @@ export function useContentForm(
   const [error, setError] = useState("");
   const [selectedLLMId, setSelectedLLMId] = useState<string | null>(null);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
+  const [selectedPresetId, setSelectedPresetId] = useState<GenerationPresetId>("balanced-auto");
+  const [advancedSettings, setAdvancedSettings] = useState<Partial<GenerationPresetSnapshot>>({});
   const [quality, setQuality] = useState<GenerationQuality>("standard");
   const [difficulty, setDifficulty] = useState<DifficultyLevel>("medium");
   const [allowGuideCharacter, setAllowGuideCharacter] = useState<boolean>(config.defaultAllowGuideCharacter ?? true);
@@ -382,6 +390,7 @@ export function useContentForm(
         quality,
         difficulty,
         allowGuideCharacter,
+        presetSnapshot: buildGenerationSnapshot(selectedPresetId, advancedSettings),
         ...extraPayload,
       };
 
@@ -420,6 +429,7 @@ export function useContentForm(
     configStatus.hasLLM,
     controlMode,
     allowGuideCharacter,
+    advancedSettings,
     customPanelCount,
     difficulty,
     panelCount,
@@ -428,6 +438,7 @@ export function useContentForm(
     referenceImage,
     referenceImages,
     router,
+    selectedPresetId,
     selectedCharacterIds,
     selectedImageId,
     selectedLLMId,
@@ -442,6 +453,8 @@ export function useContentForm(
     isLoading, error, setError,
     selectedLLMId, setSelectedLLMId,
     selectedImageId, setSelectedImageId,
+    selectedPresetId, setSelectedPresetId,
+    advancedSettings, setAdvancedSettings,
     quality, setQuality,
     difficulty, setDifficulty,
     showGuideCharacterToggle: config.showGuideCharacterToggle ?? false,

@@ -461,6 +461,12 @@ export interface TaskJobRecord {
 
 export interface GenerationPresetSnapshot {
   presetId: string;
+  pauseAfterScript?: boolean;
+  calibrationMode?: "required" | "disabled";
+  imageConcurrency?: number;
+  lightCheckMode?: "auto" | "off";
+  deepReviewMode?: "manual";
+  leavePagePolicy?: "finish_inflight_then_pause";
   research?: Record<string, unknown>;
   script?: Record<string, unknown>;
   imageQueue?: Record<string, unknown>;

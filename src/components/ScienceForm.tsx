@@ -12,6 +12,8 @@ import { Spinner } from "./ui/Spinner";
 import { QualitySelector } from "./QualitySelector";
 import { DifficultySelector } from "./DifficultySelector";
 import { GuideCharacterToggle } from "./GuideCharacterToggle";
+import { GenerationPresetSelector } from "./GenerationPresetSelector";
+import { AdvancedGenerationSettings } from "./AdvancedGenerationSettings";
 
 const EXAMPLE_TOPICS = [
   "黑洞是如何形成的",
@@ -65,6 +67,18 @@ export function ScienceForm({ initialTopic = "" }: { initialTopic?: string }) {
 
         <ModelSelector type="llm" value={form.selectedLLMId} onChange={form.setSelectedLLMId} disabled={form.isLoading} />
         <ModelSelector type="image" value={form.selectedImageId} onChange={form.setSelectedImageId} disabled={form.isLoading} />
+
+        <GenerationPresetSelector
+          value={form.selectedPresetId}
+          onChange={form.setSelectedPresetId}
+          disabled={form.isLoading}
+        />
+
+        <AdvancedGenerationSettings
+          value={form.advancedSettings}
+          onChange={form.setAdvancedSettings}
+          disabled={form.isLoading}
+        />
 
         <StyleSelector value={form.style} onChange={form.setStyle} disabled={form.isLoading} />
 

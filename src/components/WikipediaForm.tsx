@@ -11,6 +11,8 @@ import { ErrorAlert } from "./ErrorAlert";
 import { Spinner } from "./ui/Spinner";
 import { QualitySelector } from "./QualitySelector";
 import { GuideCharacterToggle } from "./GuideCharacterToggle";
+import { GenerationPresetSelector } from "./GenerationPresetSelector";
+import { AdvancedGenerationSettings } from "./AdvancedGenerationSettings";
 import { MathText } from "./MathText";
 import { summarizeWikipediaContent } from "@/lib/llm";
 import { getStoredRequestConfigs } from "@/hooks/useAPIConfig";
@@ -443,6 +445,19 @@ export function WikipediaForm({ initialTopic = "" }: { initialTopic?: string }) 
           <>
             <ModelSelector type="llm" value={form.selectedLLMId} onChange={form.setSelectedLLMId} disabled={form.isLoading} />
             <ModelSelector type="image" value={form.selectedImageId} onChange={form.setSelectedImageId} disabled={form.isLoading} />
+
+            <GenerationPresetSelector
+              value={form.selectedPresetId}
+              onChange={form.setSelectedPresetId}
+              disabled={form.isLoading}
+            />
+
+            <AdvancedGenerationSettings
+              value={form.advancedSettings}
+              onChange={form.setAdvancedSettings}
+              disabled={form.isLoading}
+            />
+
             <StyleSelector value={form.style} onChange={form.setStyle} disabled={form.isLoading} />
 
             <PanelCountSelector
