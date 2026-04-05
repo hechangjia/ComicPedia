@@ -365,6 +365,12 @@ export interface GenerateRequest {
   style: ComicStyle;
   panelCount?: number | null; // 可选，null/未填表示由模型自动决定
   characterId?: string; // Optional character ID for consistency
+  /** Stable selected LLM config id for secret-safe server replay */
+  llmConfigId?: string;
+  /** Stable selected image config id for secret-safe server replay */
+  imageConfigId?: string;
+  /** Stable selected VLM config id when a request depends on it */
+  vlmConfigId?: string;
   llmConfig?: PartialLLMConfig;
   imageConfig?: PartialImageGenConfig;
   contentType?: ContentType; // 内容类型：科普或诗词

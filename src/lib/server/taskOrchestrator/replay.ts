@@ -36,6 +36,30 @@ function sanitizeImageConfig(config?: PartialImageGenConfig): SanitizedImageConf
   return Object.values(sanitized).some((value) => value !== undefined) ? sanitized : undefined;
 }
 
+function isLocalApiUrl(apiUrl?: string): boolean {
+  if (!apiUrl) return false;
+  try {
+    const url = new URL(apiUrl);
+    return ["localhost", "127.0.0.1", "::1", "0.0.0.0"].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isSafeInlineLLMConfig(
+  request: GenerateRequest,
+  sanitized?: SanitizedLLMConfig,
+): sanitized is SanitizedLLMConfig {
+  return !request.llmConfig?.apiKey && isLocalApiUrl(sanitized?.apiUrl);
+}
+
+function isSafeInlineImageConfig(
+  request: GenerateRequest,
+  sanitized?: SanitizedImageConfig,
+): sanitized is SanitizedImageConfig {
+  return !request.imageConfig?.apiKey && isLocalApiUrl(sanitized?.apiUrl);
+}
+
 function matchesLLMConfig(candidate: UserLLMConfig, config?: SanitizedLLMConfig): boolean {
   if (!config) return false;
   return candidate.apiUrl === config.apiUrl
@@ -118,15 +142,20 @@ export function buildServerScriptReplayPayload(request: GenerateRequest): Server
   const sanitizedImage = sanitizeImageConfig(request.imageConfig);
   const { llmConfig: _llmConfig, imageConfig: _imageConfig, ...requestWithoutSecrets } = request;
 
+  const llmConfigId = request.llmConfigId
+    ?? (sanitizedLLM ? config?.llmConfigs.find((item) => matchesLLMConfig(item, sanitizedLLM))?.id : undefined);
+  const imageConfigId = request.imageConfigId
+    ?? (sanitizedImage ? config?.imageConfigs.find((item) => matchesImageConfig(item, sanitizedImage))?.id : undefined);
+
   return {
     request: requestWithoutSecrets,
-    llm: sanitizedLLM ? {
-      configId: config?.llmConfigs.find((item) => matchesLLMConfig(item, sanitizedLLM))?.id,
-      fallback: sanitizedLLM,
+    llm: llmConfigId || isSafeInlineLLMConfig(request, sanitizedLLM) ? {
+      configId: llmConfigId,
+      fallback: isSafeInlineLLMConfig(request, sanitizedLLM) ? sanitizedLLM : undefined,
     } : undefined,
-    image: sanitizedImage ? {
-      configId: config?.imageConfigs.find((item) => matchesImageConfig(item, sanitizedImage))?.id,
-      fallback: sanitizedImage,
+    image: imageConfigId || isSafeInlineImageConfig(request, sanitizedImage) ? {
+      configId: imageConfigId,
+      fallback: isSafeInlineImageConfig(request, sanitizedImage) ? sanitizedImage : undefined,
     } : undefined,
   };
 }

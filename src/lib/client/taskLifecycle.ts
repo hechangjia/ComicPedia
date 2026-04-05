@@ -32,7 +32,15 @@ type TaskActionError = Error & {
   status?: number;
 };
 
+let taskActionsCapability: "unknown" | "supported" | "unsupported" = "unknown";
+
 async function postTaskAction(taskId: string, body: TaskActionBody): Promise<void> {
+  if (taskActionsCapability === "unsupported") {
+    const error = new Error("Task actions unsupported") as TaskActionError;
+    error.status = 501;
+    throw error;
+  }
+
   const response = await fetch(`/api/tasks/${taskId}/actions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -43,8 +51,13 @@ async function postTaskAction(taskId: string, body: TaskActionBody): Promise<voi
   if (!response.ok) {
     const error = new Error(responseBody.error || `API error: ${response.status}`) as TaskActionError;
     error.status = response.status;
+    if (response.status === 404 || response.status === 405 || response.status === 501) {
+      taskActionsCapability = "unsupported";
+    }
     throw error;
   }
+
+  taskActionsCapability = "supported";
 }
 
 function shouldFallbackToLegacyTaskAction(error: unknown): boolean {

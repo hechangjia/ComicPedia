@@ -12,7 +12,7 @@ import {
   ReferenceGenMode,
   Character,
 } from "@/lib/types";
-import { useConfigCheck, getStoredRequestConfigs } from "@/hooks/useAPIConfig";
+import { useConfigCheck, getStoredConfigs, getStoredRequestConfigs } from "@/hooks/useAPIConfig";
 import { startGeneration } from "@/lib/client/generator";
 import { generateReferenceImagePrompt, generateCharacterPrompts } from "@/lib/llm";
 import { getImageAdapter } from "@/lib/imageGen";
@@ -368,6 +368,7 @@ export function useContentForm(
     setError("");
 
     try {
+      const storedConfigs = getStoredConfigs();
       const { llmConfig, imageConfig } = getStoredRequestConfigs(
         selectedLLMId ?? undefined,
         selectedImageId ?? undefined,
@@ -387,6 +388,8 @@ export function useContentForm(
       if (finalPanelCount !== null && finalPanelCount > 0) {
         payload.panelCount = finalPanelCount;
       }
+      payload.llmConfigId = selectedLLMId ?? storedConfigs.activeLLMId ?? undefined;
+      payload.imageConfigId = selectedImageId ?? storedConfigs.activeImageId ?? undefined;
       if (llmConfig) payload.llmConfig = llmConfig;
       if (imageConfig) payload.imageConfig = imageConfig;
       if (referenceImage) {

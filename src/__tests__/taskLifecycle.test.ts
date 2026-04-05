@@ -470,6 +470,33 @@ describe("taskLifecycle automatic visual review", () => {
     expect(evaluateQualityMock).not.toHaveBeenCalled();
   });
 
+  it("caches unsupported task actions after a 404 and skips the failing POST on later calls", async () => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      json: vi.fn().mockResolvedValue({ error: "missing route" }),
+    } as unknown as Response);
+
+    const firstTask = makeTask();
+    const secondTask = makeTask();
+    secondTask.id = "task-visual-review-2";
+    getTaskMock
+      .mockResolvedValueOnce(firstTask)
+      .mockResolvedValueOnce(secondTask);
+
+    await generateAllImages(firstTask.id);
+    await generateAllImages(secondTask.id);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/tasks/${firstTask.id}/actions`,
+      expect.any(Object),
+    );
+    expect(getTaskMock).toHaveBeenCalledTimes(2);
+  });
+
   it("persists visual review projection onto the refreshed task snapshot after fine generation completes", async () => {
     const initialTask = makeTask();
     const persistedTask = makeTask();
