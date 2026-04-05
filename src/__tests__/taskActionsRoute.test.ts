@@ -214,7 +214,7 @@ describe("/api/tasks/[id]/actions POST", () => {
     });
   });
 
-  it("rejects deep review resume until a real executor is available", async () => {
+  it("resumes paused deep review jobs through the server runtime", async () => {
     getTaskByIdMock.mockReturnValue({
       id: "task-actions",
       status: "deep_review_paused",
@@ -230,7 +230,30 @@ describe("/api/tasks/[id]/actions POST", () => {
       createdAt: new Date("2026-04-05T00:00:00.000Z"),
       updatedAt: new Date("2026-04-05T00:00:00.000Z"),
     });
-    resumeTaskJobsMock.mockRejectedValue(new Error("深度评审恢复尚未开放"));
+    resumeTaskJobsMock.mockResolvedValue({
+      id: "task-actions",
+      status: "deep_review_running",
+      progress: 90,
+      queueSummary: {
+        queued: 1,
+        running: 0,
+        paused: 0,
+        failed: 0,
+        attachFailed: 0,
+        completed: 0,
+        calibrationPending: 0,
+      },
+      script: {
+        title: "Task Actions",
+        topic: "Topic",
+        style: "anime",
+        panels: [
+          { id: 1, scene: "Scene 1", dialogue: "Dialogue 1", imagePrompt: "Prompt 1", status: "completed" },
+        ],
+      },
+      createdAt: new Date("2026-04-05T00:00:00.000Z"),
+      updatedAt: new Date("2026-04-05T00:00:00.000Z"),
+    });
 
     const { POST } = await import("@/app/api/tasks/[id]/actions/route");
     const request = new NextRequest("http://localhost:3000/api/tasks/task-actions/actions", {
@@ -241,12 +264,14 @@ describe("/api/tasks/[id]/actions POST", () => {
     const response = await POST(request, { params: Promise.resolve({ id: "task-actions" }) });
     const body = await response.json();
 
-    expect(response.status).toBe(409);
+    expect(response.status).toBe(202);
     expect(resumeTaskJobsMock).toHaveBeenCalledWith("task-actions");
-    expect(enqueueDeepReviewMock).not.toHaveBeenCalled();
+    expect(enqueueDeepReviewMock).toHaveBeenCalledWith("task-actions");
     expect(enqueueImageQueueMock).not.toHaveBeenCalled();
-    expect(body).toEqual({
-      error: "深度评审恢复尚未开放",
-    });
+    expect(body).toEqual(expect.objectContaining({
+      success: true,
+      queueSummary: expect.objectContaining({ queued: 1 }),
+      task: expect.objectContaining({ status: "deep_review_running" }),
+    }));
   });
 });

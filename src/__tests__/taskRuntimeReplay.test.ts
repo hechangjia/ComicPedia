@@ -4,14 +4,18 @@ import type { GenerateRequest, GenerateTaskStatus } from "@/lib/types";
 const {
   listReplayableScriptTasksMock,
   listReplayableImageTasksMock,
+  listReplayableDeepReviewTasksMock,
   runResearchAndScriptTaskMock,
   runTaskImageQueueMock,
+  runTaskDeepReviewQueueMock,
   hydrateReplayRequestMock,
 } = vi.hoisted(() => ({
   listReplayableScriptTasksMock: vi.fn(),
   listReplayableImageTasksMock: vi.fn(),
+  listReplayableDeepReviewTasksMock: vi.fn(),
   runResearchAndScriptTaskMock: vi.fn(),
   runTaskImageQueueMock: vi.fn(),
+  runTaskDeepReviewQueueMock: vi.fn(),
   hydrateReplayRequestMock: vi.fn(),
 }));
 
@@ -26,6 +30,11 @@ vi.mock("@/lib/server/taskOrchestrator/scriptRunner", () => ({
 vi.mock("@/lib/server/taskOrchestrator/imageRunner", () => ({
   listReplayableImageTasks: listReplayableImageTasksMock,
   runTaskImageQueue: runTaskImageQueueMock,
+}));
+
+vi.mock("@/lib/server/taskOrchestrator/reviewRunner", () => ({
+  listReplayableDeepReviewTasks: listReplayableDeepReviewTasksMock,
+  runTaskDeepReviewQueue: runTaskDeepReviewQueueMock,
 }));
 
 vi.mock("@/lib/server/taskOrchestrator/replay", () => ({
@@ -64,9 +73,13 @@ describe("TaskRuntime replay", () => {
     vi.resetModules();
     listReplayableScriptTasksMock.mockReset();
     listReplayableImageTasksMock.mockReset();
+    listReplayableDeepReviewTasksMock.mockReset();
     runResearchAndScriptTaskMock.mockReset();
     runTaskImageQueueMock.mockReset();
+    runTaskDeepReviewQueueMock.mockReset();
     hydrateReplayRequestMock.mockReset();
+    listReplayableImageTasksMock.mockResolvedValue([]);
+    listReplayableDeepReviewTasksMock.mockResolvedValue([]);
   });
 
   it("re-enqueues persisted script-phase tasks on first initialization only", async () => {
@@ -105,6 +118,7 @@ describe("TaskRuntime replay", () => {
     }));
     runTaskImageQueueMock.mockResolvedValueOnce(undefined);
     listReplayableImageTasksMock.mockResolvedValue([]);
+    listReplayableDeepReviewTasksMock.mockResolvedValue([]);
     listReplayableScriptTasksMock.mockReturnValue([]);
 
     const { getTaskRuntime } = await import("@/lib/server/taskOrchestrator/runtime");
@@ -122,5 +136,57 @@ describe("TaskRuntime replay", () => {
     });
     expect(runTaskImageQueueMock).toHaveBeenNthCalledWith(1, "task-image", undefined);
     expect(runTaskImageQueueMock).toHaveBeenNthCalledWith(2, "task-image", undefined);
+  });
+
+  it("re-enqueues persisted deep-review tasks on first initialization only", async () => {
+    listReplayableScriptTasksMock.mockReturnValue([]);
+    listReplayableDeepReviewTasksMock.mockResolvedValue([
+      { taskId: "task-review-1" },
+      { taskId: "task-review-2" },
+    ]);
+    runTaskDeepReviewQueueMock.mockResolvedValue(undefined);
+
+    const { getTaskRuntime } = await import("@/lib/server/taskOrchestrator/runtime");
+    getTaskRuntime();
+    await vi.waitFor(() => {
+      expect(runTaskDeepReviewQueueMock).toHaveBeenCalledTimes(2);
+    });
+
+    expect(listReplayableDeepReviewTasksMock).toHaveBeenCalledTimes(1);
+    expect(runTaskDeepReviewQueueMock).toHaveBeenNthCalledWith(1, "task-review-1", undefined);
+    expect(runTaskDeepReviewQueueMock).toHaveBeenNthCalledWith(2, "task-review-2", undefined);
+
+    getTaskRuntime();
+    await Promise.resolve();
+
+    expect(listReplayableDeepReviewTasksMock).toHaveBeenCalledTimes(1);
+    expect(runTaskDeepReviewQueueMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("coalesces a second deep-review enqueue request and reruns after the active pass finishes", async () => {
+    let releaseFirstRun: (() => void) | undefined;
+    runTaskDeepReviewQueueMock.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      releaseFirstRun = resolve;
+    }));
+    runTaskDeepReviewQueueMock.mockResolvedValueOnce(undefined);
+    listReplayableScriptTasksMock.mockReturnValue([]);
+    listReplayableImageTasksMock.mockResolvedValue([]);
+    listReplayableDeepReviewTasksMock.mockResolvedValue([]);
+
+    const { getTaskRuntime } = await import("@/lib/server/taskOrchestrator/runtime");
+    const runtime = getTaskRuntime();
+
+    runtime.enqueueDeepReview("task-review");
+    runtime.enqueueDeepReview("task-review");
+    await Promise.resolve();
+
+    expect(runTaskDeepReviewQueueMock).toHaveBeenCalledTimes(1);
+
+    releaseFirstRun?.();
+    await vi.waitFor(() => {
+      expect(runTaskDeepReviewQueueMock).toHaveBeenCalledTimes(2);
+    });
+    expect(runTaskDeepReviewQueueMock).toHaveBeenNthCalledWith(1, "task-review", undefined);
+    expect(runTaskDeepReviewQueueMock).toHaveBeenNthCalledWith(2, "task-review", undefined);
   });
 });

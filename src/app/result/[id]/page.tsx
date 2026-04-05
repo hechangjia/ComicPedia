@@ -106,7 +106,7 @@ export default function ResultPage() {
   const [viewMode, setViewMode] = useState<"edit" | "read" | "play">("edit");
 
   const handleResumePausedTask = useCallback(async () => {
-    if (task?.status === "image_queue_paused") {
+    if (task?.status === "image_queue_paused" || task?.status === "deep_review_paused") {
       const resumedTask = await resumeTaskLifecycle(taskId);
       if (resumedTask) {
         setTask(resumedTask);
@@ -231,7 +231,7 @@ export default function ResultPage() {
   const isDeepReviewPaused = task.status === "deep_review_paused";
   const isGenerating = isLegacyGenerating || isQueueRunning;
   const isCompleted = task.status === "completed";
-  const showPausedResume = task.status === "image_queue_paused";
+  const showPausedResume = task.status === "image_queue_paused" || task.status === "deep_review_paused";
   const showAnimation = isScripting || isGenerating;
   const animationStatus = isGenerating
     ? "generating"
@@ -492,22 +492,18 @@ export default function ResultPage() {
       {showPausedResume && (
         <div className="p-4 rounded-xl border bg-warning/5 no-print">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm text-warning">离页后图片队列已暂停。</p>
+            <p className="text-sm text-warning">
+              {task.status === "deep_review_paused"
+                ? "离页后深度评审已暂停。"
+                : "离页后图片队列已暂停。"}
+            </p>
             <button
               onClick={handleResumePausedTask}
               className="px-4 py-2 text-sm bg-warning text-white rounded-lg hover:bg-warning/90 transition-colors min-h-[40px] shrink-0"
             >
-              继续处理
+              {task.status === "deep_review_paused" ? "继续评审" : "继续处理"}
             </button>
           </div>
-        </div>
-      )}
-
-      {isDeepReviewPaused && (
-        <div className="p-4 rounded-xl border bg-warning/5 no-print">
-          <p className="text-sm text-warning">
-            离页后深度评审已暂停。当前版本暂不支持恢复，请等待后续任务补齐执行链路。
-          </p>
         </div>
       )}
 

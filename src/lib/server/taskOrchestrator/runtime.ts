@@ -1,6 +1,7 @@
 import { listReplayableScriptTasks } from "@/lib/server/db";
 import type { GenerateRequest, PartialImageGenConfig, PartialLLMConfig } from "@/lib/types";
 import { listReplayableImageTasks, runTaskImageQueue, type RunTaskImageQueueInput } from "./imageRunner";
+import { listReplayableDeepReviewTasks, runTaskDeepReviewQueue } from "./reviewRunner";
 import { hydrateReplayRequest } from "./replay";
 import { runResearchAndScriptTask } from "./scriptRunner";
 
@@ -8,6 +9,8 @@ export class TaskRuntime {
   private readonly scriptRuns = new Map<string, Promise<void>>();
   private readonly imageRuns = new Map<string, Promise<void>>();
   private readonly pendingImageRuns = new Map<string, RunTaskImageQueueInput | undefined>();
+  private readonly reviewRuns = new Map<string, Promise<void>>();
+  private readonly pendingReviewRuns = new Set<string>();
   private replayInitialized = false;
 
   enqueueScript(taskId: string, request: GenerateRequest): void {
@@ -80,6 +83,32 @@ export class TaskRuntime {
     };
   }
 
+  enqueueDeepReview(taskId: string, input?: { llmConfig?: PartialLLMConfig }): void {
+    if (this.reviewRuns.has(taskId)) {
+      this.pendingReviewRuns.add(taskId);
+      return;
+    }
+
+    this.startDeepReviewRun(taskId, input);
+  }
+
+  private startDeepReviewRun(taskId: string, input?: { llmConfig?: PartialLLMConfig }): void {
+    const run = Promise.resolve()
+      .then(() => runTaskDeepReviewQueue(taskId, input))
+      .catch((error) => {
+        console.error(`[TaskRuntime] Deep review run failed for ${taskId}:`, error);
+      })
+      .finally(() => {
+        this.reviewRuns.delete(taskId);
+        if (this.pendingReviewRuns.has(taskId)) {
+          this.pendingReviewRuns.delete(taskId);
+          this.startDeepReviewRun(taskId, input);
+        }
+      });
+
+    this.reviewRuns.set(taskId, run);
+  }
+
   ensureReplay(): void {
     if (this.replayInitialized) {
       return;
@@ -95,9 +124,12 @@ export class TaskRuntime {
         for (const task of await listReplayableImageTasks()) {
           this.enqueueImageQueue(task.taskId);
         }
+        for (const task of await listReplayableDeepReviewTasks()) {
+          this.enqueueDeepReview(task.taskId);
+        }
       })
       .catch((error) => {
-        console.error("[TaskRuntime] Image replay initialization failed:", error);
+        console.error("[TaskRuntime] Queue replay initialization failed:", error);
       });
   }
 }
