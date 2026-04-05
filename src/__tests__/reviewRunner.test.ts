@@ -360,4 +360,44 @@ describe("reviewRunner", () => {
 
     expect(replayable).toEqual([{ taskId: "task-replayable" }]);
   });
+
+  it("does not continue already-loaded queued review jobs after pause flips them in storage", async () => {
+    state.setTask(makeTask({
+      id: "task-review-batch",
+      status: "deep_review_running",
+    }));
+    state.setJobs("task-review-batch", [
+      makeJob({
+        id: "job-review-1",
+        taskId: "task-review-batch",
+        panelIndex: 0,
+      }),
+      makeJob({
+        id: "job-review-2",
+        taskId: "task-review-batch",
+        panelIndex: 1,
+      }),
+    ]);
+    getConfigMock.mockReturnValue(makeConfig());
+    evaluateVisualDiagnosisMock.mockImplementationOnce(async () => {
+      state.upsertTaskJob({
+        ...state.listJobs("task-review-batch")[1],
+        status: "paused",
+      });
+      return makeReport(0);
+    });
+
+    const { runTaskDeepReviewQueue } = await import("@/lib/server/taskOrchestrator/reviewRunner");
+    await runTaskDeepReviewQueue("task-review-batch");
+
+    expect(evaluateVisualDiagnosisMock).toHaveBeenCalledTimes(1);
+    expect(state.listJobs("task-review-batch")).toEqual([
+      expect.objectContaining({ id: "job-review-1", status: "completed" }),
+      expect.objectContaining({ id: "job-review-2", status: "paused" }),
+    ]);
+    expect(state.getTask("task-review-batch")).toEqual(expect.objectContaining({
+      status: "deep_review_paused",
+      queueSummary: expect.objectContaining({ paused: 1, completed: 1 }),
+    }));
+  });
 });

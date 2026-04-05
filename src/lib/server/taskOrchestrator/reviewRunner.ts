@@ -188,6 +188,11 @@ async function persistReviewState(taskId: string): Promise<void> {
   upsertTask(task);
 }
 
+async function getLatestDeepReviewJob(taskId: string, jobId: string): Promise<TaskJobRecord | undefined> {
+  const jobs = await listTaskJobsByTaskId(taskId);
+  return jobs.find((job) => job.id === jobId && job.kind === "deep_review");
+}
+
 export async function runTaskDeepReviewQueue(
   taskId: string,
   input?: {
@@ -213,9 +218,14 @@ export async function runTaskDeepReviewQueue(
     if (!task?.script) {
       throw new Error(`Task not ready for deep review: ${taskId}`);
     }
+    const liveJob = await getLatestDeepReviewJob(taskId, job.id);
+    if (!liveJob || !PROCESSABLE_REVIEW_JOB_STATUSES.has(liveJob.status)) {
+      await persistReviewState(taskId);
+      continue;
+    }
 
     const resolvedConfig = resolveReviewConfig(
-      (job.payload as StoredReviewJobPayload).review,
+      (liveJob.payload as StoredReviewJobPayload).review,
       getConfig(),
       input?.llmConfig,
     );
@@ -224,7 +234,7 @@ export async function runTaskDeepReviewQueue(
       markDiagnosisFailed(task);
       task.updatedAt = new Date();
       upsertTask(task);
-      upsertTaskJob(updateJob(job, {
+      upsertTaskJob(updateJob(liveJob, {
         status: "failed",
         lastError: message,
       }));
@@ -237,7 +247,7 @@ export async function runTaskDeepReviewQueue(
       markDiagnosisFailed(task);
       task.updatedAt = new Date();
       upsertTask(task);
-      upsertTaskJob(updateJob(job, {
+      upsertTaskJob(updateJob(liveJob, {
         status: "failed",
         lastError: message,
       }));
@@ -249,7 +259,7 @@ export async function runTaskDeepReviewQueue(
     task.status = "deep_review_running";
     task.updatedAt = new Date();
     upsertTask(task);
-    upsertTaskJob(updateJob(job, {
+    upsertTaskJob(updateJob(liveJob, {
       status: "light_check",
       lastError: undefined,
     }));
@@ -259,32 +269,50 @@ export async function runTaskDeepReviewQueue(
         task.script,
         task.visualQualityScore,
         resolvedConfig,
-        getTargetPanels(job, task.script.panels.length),
+        getTargetPanels(liveJob, task.script.panels.length),
       );
       const latestTask = getTaskById(taskId);
+      const latestJob = await getLatestDeepReviewJob(taskId, liveJob.id);
       if (!latestTask) {
         throw new Error(`Task not found after deep review: ${taskId}`);
+      }
+      if (!latestJob) {
+        throw new Error(`Deep review job not found after execution: ${liveJob.id}`);
+      }
+      if (latestJob.status === "paused") {
+        latestTask.visualDiagnosisState = latestTask.visualDiagnosisReport ? "succeeded" : "idle";
+        latestTask.updatedAt = new Date();
+        upsertTask(latestTask);
+        await persistReviewState(taskId);
+        continue;
       }
 
       const mergedReport = mergeDiagnosisReports(latestTask.visualDiagnosisReport, report);
       markDiagnosisSucceeded(latestTask, mergedReport);
       latestTask.updatedAt = new Date();
       upsertTask(latestTask);
-      upsertTaskJob(updateJob(job, {
+      upsertTaskJob(updateJob(latestJob, {
         status: "completed",
         lastError: undefined,
       }));
     } catch (error) {
       const latestTask = getTaskById(taskId);
-      if (latestTask) {
+      const latestJob = await getLatestDeepReviewJob(taskId, liveJob.id);
+      if (latestTask && latestJob?.status === "paused") {
+        latestTask.visualDiagnosisState = latestTask.visualDiagnosisReport ? "succeeded" : "idle";
+        latestTask.updatedAt = new Date();
+        upsertTask(latestTask);
+      } else if (latestTask) {
         markDiagnosisFailed(latestTask, error instanceof Error ? error : undefined);
         latestTask.updatedAt = new Date();
         upsertTask(latestTask);
       }
-      upsertTaskJob(updateJob(job, {
-        status: "failed",
-        lastError: error instanceof Error ? error.message : "深度评审失败",
-      }));
+      if (latestJob && latestJob.status !== "paused") {
+        upsertTaskJob(updateJob(latestJob, {
+          status: "failed",
+          lastError: error instanceof Error ? error.message : "深度评审失败",
+        }));
+      }
     }
 
     await persistReviewState(taskId);

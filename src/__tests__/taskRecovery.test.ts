@@ -291,6 +291,36 @@ describe("task recovery", () => {
     ]);
   });
 
+  it("pauses an in-flight deep review job immediately on explicit pause", async () => {
+    state.setTask(makeTask({
+      status: "deep_review_running",
+    }));
+    state.setJobs("task-recovery", [
+      makeJob({
+        id: "job-deep-review",
+        kind: "deep_review",
+        status: "light_check",
+      }),
+    ]);
+
+    const { pauseTaskJobs } = await import("@/lib/server/taskOrchestrator/reconcile");
+    const pausedTask = await pauseTaskJobs("task-recovery");
+
+    expect(pausedTask.status).toBe("deep_review_paused");
+    expect(pausedTask.queueSummary).toEqual({
+      queued: 0,
+      running: 0,
+      paused: 1,
+      failed: 0,
+      attachFailed: 0,
+      completed: 0,
+      calibrationPending: 0,
+    });
+    expect(state.listJobs("task-recovery")).toEqual([
+      expect.objectContaining({ id: "job-deep-review", kind: "deep_review", status: "paused" }),
+    ]);
+  });
+
   it("pauses queue work on pagehide only for pauseable task states", async () => {
     const pauseTask = vi.fn();
     const target = new EventTarget();

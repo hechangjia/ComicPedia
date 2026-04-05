@@ -236,7 +236,11 @@ export async function reconcileTaskJobs(taskId: string): Promise<GenerateTask> {
 }
 
 export async function pauseTaskJobs(taskId: string): Promise<GenerateTask> {
-  return applyJobTransition(taskId, (job) => EXPLICIT_PAUSE_JOB_STATUSES.has(job.status));
+  return applyJobTransition(
+    taskId,
+    (job) => EXPLICIT_PAUSE_JOB_STATUSES.has(job.status)
+      || (job.kind === "deep_review" && RUNNING_JOB_STATUSES.has(job.status)),
+  );
 }
 
 export async function resumeTaskJobs(taskId: string): Promise<GenerateTask> {
