@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -109,6 +109,7 @@ export default function ResultPage() {
 
   const [viewMode, setViewMode] = useState<"edit" | "read" | "play">("edit");
   const [selectedPanelIds, setSelectedPanelIds] = useState<number[]>([]);
+  const taskPanels = task?.script?.panels;
 
   const handleResumePausedTask = useCallback(async () => {
     if (task?.status === "image_queue_paused" || task?.status === "deep_review_paused") {
@@ -119,21 +120,19 @@ export default function ResultPage() {
     }
   }, [setTask, task?.status, taskId]);
 
-  useEffect(() => {
-    const validPanelIds = new Set(task?.script?.panels.map((panel) => panel.id) ?? []);
-    setSelectedPanelIds((prev) => {
-      const next = prev.filter((panelId) => validPanelIds.has(panelId));
-      return next.length === prev.length ? prev : next;
-    });
-  }, [task?.script?.panels]);
-
+  const validSelectedPanelIds = useMemo(() => (
+    taskPanels
+      ? selectedPanelIds.filter((panelId) => taskPanels.some((panel) => panel.id === panelId))
+      : []
+  ), [selectedPanelIds, taskPanels]);
   const selectedPanelIndices = useMemo(() => {
-    if (!task?.script) return [];
-    const selectedIdSet = new Set(selectedPanelIds);
-    return task.script.panels.flatMap((panel, panelIndex) => (
-      selectedIdSet.has(panel.id) ? [panelIndex] : []
+    if (!taskPanels) {
+      return [];
+    }
+    return taskPanels.flatMap((panel, panelIndex) => (
+      validSelectedPanelIds.includes(panel.id) ? [panelIndex] : []
     ));
-  }, [selectedPanelIds, task?.script]);
+  }, [taskPanels, validSelectedPanelIds]);
 
   const handleTogglePanelSelection = useCallback((panelId: number, checked: boolean) => {
     setSelectedPanelIds((prev) => {
@@ -541,7 +540,7 @@ export default function ResultPage() {
         <ScriptReadyWorkspace
           taskStatus={task.status}
           panels={task.script.panels}
-          selectedPanelIds={selectedPanelIds}
+          selectedPanelIds={validSelectedPanelIds}
           queueSummary={task.queueSummary}
           generatingAll={generatingAll}
           llmConfigs={storedConfigs.llmConfigs}

@@ -146,20 +146,21 @@ function renderTaskActionsHook(options: {
   selectedImageId?: string | null;
   selectedLLMId?: string | null;
 } = {}) {
-  let currentHook: ReturnType<typeof useTaskActions> | undefined;
+  const captureHook = vi.fn();
   const setTask = vi.fn();
 
   function Harness() {
-    currentHook = useTaskActions(
+    captureHook(useTaskActions(
       "task-actions-queue",
       setTask as React.Dispatch<React.SetStateAction<GenerateTask | null>>,
       options.selectedImageId ?? "img-1",
       options.selectedLLMId ?? "llm-1",
-    );
+    ));
     return null;
   }
 
   renderToStaticMarkup(React.createElement(Harness));
+  const currentHook = captureHook.mock.calls.at(-1)?.[0] as ReturnType<typeof useTaskActions> | undefined;
 
   if (!currentHook) {
     throw new Error("useTaskActions did not render");
