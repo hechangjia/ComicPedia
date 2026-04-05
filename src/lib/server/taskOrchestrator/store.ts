@@ -1,18 +1,23 @@
 import { randomUUID } from "node:crypto";
 import { listTaskJobsByTaskId as listTaskJobsByTaskIdFromDb, upsertTaskJob } from "@/lib/server/db";
 import type { TaskJobKind, TaskJobRecord, TaskJobStatus, TaskQueueSummary } from "@/lib/types";
-import { TASK_QUEUE_FAILED_STATUSES, TASK_QUEUE_RUNNING_STATUSES } from "./types";
+import { TASK_QUEUE_RUNNING_STATUSES } from "./types";
 
 interface CreateTaskJobInput {
   taskId: string;
   kind: TaskJobKind;
   status: TaskJobStatus;
+  panelIndex?: number;
+  provider?: string;
+  model?: string;
+  promptSnapshot?: string;
+  outputFileKey?: string;
+  lastError?: string;
+  attemptCount?: number;
   payload?: Record<string, unknown>;
-  error?: string;
 }
 
 const RUNNING_STATUS_SET = new Set<TaskJobStatus>(TASK_QUEUE_RUNNING_STATUSES);
-const FAILED_STATUS_SET = new Set<TaskJobStatus>(TASK_QUEUE_FAILED_STATUSES);
 let lastIssuedTimestampMs = 0;
 
 function nextIsoTimestamp(): string {
@@ -29,8 +34,14 @@ export async function createTaskJob(input: CreateTaskJobInput): Promise<TaskJobR
     taskId: input.taskId,
     kind: input.kind,
     status: input.status,
+    panelIndex: input.panelIndex,
+    provider: input.provider,
+    model: input.model,
+    promptSnapshot: input.promptSnapshot,
+    outputFileKey: input.outputFileKey,
+    lastError: input.lastError,
+    attemptCount: input.attemptCount,
     payload: input.payload,
-    error: input.error,
     createdAt: now,
     updatedAt: now,
   };
@@ -47,14 +58,19 @@ export function summarizeTaskJobs(jobs: TaskJobRecord[]): TaskQueueSummary {
     queued: 0,
     running: 0,
     paused: 0,
-    completed: 0,
     failed: 0,
-    total: jobs.length,
+    attachFailed: 0,
+    completed: 0,
+    calibrationPending: 0,
   };
 
   for (const job of jobs) {
     if (job.status === "queued") {
       summary.queued += 1;
+      continue;
+    }
+    if (job.status === "calibrating") {
+      summary.calibrationPending += 1;
       continue;
     }
     if (RUNNING_STATUS_SET.has(job.status)) {
@@ -69,7 +85,11 @@ export function summarizeTaskJobs(jobs: TaskJobRecord[]): TaskQueueSummary {
       summary.completed += 1;
       continue;
     }
-    if (FAILED_STATUS_SET.has(job.status)) {
+    if (job.status === "attach_failed") {
+      summary.attachFailed += 1;
+      continue;
+    }
+    if (job.status === "failed") {
       summary.failed += 1;
     }
   }

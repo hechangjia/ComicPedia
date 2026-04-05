@@ -38,8 +38,14 @@ db.exec(`
     task_id     TEXT NOT NULL,
     kind        TEXT NOT NULL,
     status      TEXT NOT NULL,
+    panel_index INTEGER,
+    provider    TEXT,
+    model       TEXT,
+    prompt_snapshot TEXT,
+    output_file_key TEXT,
+    last_error  TEXT,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
     payload     TEXT,
-    error       TEXT,
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL
   );
@@ -136,6 +142,14 @@ runAddColumnMigration("tasks", "tags TEXT DEFAULT '[]'");
 runAddColumnMigration("tasks", "favorited INTEGER DEFAULT 0");
 runAddColumnMigration("characters", "metadata TEXT");
 runAddColumnMigration("characters", "personality TEXT");
+runAddColumnMigration("task_jobs", "panel_index INTEGER");
+runAddColumnMigration("task_jobs", "provider TEXT");
+runAddColumnMigration("task_jobs", "model TEXT");
+runAddColumnMigration("task_jobs", "prompt_snapshot TEXT");
+runAddColumnMigration("task_jobs", "output_file_key TEXT");
+runAddColumnMigration("task_jobs", "last_error TEXT");
+runAddColumnMigration("task_jobs", "attempt_count INTEGER NOT NULL DEFAULT 0");
+runAddColumnMigration("task_jobs", "payload TEXT");
 
 // ============================================================
 // Tasks CRUD
@@ -153,13 +167,16 @@ const stmtCountTasks = db.prepare("SELECT COUNT(*) as total FROM tasks");
 const stmtGetAllTaskIds = db.prepare("SELECT id FROM tasks");
 const stmtDeleteTask = db.prepare("DELETE FROM tasks WHERE id = ?");
 const stmtClearTasks = db.prepare("DELETE FROM tasks");
+const stmtClearAllTaskJobs = db.prepare("DELETE FROM task_jobs");
 
 const stmtPatchTaskTags = db.prepare("UPDATE tasks SET tags = @tags, updated_at = @updated_at WHERE id = @id");
 const stmtPatchTaskFavorited = db.prepare("UPDATE tasks SET favorited = @favorited, updated_at = @updated_at WHERE id = @id");
 
 const stmtUpsertTaskJob = db.prepare(`
-  INSERT OR REPLACE INTO task_jobs (id, task_id, kind, status, payload, error, created_at, updated_at)
-  VALUES (@id, @task_id, @kind, @status, @payload, @error, @created_at, @updated_at)
+  INSERT OR REPLACE INTO task_jobs
+    (id, task_id, kind, status, panel_index, provider, model, prompt_snapshot, output_file_key, last_error, attempt_count, payload, created_at, updated_at)
+  VALUES
+    (@id, @task_id, @kind, @status, @panel_index, @provider, @model, @prompt_snapshot, @output_file_key, @last_error, @attempt_count, @payload, @created_at, @updated_at)
 `);
 const stmtListTaskJobsByTaskId = db.prepare("SELECT * FROM task_jobs WHERE task_id = ? ORDER BY created_at ASC, id ASC");
 const stmtClearTaskJobsByTaskId = db.prepare("DELETE FROM task_jobs WHERE task_id = ?");
@@ -187,6 +204,8 @@ function taskToRow(task: GenerateTask) {
   if (task.narrativeOutline) metadata.narrativeOutline = task.narrativeOutline;
   if (task.generationConfig) metadata.generationConfig = task.generationConfig;
   if (task.visualRepairExecution) metadata.visualRepairExecution = task.visualRepairExecution;
+  if (task.queueSummary !== undefined) metadata.queueSummary = task.queueSummary;
+  if (task.presetSnapshot !== undefined) metadata.presetSnapshot = task.presetSnapshot;
 
   return {
     id: task.id,
@@ -465,6 +484,8 @@ function rowToTask(row: Record<string, unknown>): GenerateTask {
     narrativeOutline: meta.narrativeOutline as GenerateTask["narrativeOutline"],
     generationConfig: meta.generationConfig as GenerateTask["generationConfig"],
     visualRepairExecution: meta.visualRepairExecution as GenerateTask["visualRepairExecution"],
+    queueSummary: meta.queueSummary as GenerateTask["queueSummary"],
+    presetSnapshot: meta.presetSnapshot as GenerateTask["presetSnapshot"],
     tags: safeJsonParse<string[]>(row.tags as string | null) ?? [],
     favorited: (row.favorited as number) === 1,
     createdAt: new Date(row.created_at as string),
@@ -495,11 +516,15 @@ export function getTasksPaginated(page: number = 1, pageSize: number = 50): { ta
 
 export function deleteTask(id: string): boolean {
   const result = stmtDeleteTask.run(id);
+  if (result.changes > 0) {
+    stmtClearTaskJobsByTaskId.run(id);
+  }
   return result.changes > 0;
 }
 
 export function clearAllTasks(): number {
   const result = stmtClearTasks.run();
+  stmtClearAllTaskJobs.run();
   return result.changes;
 }
 
@@ -528,8 +553,14 @@ function taskJobToRow(job: TaskJobRecord) {
     task_id: job.taskId,
     kind: job.kind,
     status: job.status,
+    panel_index: job.panelIndex ?? null,
+    provider: job.provider ?? null,
+    model: job.model ?? null,
+    prompt_snapshot: job.promptSnapshot ?? null,
+    output_file_key: job.outputFileKey ?? null,
+    last_error: job.lastError ?? null,
+    attempt_count: job.attemptCount ?? 0,
     payload: job.payload ? JSON.stringify(job.payload) : null,
-    error: job.error ?? null,
     created_at: job.createdAt,
     updated_at: job.updatedAt,
   };
@@ -541,8 +572,14 @@ function rowToTaskJob(row: Record<string, unknown>): TaskJobRecord {
     taskId: row.task_id as string,
     kind: row.kind as TaskJobRecord["kind"],
     status: row.status as TaskJobRecord["status"],
+    panelIndex: typeof row.panel_index === "number" ? row.panel_index : undefined,
+    provider: (row.provider as string) ?? undefined,
+    model: (row.model as string) ?? undefined,
+    promptSnapshot: (row.prompt_snapshot as string) ?? undefined,
+    outputFileKey: (row.output_file_key as string) ?? undefined,
+    lastError: (row.last_error as string) ?? ((row.error as string) ?? undefined),
+    attemptCount: typeof row.attempt_count === "number" ? row.attempt_count : undefined,
     payload: safeJsonParse<Record<string, unknown>>(row.payload as string | null),
-    error: (row.error as string) ?? undefined,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   };

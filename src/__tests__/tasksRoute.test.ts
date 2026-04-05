@@ -1,8 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
-const { getTasksPaginatedMock } = vi.hoisted(() => ({
+const { getTasksPaginatedMock, listTaskJobsByTaskIdMock, summarizeTaskJobsMock } = vi.hoisted(() => ({
   getTasksPaginatedMock: vi.fn(),
+  listTaskJobsByTaskIdMock: vi.fn(),
+  summarizeTaskJobsMock: vi.fn(),
 }));
 
 vi.mock("@/lib/server/db", () => ({
@@ -18,9 +20,16 @@ vi.mock("@/lib/server/imageExtractor", () => ({
   trashTaskImages: vi.fn(),
 }));
 
+vi.mock("@/lib/server/taskOrchestrator/store", () => ({
+  listTaskJobsByTaskId: listTaskJobsByTaskIdMock,
+  summarizeTaskJobs: summarizeTaskJobsMock,
+}));
+
 describe("/api/tasks GET", () => {
   beforeEach(() => {
     getTasksPaginatedMock.mockReset();
+    listTaskJobsByTaskIdMock.mockReset();
+    summarizeTaskJobsMock.mockReset();
   });
 
   it("keeps persisted review summary fields in list items for history badges", async () => {
@@ -71,9 +80,10 @@ describe("/api/tasks GET", () => {
             queued: 0,
             running: 0,
             paused: 0,
-            completed: 1,
             failed: 0,
-            total: 1,
+            attachFailed: 0,
+            completed: 1,
+            calibrationPending: 0,
           },
         },
       ],
@@ -90,8 +100,50 @@ describe("/api/tasks GET", () => {
       reviewStatus: "needs_repair",
       visualQualityScore: expect.objectContaining({ overall: 8.3 }),
       visualRetrySummary: expect.objectContaining({ status: "skipped" }),
-      queueSummary: expect.objectContaining({ completed: 1, total: 1 }),
+      queueSummary: expect.objectContaining({ completed: 1, attachFailed: 0 }),
     });
     expect(body.tasks[0].visualQualityScore.retryRecommendations).toHaveLength(1);
+  });
+
+  it("enriches queueSummary from durable jobs when task metadata does not contain queueSummary", async () => {
+    getTasksPaginatedMock.mockReturnValue({
+      total: 1,
+      tasks: [
+        {
+          id: "task-fallback",
+          status: "image_queue_running",
+          progress: 45,
+          createdAt: new Date("2026-03-27T00:00:00.000Z"),
+          updatedAt: new Date("2026-03-27T01:00:00.000Z"),
+        },
+      ],
+    });
+    listTaskJobsByTaskIdMock.mockResolvedValue([{ id: "job-1" }]);
+    summarizeTaskJobsMock.mockReturnValue({
+      queued: 1,
+      running: 2,
+      paused: 0,
+      failed: 1,
+      attachFailed: 1,
+      completed: 3,
+      calibrationPending: 0,
+    });
+
+    const { GET } = await import("@/app/api/tasks/route");
+    const request = new NextRequest("http://localhost:3000/api/tasks?page=1&pageSize=10");
+    const response = await GET(request);
+    const body = await response.json();
+
+    expect(listTaskJobsByTaskIdMock).toHaveBeenCalledWith("task-fallback");
+    expect(summarizeTaskJobsMock).toHaveBeenCalledWith([{ id: "job-1" }]);
+    expect(body.tasks[0].queueSummary).toEqual({
+      queued: 1,
+      running: 2,
+      paused: 0,
+      failed: 1,
+      attachFailed: 1,
+      completed: 3,
+      calibrationPending: 0,
+    });
   });
 });

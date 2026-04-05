@@ -150,6 +150,26 @@ function makeTask(): GenerateTask {
       startedAt: "2026-03-27T01:12:00.000Z",
       finishedAt: "2026-03-27T01:15:00.000Z",
     },
+    queueSummary: {
+      queued: 1,
+      running: 2,
+      paused: 0,
+      failed: 1,
+      attachFailed: 1,
+      completed: 4,
+      calibrationPending: 0,
+    },
+    presetSnapshot: {
+      presetId: "balanced-auto",
+      imageProvider: "comfyui",
+      imageModel: "sdxl",
+      calibrationRequired: true,
+      calibrationApproved: false,
+      concurrencyPolicy: "single_flight",
+      imageQueue: {
+        maxConcurrency: 1,
+      },
+    },
     factPack: {
       topic: "Round-trip",
       queryPlan: {
@@ -320,6 +340,8 @@ describe("server db review persistence", () => {
     expect(roundTripped?.researchBrief).toEqual(task.researchBrief);
     expect(roundTripped?.accuracyReview).toEqual(task.accuracyReview);
     expect(roundTripped?.accuracyErrorSummary).toEqual(task.accuracyErrorSummary);
+    expect(roundTripped?.queueSummary).toEqual(task.queueSummary);
+    expect(roundTripped?.presetSnapshot).toEqual(task.presetSnapshot);
     expect(roundTripped?.createdAt).toEqual(task.createdAt);
     expect(roundTripped?.updatedAt).toEqual(task.updatedAt);
   });
@@ -369,5 +391,45 @@ describe("server db review persistence", () => {
     expect(roundTripped?.visualDiagnosisState).toBeUndefined();
     expect(roundTripped?.visualDiagnosisStale).toBeUndefined();
     expect(roundTripped?.lastDiagnosisAt).toBeUndefined();
+  });
+
+  it("cleans up durable task jobs when deleting a single task", async () => {
+    const dbModule = await loadIsolatedDb();
+    const task = makeTask();
+    dbModule.upsertTask(task);
+    dbModule.upsertTaskJob({
+      id: "job-cleanup-single",
+      taskId: task.id,
+      kind: "panel_image",
+      status: "queued",
+      panelIndex: 0,
+      attemptCount: 1,
+      createdAt: "2026-03-27T00:00:00.000Z",
+      updatedAt: "2026-03-27T00:00:00.000Z",
+    });
+
+    expect(dbModule.listTaskJobsByTaskId(task.id)).toHaveLength(1);
+    expect(dbModule.deleteTask(task.id)).toBe(true);
+    expect(dbModule.listTaskJobsByTaskId(task.id)).toHaveLength(0);
+  });
+
+  it("cleans up durable task jobs when clearing all tasks", async () => {
+    const dbModule = await loadIsolatedDb();
+    const task = makeTask();
+    dbModule.upsertTask(task);
+    dbModule.upsertTaskJob({
+      id: "job-cleanup-bulk",
+      taskId: task.id,
+      kind: "panel_image",
+      status: "queued",
+      panelIndex: 0,
+      attemptCount: 1,
+      createdAt: "2026-03-27T00:00:00.000Z",
+      updatedAt: "2026-03-27T00:00:00.000Z",
+    });
+
+    expect(dbModule.listTaskJobsByTaskId(task.id)).toHaveLength(1);
+    dbModule.clearAllTasks();
+    expect(dbModule.listTaskJobsByTaskId(task.id)).toHaveLength(0);
   });
 });

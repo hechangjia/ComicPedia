@@ -411,7 +411,7 @@ export type GenerateTaskStatus =
   | "deep_review_running"
   | "deep_review_paused";
 
-export type TaskJobKind = "panel" | "script" | "research" | "light_check" | "deep_review" | "reconcile";
+export type TaskJobKind = "panel_image" | "deep_review" | "reconcile";
 
 export type TaskJobStatus =
   | "queued"
@@ -428,9 +428,10 @@ export interface TaskQueueSummary {
   queued: number;
   running: number;
   paused: number;
-  completed: number;
   failed: number;
-  total: number;
+  attachFailed: number;
+  completed: number;
+  calibrationPending: number;
 }
 
 export interface TaskJobRecord {
@@ -438,8 +439,14 @@ export interface TaskJobRecord {
   taskId: string;
   kind: TaskJobKind;
   status: TaskJobStatus;
+  panelIndex?: number;
+  provider?: string;
+  model?: string;
+  promptSnapshot?: string;
+  outputFileKey?: string;
+  lastError?: string;
+  attemptCount?: number;
   payload?: Record<string, unknown>;
-  error?: string;
   createdAt: string;
   updatedAt: string;
 }

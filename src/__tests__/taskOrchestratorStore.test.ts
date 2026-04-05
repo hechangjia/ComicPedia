@@ -30,67 +30,76 @@ describe("taskOrchestrator store", () => {
 
     await store.createTaskJob({
       taskId: "task-1",
-      kind: "panel",
+      kind: "panel_image",
       status: "queued",
-      payload: {
-        panelIndex: 1,
-        attemptCount: 0,
-        provider: "comfyui",
-        model: "sdxl",
-      },
+      panelIndex: 1,
+      attemptCount: 0,
+      provider: "comfyui",
+      model: "sdxl",
+      promptSnapshot: "prompt-1",
     });
 
     await store.createTaskJob({
       taskId: "task-1",
-      kind: "panel",
+      kind: "panel_image",
       status: "generating",
-      payload: {
-        panelIndex: 2,
-        attemptCount: 1,
-        provider: "comfyui",
-        model: "sdxl",
-      },
+      panelIndex: 2,
+      attemptCount: 1,
+      provider: "comfyui",
+      model: "sdxl",
+      outputFileKey: "task-1/panel-2.png",
+      lastError: "transient timeout",
     });
 
     const jobs = await store.listTaskJobsByTaskId("task-1");
     expect(jobs).toHaveLength(2);
     expect(jobs[0]).toMatchObject({
       taskId: "task-1",
-      kind: "panel",
+      kind: "panel_image",
       status: "queued",
-      payload: expect.objectContaining({ panelIndex: 1, attemptCount: 0 }),
+      panelIndex: 1,
+      attemptCount: 0,
+      provider: "comfyui",
+      model: "sdxl",
+      promptSnapshot: "prompt-1",
     });
     expect(jobs[1]).toMatchObject({
       taskId: "task-1",
-      kind: "panel",
+      kind: "panel_image",
       status: "generating",
-      payload: expect.objectContaining({ panelIndex: 2, attemptCount: 1 }),
+      panelIndex: 2,
+      attemptCount: 1,
+      provider: "comfyui",
+      model: "sdxl",
+      outputFileKey: "task-1/panel-2.png",
+      lastError: "transient timeout",
     });
   });
 
   it("summarizes queue status buckets", async () => {
     const store = await loadIsolatedStore();
 
-    await store.createTaskJob({ taskId: "task-2", kind: "panel", status: "queued" });
-    await store.createTaskJob({ taskId: "task-2", kind: "panel", status: "calibrating" });
-    await store.createTaskJob({ taskId: "task-2", kind: "panel", status: "generating" });
-    await store.createTaskJob({ taskId: "task-2", kind: "panel", status: "persisting" });
-    await store.createTaskJob({ taskId: "task-2", kind: "panel", status: "light_check" });
-    await store.createTaskJob({ taskId: "task-2", kind: "panel", status: "paused" });
-    await store.createTaskJob({ taskId: "task-2", kind: "panel", status: "attach_failed" });
-    await store.createTaskJob({ taskId: "task-2", kind: "panel", status: "failed" });
-    await store.createTaskJob({ taskId: "task-2", kind: "panel", status: "completed" });
+    await store.createTaskJob({ taskId: "task-2", kind: "panel_image", status: "queued" });
+    await store.createTaskJob({ taskId: "task-2", kind: "panel_image", status: "calibrating" });
+    await store.createTaskJob({ taskId: "task-2", kind: "panel_image", status: "generating" });
+    await store.createTaskJob({ taskId: "task-2", kind: "panel_image", status: "persisting" });
+    await store.createTaskJob({ taskId: "task-2", kind: "panel_image", status: "light_check" });
+    await store.createTaskJob({ taskId: "task-2", kind: "panel_image", status: "paused" });
+    await store.createTaskJob({ taskId: "task-2", kind: "panel_image", status: "attach_failed" });
+    await store.createTaskJob({ taskId: "task-2", kind: "panel_image", status: "failed" });
+    await store.createTaskJob({ taskId: "task-2", kind: "panel_image", status: "completed" });
 
     const jobs = await store.listTaskJobsByTaskId("task-2");
     const summary = store.summarizeTaskJobs(jobs);
 
     expect(summary).toEqual({
       queued: 1,
-      running: 4,
+      running: 3,
       paused: 1,
+      failed: 1,
+      attachFailed: 1,
       completed: 1,
-      failed: 2,
-      total: 9,
+      calibrationPending: 1,
     });
   });
 });
