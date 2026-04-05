@@ -119,6 +119,47 @@ describe("image provider services", () => {
     expect(result.seed).toBe(424242);
   });
 
+  it("runComfyWorkflow tolerates transient history poll failures after prompt submission", async () => {
+    const fetchMock = vi.fn();
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify({ prompt_id: "pid-retry" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }))
+      .mockRejectedValueOnce(new Error("temporary poll failure"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        "pid-retry": {
+          status: { completed: true },
+          outputs: {
+            "save-1": {
+              images: [{ filename: "retry.png", subfolder: "", type: "output" }],
+            },
+          },
+        },
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }))
+      .mockResolvedValueOnce(new Response(new Uint8Array([7, 8, 9]), {
+        status: 200,
+        headers: { "Content-Type": "image/png" },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runComfyWorkflow({
+      comfyuiUrl: "http://127.0.0.1:8188/",
+      workflow: {
+        "1": { class_type: "CLIPTextEncode", inputs: { text: "old prompt" } },
+        "2": { class_type: "KSampler", inputs: { seed: 1, positive: ["1", 0] } },
+      },
+      prompt: "retry prompt",
+    });
+
+    expect(result.promptId).toBe("pid-retry");
+    expect(result.image).toBe("data:image/png;base64,BwgJ");
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
   it("forwardImageGenerationRequest parses JSON and resolves external image URLs", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
