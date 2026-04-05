@@ -1,99 +1,66 @@
 # Handoff
 
 ## 当前目标
-- `comic-review-loop` 变更的代码、验证和文档已经收尾，当前仅剩是否归档 change 的流程性动作。
-- “允许引导角色”开关已落地，神话/历史题材默认不会再被额外塞进 `explorer / guide / narrator` 这类泛化引导角色。
+- 完成 AI 导演助手 (AI Director Assistant) MVP 功能的设计与实施
+- 提供叙事分析、节奏分析、分镜建议、导演侧边栏等核心功能
 
 ## 今天已完成内容
-- 补强了 automatic visual retry 主路径测试，并按 TDD 修复两个真实问题：
-  - retry 失败时恢复原始 `imagePrompt`
-  - 正负补丁都已生效时跳过无意义 automatic retry
-- 新增 review metadata round-trip 测试，确认 task / character 的持久化字段可安全写回和读回。
-- 为科普和 Wikipedia 创建入口新增“允许引导角色”开关，默认关闭：
-  - `src/components/ScienceForm.tsx`
-  - `src/components/WikipediaForm.tsx`
-  - `src/components/GuideCharacterToggle.tsx`
-- 将 `allowGuideCharacter` 贯通到：
-  - `GenerateRequest`
-  - prompt 构建
-  - `generationConfig`
-  - script regeneration 继承链路
-- 在 prompt 层增加显式限制：关闭开关时，science / wikipedia prompt 禁止额外添加讲解员、探索者、旁白型角色。
-- 增加轻量兜底清洗：
-  - `src/lib/guideCharacterPolicy.ts`
-  - 仅清理泛化 guide character，不误伤题材原生人物（如盘古、女娲）
-- settings 页新增静态“模型分工”说明。
-- 页面级 UI 验证中发现并修复一个真实问题：
-  - `/api/tasks` 列表接口原先为了轻量化裁掉了 review 字段，导致 history 卡片虽然定义了 `ReviewBadge`，但实际拿不到 `reviewStatus` / `visualQualityScore`
-  - 已修复为保留 history 真正需要的轻量 review 字段：
-    - `reviewStatus`
-    - `lastReviewAt`
-    - `visualQualityScore.overall`
-    - `visualQualityScore.retryRecommendations`
-    - `visualRetrySummary.status`
-    - `visualRetrySummary.finalOverallScore`
+- AI 导演助手设计文档：`docs/superpowers/specs/2026-04-05-ai-director-assistant-design.md`
+- AI 导演助手 MVP 实施计划：`docs/superpowers/plans/2026-04-05-ai-director-assistant-mvp.md`
+- 核心模块实现：
+  - `src/lib/directorAgent/types.ts` - 类型定义
+  - `src/lib/directorAgent/analyzer/narrativeAnalyzer.ts` - 叙事分析
+  - `src/lib/directorAgent/analyzer/rhythmAnalyzer.ts` - 节奏分析
+  - `src/lib/directorAgent/analyzer/shotAnalyzer.ts` - 分镜建议
+  - `src/lib/directorAgent/suggestionGenerator.ts` - 建议聚合
+  - `src/lib/directorAgent/visualization.ts` - 可视化数据
+  - `src/lib/directorAgent/index.ts` - 统一导出
+- 前端组件：
+  - `src/components/director/RhythmVisualizer.tsx` - 节奏可视化器
+  - `src/components/result/DirectorSidebar.tsx` - 导演侧边栏
+- 集成：结果页添加「AI 导演」标签页
+- 测试覆盖：5 个测试文件，18 个测试用例，全部通过
+- 提交：`feat(director-agent): add AI director assistant MVP`
 
 ## 当前进行中的内容
-- 没有进行中的代码工作；当前处于“已验证，可归档/继续人工体验”的状态。
+- AI 导演助手 MVP 已完成实施并提交
+- 无进行中的代码工作
 
 ## 剩余工作
-- 如果采用 OpenSpec 流程，下一步可归档 `comic-review-loop` change。
-- 如果想进一步收紧引导角色策略，可继续扩大兜底词表，覆盖更隐蔽的模型措辞（如 `story host`、`curious presenter`）。
+- 第 2 期：角色一致性检查（CharacterAnalyzer + CharacterConsistencyPanel）
+- 第 3 期：完整导演工作台（DirectorWorkbench）、伏笔回收、智能续写
+- 可考虑安装 Recharts 替换当前 CSS 简单可视化
+- 可进一步优化叙事分析算法（引入 LLM 增强建议质量）
 
 ## 关键决策和约束
-- 当前主仓库 review 状态模型仍是：
-  - `visualQualityScore`
-  - `panelReview`
-  - `reviewStatus`
-  - `lastReviewAt`
-  - `visualRetrySummary`
-- 不引入另一套 `visualReviewState` / `visualReviewStale` 模型。
-- automatic retry 继续保持：
-  - 每任务最多 1 次 cycle
-  - 最多 3 个 panel
-  - retry 后最多 1 次 reevaluation
-- 引导角色策略采用“两层防线”：
-  - prompt 显式禁止
-  - 生成后轻量清洗兜底
-- history 列表接口继续保持“轻量返回”，但现在已包含 render review badge 所需的最小字段。
+- 采用被动分析模式，不打断用户创作流，按需触发
+- 模块化架构，各 analyzer 独立实现
+- 分期实现策略，MVP 先行，第 2/3 期后续补充
+- 复用现有 director.ts、qualityScore.ts 等模块
+- 前端集成采用 DetailTabs 标签页方式，不破坏现有布局
+- 可视化采用 CSS 简单实现，避免引入额外依赖（Recharts 可选）
 
 ## 重要文件路径
-- `src/lib/client/taskLifecycle.ts`
-- `src/app/api/tasks/route.ts`
-- `src/__tests__/taskLifecycle.test.ts`
-- `src/__tests__/tasksRoute.test.ts`
-- `src/__tests__/serverDbReviewPersistence.test.ts`
-- `src/__tests__/guideCharacterPolicy.test.ts`
-- `src/lib/guideCharacterPolicy.ts`
-- `src/components/GuideCharacterToggle.tsx`
-- `src/components/ScienceForm.tsx`
-- `src/components/WikipediaForm.tsx`
-- `src/hooks/useContentForm.ts`
-- `src/prompts/scriptGenerator.ts`
-- `src/prompts/wikipediaGenerator.ts`
-- `src/app/settings/page.tsx`
-- `openspec/changes/comic-review-loop/tasks.md`
+- 设计文档：`docs/superpowers/specs/2026-04-05-ai-director-assistant-design.md`
+- 实施计划：`docs/superpowers/plans/2026-04-05-ai-director-assistant-mvp.md`
+- 核心模块：`src/lib/directorAgent/`
+- 前端组件：`src/components/director/RhythmVisualizer.tsx`
+- 前端组件：`src/components/result/DirectorSidebar.tsx`
+- 集成点：`src/app/result/[id]/page.tsx`
+- 测试文件：`src/__tests__/directorAgent/`
 
 ## 当前阻塞和风险
-- 没有硬阻塞。
-- guide-character 兜底规则当前针对高频词（`explorer / guide / narrator / 知识探索者 / 讲解员`）；如果模型改用更隐蔽的别称，后续可能仍需扩充匹配词表。
-- 页面级验证依赖本地已有数据样本；如果要做更高置信度回归，建议后续再加一个端到端测试夹具。
+- 无硬阻塞
+- 叙事分析和节奏分析当前基于启发式规则，建议质量有提升空间
+- 如需更专业建议，可考虑引入 LLM 调用（但会增加 token 成本）
 
 ## 下次启动后优先执行的 3 个步骤
-1. 决定是否归档 `comic-review-loop` change。
-2. 如果继续打磨，引入更多引导角色同义词和反例测试。
-3. 如需更强回归保障，补一条真正的端到端 UI 自动化测试。
+1. 本地验证：启动 `pnpm dev`，在结果页测试「AI 导演」功能
+2. 如需要，安装 Recharts 优化节奏可视化器
+3. 规划第 2 期：角色一致性检查功能
 
 ## 当前验证状态
-- 已运行：
-  - `pnpm vitest run src/__tests__/taskLifecycle.test.ts src/__tests__/vlmRetry.test.ts src/__tests__/guideCharacterPolicy.test.ts src/__tests__/contentRegistry.test.ts src/__tests__/serverDbReviewPersistence.test.ts`
-  - `pnpm vitest run src/__tests__/tasksRoute.test.ts`
-  - `pnpm exec tsc --noEmit`
-- 已完成页面级验证：
-  - `history` 页显示 `待修复 (5)`
-  - `result` 页能定位到 `needs_repair` 任务
-  - `characters` 页显示 `女娲` 的 `7.7/10` review 状态
-  - `/create` 科普创建页能看到“允许引导角色”开关，且默认值为 `false`
-- 当前结论：
-  - `5.1 / 5.2 / 5.3` 均已完成
-  - `comic-review-loop` 代码和文档状态已闭环
+- 已运行：`pnpm test src/__tests__/directorAgent/ -v` - 18 个测试全部通过
+- 已运行：`pnpm tsc --noEmit` - directorAgent 相关类型通过，其他测试文件有无关类型错误
+- 已提交：所有代码已提交到 dev 分支
+- 等待：本地页面级验证
