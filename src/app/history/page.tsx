@@ -286,6 +286,7 @@ export default function HistoryPage() {
   const [exportMode, setExportMode] = useState(false);
   const [deleteMode, setDeleteMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const selectedIdsRef = useRef<Set<string>>(new Set());
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
   const urlFilter = useMemo(() => parseHistoryFilter(searchParams.get("filter")), [searchParams]);
   const [activeFilter, setActiveFilter] = useState<HistoryFilterId>(urlFilter);
@@ -297,6 +298,11 @@ export default function HistoryPage() {
   }, [activeFilter, history]);
 
   const selectionMode = exportMode || deleteMode;
+
+  // 同步 selectedIds 到 ref
+  useEffect(() => {
+    selectedIdsRef.current = selectedIds;
+  }, [selectedIds]);
 
   const loadHistory = useCallback(async (page: number) => {
     try {
@@ -481,7 +487,7 @@ export default function HistoryPage() {
   }, []);
 
   const handleExportSelected = useCallback(async () => {
-    const selected = history.filter((t) => selectedIds.has(t.id));
+    const selected = history.filter((t) => selectedIdsRef.current.has(t.id));
     if (selected.length === 0) return;
     try {
       await exportTasksAsZip(selected, setExportProgress);
@@ -492,7 +498,7 @@ export default function HistoryPage() {
       setExportProgress(null);
     }
     exitExportMode();
-  }, [exitExportMode, history, selectedIds]);
+  }, [exitExportMode, history]);
 
   const handleExportAll = useCallback(async () => {
     if (history.length === 0) return;
@@ -507,7 +513,10 @@ export default function HistoryPage() {
   }, [history]);
 
   const handleDeleteSelected = useCallback(async () => {
-    const selected = history.filter((t) => selectedIds.has(t.id));
+    // 使用 ref 来获取最新的 selectedIds
+    const idsToDelete = Array.from(selectedIdsRef.current);
+    const selected = history.filter((t) => selectedIdsRef.current.has(t.id));
+
     if (selected.length === 0) return;
 
     if (!confirm(`确定删除选中的 ${selected.length} 个漫画？此操作不可恢复。`)) {
@@ -515,18 +524,19 @@ export default function HistoryPage() {
     }
 
     try {
-      await deleteComicsByIds(Array.from(selectedIds));
+      await deleteComicsByIds(idsToDelete);
       invalidateTasks();
+      // 先更新本地状态
+      setHistory(prev => prev.filter(t => !idsToDelete.includes(t.id)));
+      // 再退出删除模式
       exitDeleteMode();
-      // 先更新本地状态，再异步刷新
-      setHistory(prev => prev.filter(t => !selectedIds.has(t.id)));
       // 异步刷新确保与服务端同步
       setTimeout(() => loadHistory(1), 0);
     } catch (err) {
       console.error("Delete failed:", err);
       alert("删除失败，请查看控制台日志");
     }
-  }, [exitDeleteMode, history, invalidateTasks, loadHistory, selectedIds]);
+  }, [exitDeleteMode, history, invalidateTasks, loadHistory]);
 
   // ── Import ──
 
