@@ -222,8 +222,8 @@ function taskToRow(task: GenerateTask & { serverScriptReplay?: ServerScriptRepla
     metadata: Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
     tags: JSON.stringify(task.tags ?? []),
     favorited: task.favorited ? 1 : 0,
-    created_at: task.createdAt instanceof Date ? task.createdAt.toISOString() : String(task.createdAt),
-    updated_at: task.updatedAt instanceof Date ? task.updatedAt.toISOString() : String(task.updatedAt),
+    created_at: safeToISOString(task.createdAt),
+    updated_at: safeToISOString(task.updatedAt),
   };
 }
 
@@ -236,6 +236,25 @@ function safeJsonParse<T>(json: string | null | undefined, fallback?: T): T | un
     console.error('[DB] JSON parse failed for data:', json.slice(0, 100), err);
     return fallback;
   }
+}
+
+/** Safe date to ISO string — returns current time if date is invalid */
+function safeToISOString(date: unknown): string {
+  if (date instanceof Date) {
+    const time = date.getTime();
+    if (!isNaN(time)) {
+      return date.toISOString();
+    }
+  }
+  if (typeof date === 'string' || typeof date === 'number') {
+    const d = new Date(date);
+    const time = d.getTime();
+    if (!isNaN(time)) {
+      return d.toISOString();
+    }
+  }
+  // Fallback to current time
+  return new Date().toISOString();
 }
 
 const REVIEW_STATUS_VALUES = new Set<GenerateTask["reviewStatus"]>(["unreviewed", "reviewed", "needs_repair"]);
@@ -706,8 +725,8 @@ function charToRow(c: Character) {
     variants: c.variants ? JSON.stringify(c.variants) : null,
     personality: c.personality ? JSON.stringify(c.personality) : null,
     metadata: Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
-    created_at: c.createdAt,
-    updated_at: c.updatedAt,
+    created_at: safeToISOString(c.createdAt),
+    updated_at: safeToISOString(c.updatedAt),
   };
 }
 
@@ -790,8 +809,8 @@ function seriesToRow(s: Series) {
     character_ids: s.characterIds ? JSON.stringify(s.characterIds) : null,
     episodes: JSON.stringify(s.episodes),
     cover_url: s.coverUrl ?? null,
-    created_at: s.createdAt,
-    updated_at: s.updatedAt,
+    created_at: safeToISOString(s.createdAt),
+    updated_at: safeToISOString(s.updatedAt),
   };
 }
 
