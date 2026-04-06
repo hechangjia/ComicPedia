@@ -290,10 +290,11 @@ export default function HistoryPage() {
   const urlFilter = useMemo(() => parseHistoryFilter(searchParams.get("filter")), [searchParams]);
   const [activeFilter, setActiveFilter] = useState<HistoryFilterId>(urlFilter);
   const historyOverview = buildHistoryOverview(history);
-  const visibleHistory = useMemo(
-    () => filterHistoryItems(history, activeFilter),
-    [activeFilter, history],
-  );
+  const visibleHistory = useMemo(() => {
+    const filtered = filterHistoryItems(history, activeFilter);
+    // 确保没有重复的 key
+    return Array.from(new Map(filtered.map(item => [item.id, item])).values());
+  }, [activeFilter, history]);
 
   const selectionMode = exportMode || deleteMode;
 
@@ -317,12 +318,18 @@ export default function HistoryPage() {
         ]);
         const refreshed = await getAllComics(page, 50);
         if (page === 1) {
-          setHistory(refreshed.items);
-          setTasks(refreshed.items, refreshed.total);
+          // 去重
+          const uniqueItems = Array.from(new Map(refreshed.items.map(item => [item.id, item])).values());
+          setHistory(uniqueItems);
+          setTasks(uniqueItems, refreshed.total);
         } else {
           setHistory((prev) => {
-            const merged = [...prev, ...refreshed.items];
-            setTasks(merged, refreshed.total);
+            // 合并并去重
+            const existingIds = new Set(prev.map(item => item.id));
+            const newItems = refreshed.items.filter(item => !existingIds.has(item.id));
+            const merged = [...prev, ...newItems];
+            // 在 setHistory 回调外调用 setTasks
+            setTimeout(() => setTasks(merged, refreshed.total), 0);
             return merged;
           });
         }
@@ -332,12 +339,18 @@ export default function HistoryPage() {
       }
 
       if (page === 1) {
-        setHistory(tasks);
-        setTasks(tasks, result.total);
+        // 去重
+        const uniqueItems = Array.from(new Map(tasks.map(item => [item.id, item])).values());
+        setHistory(uniqueItems);
+        setTasks(uniqueItems, result.total);
       } else {
         setHistory((prev) => {
-          const merged = [...prev, ...tasks];
-          setTasks(merged, result.total);
+          // 合并并去重
+          const existingIds = new Set(prev.map(item => item.id));
+          const newItems = tasks.filter(item => !existingIds.has(item.id));
+          const merged = [...prev, ...newItems];
+          // 在 setHistory 回调外调用 setTasks
+          setTimeout(() => setTasks(merged, result.total), 0);
           return merged;
         });
       }
@@ -504,8 +517,11 @@ export default function HistoryPage() {
     try {
       await deleteComicsByIds(Array.from(selectedIds));
       invalidateTasks();
-      loadHistory(1);
       exitDeleteMode();
+      // 先更新本地状态，再异步刷新
+      setHistory(prev => prev.filter(t => !selectedIds.has(t.id)));
+      // 异步刷新确保与服务端同步
+      setTimeout(() => loadHistory(1), 0);
     } catch (err) {
       console.error("Delete failed:", err);
       alert("删除失败，请查看控制台日志");
