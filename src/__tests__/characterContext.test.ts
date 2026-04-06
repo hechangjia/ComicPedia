@@ -114,7 +114,7 @@ describe("buildCharacterContext", () => {
     const chars = [makeCharacter({
       id: "c1",
       name: "Pikachu",
-      appearance: { species: "electric mouse", age: "young", hair: "yellow fur", eyes: "round black", clothing: "" },
+      appearance: { species: "electric mouse", age: "young", hair: "yellow fur", eyes: "round black", clothing: "", gender: "unknown" },
     })];
     const result = buildCharacterContext(chars, []);
     expect(result.text).toContain("electric mouse");

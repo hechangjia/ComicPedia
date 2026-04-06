@@ -1,7 +1,7 @@
 "use client";
 
 import type { GenerateTask, TaskQueueSummary } from "@/lib/types";
-import { Image as ImageIcon, PauseCircle, PlayCircle, Rows4 } from "lucide-react";
+import { Image as ImageIcon, PauseCircle, Rows4 } from "lucide-react";
 
 interface PanelQueueToolbarProps {
   taskStatus: GenerateTask["status"];
@@ -128,18 +128,6 @@ export function PanelQueueToolbar({
           >
             <PauseCircle className="w-4 h-4" />
             暂停队列
-          </button>
-        )}
-        {isQueuePaused && (
-          <button
-            type="button"
-            aria-label="恢复队列"
-            onClick={onResumeQueue}
-            disabled={actionPending}
-            className="px-4 py-2 text-sm border rounded-lg hover:bg-muted transition-colors disabled:opacity-50 flex items-center gap-2 min-h-[40px]"
-          >
-            <PlayCircle className="w-4 h-4" />
-            恢复队列
           </button>
         )}
       </div>

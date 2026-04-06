@@ -6,12 +6,12 @@ type GenerationPresetDefinition = Omit<GenerationPresetSnapshot, "presetId"> & {
 };
 
 export const GENERATION_PRESETS = {
-  "local-comfy-calibrated": {
-    id: "local-comfy-calibrated",
-    label: "本地 ComfyUI 校准流",
-    pauseAfterScript: true,
-    calibrationMode: "required" as const,
-    imageConcurrency: 1,
+  "one-click-full": {
+    id: "one-click-full",
+    label: "一键生成（推荐）",
+    pauseAfterScript: false,
+    calibrationMode: "disabled" as const,
+    imageConcurrency: 2,
     lightCheckMode: "auto" as const,
     deepReviewMode: "manual" as const,
     leavePagePolicy: "finish_inflight_then_pause" as const,
@@ -39,10 +39,20 @@ export const GENERATION_PRESETS = {
   "fast-draft": {
     id: "fast-draft",
     label: "极速草稿流",
-    pauseAfterScript: true,
+    pauseAfterScript: false,
     calibrationMode: "disabled" as const,
-    imageConcurrency: 2,
+    imageConcurrency: 3,
     lightCheckMode: "off" as const,
+    deepReviewMode: "off" as const,
+    leavePagePolicy: "continue_in_background" as const,
+  },
+  "local-comfy-calibrated": {
+    id: "local-comfy-calibrated",
+    label: "本地 ComfyUI 校准流",
+    pauseAfterScript: true,
+    calibrationMode: "required" as const,
+    imageConcurrency: 1,
+    lightCheckMode: "auto" as const,
     deepReviewMode: "manual" as const,
     leavePagePolicy: "finish_inflight_then_pause" as const,
   },

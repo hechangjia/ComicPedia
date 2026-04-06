@@ -15,8 +15,8 @@ const makeScript = (): ComicScript => ({
   topic: "植物如何制造食物",
   style: "flat",
   panels: [
-    { id: "p1", scene: "阳光照射植物", dialogue: "植物通过光合作用吸收阳光", imagePrompt: "sun on plant", imageUrl: "", status: "completed" },
-    { id: "p2", scene: "叶片结构", dialogue: "叶绿体是光合作用的场所", imagePrompt: "chloroplast", imageUrl: "", status: "completed" },
+    { id: 1, scene: "阳光照射植物", dialogue: "植物通过光合作用吸收阳光", imagePrompt: "sun on plant", imageUrl: "", status: "completed" },
+    { id: 2, scene: "叶片结构", dialogue: "叶绿体是光合作用的场所", imagePrompt: "chloroplast", imageUrl: "", status: "completed" },
   ] as ComicScript["panels"],
 });
 

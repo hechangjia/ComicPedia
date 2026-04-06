@@ -141,7 +141,7 @@ export function useContentForm(
   const [error, setError] = useState("");
   const [selectedLLMId, setSelectedLLMId] = useState<string | null>(null);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
-  const [selectedPresetId, setSelectedPresetId] = useState<GenerationPresetId>("balanced-auto");
+  const [selectedPresetId, setSelectedPresetId] = useState<GenerationPresetId>("one-click-full");
   const [advancedSettings, setAdvancedSettings] = useState<Partial<GenerationPresetSnapshot>>({});
   const [quality, setQuality] = useState<GenerationQuality>("standard");
   const [difficulty, setDifficulty] = useState<DifficultyLevel>("medium");

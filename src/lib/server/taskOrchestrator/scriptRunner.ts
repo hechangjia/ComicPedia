@@ -515,6 +515,30 @@ export async function runResearchAndScriptTask(
       traceEnd(task, "script", error instanceof Error ? error.message : "Unknown error");
       throw error;
     }
+
+    // Auto-continue to image generation if preset allows it
+    if ((task.status as string) === "script_ready" && !request.presetSnapshot?.pauseAfterScript) {
+      try {
+        // Lazy import to avoid circular dependency (runtime.ts imports scriptRunner.ts)
+        const { getTaskRuntime } = await import("./runtime");
+        const runtime = getTaskRuntime();
+        console.log(`[TaskScriptRunner] Auto-continuing to image generation for task ${task.id}`);
+        // Avoid nested event loop blocking by deferring to next tick
+        setTimeout(() => {
+          try {
+            runtime.enqueueImageQueue(task.id, {
+              llmConfig: request.llmConfig,
+              imageConfig: request.imageConfig,
+            });
+          } catch (err) {
+            console.error(`[TaskScriptRunner] Deferred auto-enqueue failed for ${task.id}:`, err);
+          }
+        }, 0);
+      } catch (error) {
+        console.error(`[TaskScriptRunner] Failed to auto-enqueue image queue for ${task.id}:`, error);
+        // Task stays at script_ready; user can manually continue
+      }
+    }
   } catch (error) {
     task.status = "failed";
     task.error = error instanceof Error ? error.message : "Unknown error";

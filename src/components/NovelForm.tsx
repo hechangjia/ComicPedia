@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { NovelGenre, PoetryGenre } from "@/lib/types";
 import { useContentForm } from "@/hooks/useContentForm";
 import { StyleSelector } from "./StyleSelector";
@@ -74,6 +75,7 @@ export function NovelForm({ initialContent = "" }: { initialContent?: string }) 
     useCallback(() => content, [content]),
   );
   const getDraftInputText = form.getDraftInputText;
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // 恢复草稿文本
   useEffect(() => {

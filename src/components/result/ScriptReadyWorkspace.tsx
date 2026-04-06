@@ -72,25 +72,28 @@ export function ScriptReadyWorkspace({
 }: ScriptReadyWorkspaceProps) {
   const completedPanels = panels.filter((panel) => panel.status === "completed").length;
   const pendingPanels = panels.filter((panel) => panel.status !== "completed").length;
-  const canEnqueuePanels = taskStatus === "script_ready";
+  const canEditScript = taskStatus === "script_ready";
+  const canEnqueuePanels = canEditScript;
 
   return (
     <div className="space-y-4 no-print">
-      <ScriptReadyBar
-        completedPanels={completedPanels}
-        totalPanels={panels.length}
-        pendingPanels={pendingPanels}
-        generatingAll={generatingAll}
-        llmConfigs={llmConfigs}
-        imageConfigs={imageConfigs}
-        activeLLMId={activeLLMId}
-        activeImageId={activeImageId}
-        selectedLLMId={selectedLLMId}
-        selectedImageId={selectedImageId}
-        onSelectedLLMIdChange={onSelectedLLMIdChange}
-        onSelectedImageIdChange={onSelectedImageIdChange}
-        onRegenerateScript={onRegenerateScript}
-      />
+      {canEditScript && (
+        <ScriptReadyBar
+          completedPanels={completedPanels}
+          totalPanels={panels.length}
+          pendingPanels={pendingPanels}
+          generatingAll={generatingAll}
+          llmConfigs={llmConfigs}
+          imageConfigs={imageConfigs}
+          activeLLMId={activeLLMId}
+          activeImageId={activeImageId}
+          selectedLLMId={selectedLLMId}
+          selectedImageId={selectedImageId}
+          onSelectedLLMIdChange={onSelectedLLMIdChange}
+          onSelectedImageIdChange={onSelectedImageIdChange}
+          onRegenerateScript={onRegenerateScript}
+        />
+      )}
 
       <PanelQueueToolbar
         taskStatus={taskStatus}

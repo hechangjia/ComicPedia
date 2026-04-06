@@ -123,8 +123,7 @@ export const EditablePanel = memo(function EditablePanel({
   };
 
   const isScriptReady = taskStatus === "script_ready";
-  const isCompleted = taskStatus === "completed";
-  const canEdit = isScriptReady || isCompleted;
+  const canEdit = isScriptReady;
   const isRegenerating = panel.status === "generating";
   const hasImage = panel.status === "completed" && panel.imageUrl && !panel.imageUrl.startsWith("data:text/plain");
 

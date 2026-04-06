@@ -23,8 +23,14 @@ interface BindTaskPageLifecycleOptions {
   pauseTask: (task: GenerateTask) => void | Promise<unknown>;
 }
 
+function shouldPauseTaskOnLeave(task: GenerateTask | null): task is GenerateTask {
+  return !!task
+    && PAGEHIDE_PAUSEABLE_STATUSES.has(task.status)
+    && task.presetSnapshot?.leavePagePolicy !== "continue_in_background";
+}
+
 export function isTaskPagePauseable(task: GenerateTask | null): task is GenerateTask {
-  return !!task && PAGEHIDE_PAUSEABLE_STATUSES.has(task.status);
+  return shouldPauseTaskOnLeave(task);
 }
 
 function getTaskTimestamp(value: Date | string | undefined): number | null {
@@ -148,9 +154,6 @@ export function useTaskPageLifecycle(task: GenerateTask | null) {
 
     return () => {
       window.cancelAnimationFrame(rafId);
-      if (stableMountRef.current) {
-        controller.requestPause();
-      }
       stableMountRef.current = false;
       controller.cleanup();
     };

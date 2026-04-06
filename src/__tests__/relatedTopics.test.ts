@@ -18,7 +18,7 @@ const makeScript = (): ComicScript => ({
   topic: "植物如何制造食物",
   style: "flat",
   panels: [
-    { id: "p1", scene: "阳光照射", dialogue: "叶绿体吸收阳光", imagePrompt: "sun", imageUrl: "", status: "completed" },
+    { id: 1, scene: "阳光照射", dialogue: "叶绿体吸收阳光", imagePrompt: "sun", imageUrl: "", status: "completed" },
   ] as ComicScript["panels"],
 });
 

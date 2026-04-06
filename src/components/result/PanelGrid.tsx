@@ -99,7 +99,7 @@ export function PanelGrid({
 }: PanelGridProps) {
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const dragSourceIndex = useRef<number | null>(null);
-  const canReorder = (taskStatus === "script_ready" || taskStatus === "completed") && !!onReorder;
+  const canReorder = taskStatus === "script_ready" && !!onReorder;
   const reviews = panelReview ?? [];
   const reviewByIndex = new Map(reviews.map((item) => [item.panelIndex, item]));
   const reviewedCount = reviews.filter((item) => item.status === "reviewed").length;

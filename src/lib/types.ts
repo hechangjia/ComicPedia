@@ -465,8 +465,8 @@ export interface GenerationPresetSnapshot {
   calibrationMode?: "required" | "disabled";
   imageConcurrency?: number;
   lightCheckMode?: "auto" | "off";
-  deepReviewMode?: "manual";
-  leavePagePolicy?: "finish_inflight_then_pause";
+  deepReviewMode?: "manual" | "off";
+  leavePagePolicy?: "finish_inflight_then_pause" | "continue_in_background";
   research?: Record<string, unknown>;
   script?: Record<string, unknown>;
   imageQueue?: Record<string, unknown>;

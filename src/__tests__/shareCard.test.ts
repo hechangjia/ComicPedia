@@ -45,7 +45,6 @@ beforeEach(() => {
   mockCanvas.toBlob.mockImplementation((cb: (b: Blob | null) => void) => cb(mockBlob));
   mockCanvas.getContext.mockReturnValue(mockCtx);
 
-  // @ts-expect-error - partial mock
   globalThis.document = globalThis.document || {};
   globalThis.document.createElement = vi.fn((tag: string) => {
     if (tag === "canvas") return mockCanvas as unknown as HTMLCanvasElement;
@@ -80,8 +79,8 @@ const makeScript = (overrides?: Partial<ComicScript>): ComicScript => ({
   topic: "Science",
   style: "flat",
   panels: [
-    { id: "p1", scene: "Scene 1", dialogue: "Hello", imagePrompt: "test", imageUrl: "http://img.png", status: "completed" },
-    { id: "p2", scene: "Scene 2", dialogue: "World", imagePrompt: "test2", imageUrl: "http://img2.png", status: "completed" },
+    { id: 1, scene: "Scene 1", dialogue: "Hello", imagePrompt: "test", imageUrl: "http://img.png", status: "completed" },
+    { id: 2, scene: "Scene 2", dialogue: "World", imagePrompt: "test2", imageUrl: "http://img2.png", status: "completed" },
   ] as ComicScript["panels"],
   ...overrides,
 });
@@ -103,7 +102,7 @@ describe("generateShareCardBlob", () => {
   it("handles script with no valid panels", async () => {
     const { generateShareCardBlob } = await import("@/lib/shareCard");
     const script = makeScript({
-      panels: [{ id: "p1", scene: "s", dialogue: "d", imagePrompt: "p", imageUrl: "", status: "pending" }] as ComicScript["panels"],
+      panels: [{ id: 1, scene: "s", dialogue: "d", imagePrompt: "p", imageUrl: "", status: "pending" }] as ComicScript["panels"],
     });
     const blob = await generateShareCardBlob(script);
     expect(blob).toBeInstanceOf(Blob);

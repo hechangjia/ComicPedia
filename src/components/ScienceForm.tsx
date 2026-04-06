@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { useContentForm } from "@/hooks/useContentForm";
 import { StyleSelector } from "./StyleSelector";
 import { PanelCountSelector } from "./PanelCountSelector";
@@ -24,6 +25,7 @@ const EXAMPLE_TOPICS = [
 
 export function ScienceForm({ initialTopic = "" }: { initialTopic?: string }) {
   const [topic, setTopic] = useState(initialTopic);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const form = useContentForm(
     {
@@ -65,69 +67,92 @@ export function ScienceForm({ initialTopic = "" }: { initialTopic?: string }) {
           />
         </div>
 
-        <ModelSelector type="llm" value={form.selectedLLMId} onChange={form.setSelectedLLMId} disabled={form.isLoading} />
-        <ModelSelector type="image" value={form.selectedImageId} onChange={form.setSelectedImageId} disabled={form.isLoading} />
-
-        <GenerationPresetSelector
-          value={form.selectedPresetId}
-          onChange={form.setSelectedPresetId}
-          disabled={form.isLoading}
-        />
-
-        <AdvancedGenerationSettings
-          value={form.advancedSettings}
-          onChange={form.setAdvancedSettings}
-          disabled={form.isLoading}
-        />
-
-        <StyleSelector value={form.style} onChange={form.setStyle} disabled={form.isLoading} />
-
-        <PanelCountSelector
-          panelCount={form.panelCount}
-          customPanelCount={form.customPanelCount}
-          onPanelCountChange={form.setPanelCount}
-          onCustomPanelCountChange={form.setCustomPanelCount}
-          disabled={form.isLoading}
-        />
-
-        <QualitySelector value={form.quality} onChange={form.setQuality} disabled={form.isLoading} />
-
-        <DifficultySelector value={form.difficulty} onChange={form.setDifficulty} disabled={form.isLoading} />
-
-        {form.showGuideCharacterToggle && (
-          <GuideCharacterToggle
-            checked={form.allowGuideCharacter}
-            onChange={form.setAllowGuideCharacter}
+        {/* 核心配置 - 默认显示 */}
+        <div className="space-y-4">
+          <GenerationPresetSelector
+            value={form.selectedPresetId}
+            onChange={form.setSelectedPresetId}
             disabled={form.isLoading}
           />
-        )}
 
-        <CharacterPicker
-          selectedIds={form.selectedCharacterIds}
-          onSelectionChange={form.handleCharacterSelection}
-          currentStyle={form.style}
-          disabled={form.isLoading}
-        />
+          <StyleSelector value={form.style} onChange={form.setStyle} disabled={form.isLoading} />
 
-        <ReferenceImagePanel
-          referenceImage={form.referenceImage}
-          referenceImages={form.referenceImages}
-          referenceLabels={form.referenceLabels}
-          controlMode={form.controlMode}
-          onImageChange={form.setReferenceImage}
-          onImagesChange={form.setReferenceImages}
-          onLabelsChange={form.setReferenceLabels}
-          onControlModeChange={form.setControlMode}
-          onAIGenerate={form.handleAIGenerateReference}
-          onAIGenerateCharacters={form.handleAIGenerateCharacters}
-          onRegenerateRef={form.handleRegenerateFormRef}
-          onRefVersionChange={form.handleFormRefVersionChange}
-          title={topic}
-          referenceEntries={form.referenceEntries}
-          onEntriesChange={form.setReferenceEntries}
-          genMode={form.genMode}
-          onGenModeChange={form.setGenMode}
-        />
+          <QualitySelector value={form.quality} onChange={form.setQuality} disabled={form.isLoading} />
+        </div>
+
+        {/* 高级设置 - 可折叠 */}
+        <div className="border-t pt-4">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="flex items-center justify-between w-full text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <span className="font-medium">高级设置</span>
+            {showAdvanced ? (
+              <ChevronUp className="w-4 h-4" />
+            ) : (
+              <ChevronDown className="w-4 h-4" />
+            )}
+          </button>
+
+          {showAdvanced && (
+            <div className="mt-4 space-y-4 animate-fade-in">
+              <ModelSelector type="llm" value={form.selectedLLMId} onChange={form.setSelectedLLMId} disabled={form.isLoading} />
+              <ModelSelector type="image" value={form.selectedImageId} onChange={form.setSelectedImageId} disabled={form.isLoading} />
+
+              <AdvancedGenerationSettings
+                value={form.advancedSettings}
+                onChange={form.setAdvancedSettings}
+                disabled={form.isLoading}
+              />
+
+              <PanelCountSelector
+                panelCount={form.panelCount}
+                customPanelCount={form.customPanelCount}
+                onPanelCountChange={form.setPanelCount}
+                onCustomPanelCountChange={form.setCustomPanelCount}
+                disabled={form.isLoading}
+              />
+
+              <DifficultySelector value={form.difficulty} onChange={form.setDifficulty} disabled={form.isLoading} />
+
+              {form.showGuideCharacterToggle && (
+                <GuideCharacterToggle
+                  checked={form.allowGuideCharacter}
+                  onChange={form.setAllowGuideCharacter}
+                  disabled={form.isLoading}
+                />
+              )}
+
+              <CharacterPicker
+                selectedIds={form.selectedCharacterIds}
+                onSelectionChange={form.handleCharacterSelection}
+                currentStyle={form.style}
+                disabled={form.isLoading}
+              />
+
+              <ReferenceImagePanel
+                referenceImage={form.referenceImage}
+                referenceImages={form.referenceImages}
+                referenceLabels={form.referenceLabels}
+                controlMode={form.controlMode}
+                onImageChange={form.setReferenceImage}
+                onImagesChange={form.setReferenceImages}
+                onLabelsChange={form.setReferenceLabels}
+                onControlModeChange={form.setControlMode}
+                onAIGenerate={form.handleAIGenerateReference}
+                onAIGenerateCharacters={form.handleAIGenerateCharacters}
+                onRegenerateRef={form.handleRegenerateFormRef}
+                onRefVersionChange={form.handleFormRefVersionChange}
+                title={topic}
+                referenceEntries={form.referenceEntries}
+                onEntriesChange={form.setReferenceEntries}
+                genMode={form.genMode}
+                onGenModeChange={form.setGenMode}
+              />
+            </div>
+          )}
+        </div>
 
         <ErrorAlert message={form.error} onClose={() => form.setError("")} />
 
@@ -142,7 +167,7 @@ export function ScienceForm({ initialTopic = "" }: { initialTopic?: string }) {
               生成中...
             </span>
           ) : (
-            "生成漫画"
+            "一键生成漫画"
           )}
         </button>
       </div>

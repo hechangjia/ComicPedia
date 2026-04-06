@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { ChevronDown, ChevronUp} from "lucide-react";
 import { PoetryGenre } from "@/lib/types";
 import { useContentForm } from "@/hooks/useContentForm";
 import { StyleSelector } from "./StyleSelector";
@@ -14,7 +15,7 @@ import { QualitySelector } from "./QualitySelector";
 import { GenerationPresetSelector } from "./GenerationPresetSelector";
 import { AdvancedGenerationSettings } from "./AdvancedGenerationSettings";
 
-const GENRES: { value: PoetryGenre; label: string; desc: string }[] = [
+const GENRES: { value: PoetryGenre;label: string; desc: string }[] = [
   { value: "shi", label: "唐诗/古诗", desc: "意境深远，起承转合" },
   { value: "ci", label: "宋词", desc: "婉约豪放，情感细腻" },
   { value: "qu", label: "元曲", desc: "生动活泼，戏剧性强" },
@@ -32,7 +33,7 @@ const ERA_OPTIONS = [
   { value: "元代", label: "元代" },
   { value: "明代", label: "明代" },
   { value: "清代", label: "清代" },
-  { value: "近现代（1840-1949）", label: "近现代" },
+  {value: "近现代（1840-1949）", label: "近现代" },
   { value: "当代（1949至今）", label: "当代" },
 ];
 
@@ -44,13 +45,14 @@ const EXAMPLE_POEMS = [
   { text: "黑夜给了我黑色的眼睛，我却用它寻找光明。", genre: "modern" as PoetryGenre, name: "一代人", author: "顾城", era: "当代（1949至今）" },
 ];
 
-export function PoetryForm({ initialContent = "" }: { initialContent?: string }) {
+export function PoetryForm({ initialContent = "" }: { initialContent?: string }){
   // 诗词特有状态
   const [content, setContent] = useState(initialContent);
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("");
   const [era, setEra] = useState("");
   const [genre, setGenre] = useState<PoetryGenre>("shi");
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const form = useContentForm(
     {
@@ -61,7 +63,7 @@ export function PoetryForm({ initialContent = "" }: { initialContent?: string })
     },
     useCallback(() => content, [content]),
   );
-  const getDraftInputText = form.getDraftInputText;
+const getDraftInputText = form.getDraftInputText;
 
   // 恢复草稿文本
   useEffect(() => {
@@ -83,7 +85,7 @@ export function PoetryForm({ initialContent = "" }: { initialContent?: string })
     },
   });
 
-  const handleExampleClick = (example: typeof EXAMPLE_POEMS[0]) => {
+  const handleExampleClick =(example: typeof EXAMPLE_POEMS[0]) => {
     setContent(example.text);
     setGenre(example.genre);
     setTitle(example.name);
@@ -94,7 +96,7 @@ export function PoetryForm({ initialContent = "" }: { initialContent?: string })
   return (
     <div className="space-y-6">
       <div className="space-y-6 p-6 rounded-xl border bg-card shadow-sm hover:shadow-md transition-shadow">
-        {/* 作品信息行 */}
+        {/* 作品信息行*/}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="space-y-1">
             <label className="text-sm font-medium">作品名（可选）</label>
@@ -105,7 +107,7 @@ export function PoetryForm({ initialContent = "" }: { initialContent?: string })
               placeholder="如：沁园春·长沙"
               className="w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               disabled={form.isLoading}
-            />
+/>
           </div>
           <div className="space-y-1">
             <label className="text-sm font-medium">作者（重要）</label>
@@ -135,11 +137,11 @@ export function PoetryForm({ initialContent = "" }: { initialContent?: string })
           </div>
         </div>
 
-        <p className="text-xs text-warning bg-warning/5 p-2 rounded">
+<p className="text-xs text-warning bg-warning/5 p-2 rounded">
           提示：填写作者和时代可确保人物服饰、发型符合历史背景（如近现代人物穿中山装而非古装）
         </p>
 
-        {/* 诗词内容 */}
+        {/*诗词内容 */}
         <div className="space-y-2">
           <label className="text-sm font-medium">诗词内容</label>
           <textarea
@@ -152,7 +154,7 @@ export function PoetryForm({ initialContent = "" }: { initialContent?: string })
         </div>
 
         {/* 体裁选择 */}
-        <div className="space-y-2">
+<div className="space-y-2">
           <label className="text-sm font-medium">体裁类型</label>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {GENRES.map((g) => (
@@ -169,64 +171,85 @@ export function PoetryForm({ initialContent = "" }: { initialContent?: string })
                 <div className="font-medium text-sm">{g.label}</div>
                 <div className="text-xs text-muted-foreground">{g.desc}</div>
               </button>
-            ))}
+))}
           </div>
         </div>
 
-        <ModelSelector type="llm" value={form.selectedLLMId} onChange={form.setSelectedLLMId} disabled={form.isLoading} />
-        <ModelSelector type="image" value={form.selectedImageId} onChange={form.setSelectedImageId} disabled={form.isLoading} />
-
+        {/* 核心配置 - 始终可见 */}
         <GenerationPresetSelector
           value={form.selectedPresetId}
           onChange={form.setSelectedPresetId}
           disabled={form.isLoading}
         />
 
-        <AdvancedGenerationSettings
-          value={form.advancedSettings}
-          onChange={form.setAdvancedSettings}
-          disabled={form.isLoading}
-        />
-
         <StyleSelector value={form.style} onChange={form.setStyle} disabled={form.isLoading} recommendFor={genre} />
-
-        <PanelCountSelector
-          panelCount={form.panelCount}
-          customPanelCount={form.customPanelCount}
-          onPanelCountChange={form.setPanelCount}
-          onCustomPanelCountChange={form.setCustomPanelCount}
-          disabled={form.isLoading}
-          max={30}
-        />
 
         <QualitySelector value={form.quality} onChange={form.setQuality} disabled={form.isLoading} />
 
-        <CharacterPicker
-          selectedIds={form.selectedCharacterIds}
-          onSelectionChange={form.handleCharacterSelection}
-          currentStyle={form.style}
-          disabled={form.isLoading}
-        />
+        {/* 高级设置 -可折叠 */}
+        <div className="border-t pt-4">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <span className="font-medium">高级设置</span>
+            {showAdvanced ?(
+              <ChevronUp className="w-4 h-4" />
+            ) : (
+              <ChevronDown className="w-4 h-4" />
+            )}
+          </button>
 
-        <ReferenceImagePanel
-          referenceImage={form.referenceImage}
-          referenceImages={form.referenceImages}
-          referenceLabels={form.referenceLabels}
-          controlMode={form.controlMode}
-          onImageChange={form.setReferenceImage}
-          onImagesChange={form.setReferenceImages}
-          onLabelsChange={form.setReferenceLabels}
-          onControlModeChange={form.setControlMode}
-          onAIGenerate={form.handleAIGenerateReference}
-          onAIGenerateCharacters={form.handleAIGenerateCharacters}
-          onRegenerateRef={form.handleRegenerateFormRef}
-          onRefVersionChange={form.handleFormRefVersionChange}
-          title={content}
-          referenceEntries={form.referenceEntries}
-          onEntriesChange={form.setReferenceEntries}
-          genMode={form.genMode}
-          onGenModeChange={form.setGenMode}
-        />
+          {showAdvanced && (
+            <div className="mt-4 space-y-4">
+              <ModelSelector type="llm" value={form.selectedLLMId} onChange={form.setSelectedLLMId} disabled={form.isLoading} />
+              <ModelSelector type="image" value={form.selectedImageId} onChange={form.setSelectedImageId} disabled={form.isLoading} />
+
+              <AdvancedGenerationSettings
+                value={form.advancedSettings}
+                onChange={form.setAdvancedSettings}
+                disabled={form.isLoading}
+              />
+
+              <PanelCountSelector
+                panelCount={form.panelCount}
+                customPanelCount={form.customPanelCount}
+                onPanelCountChange={form.setPanelCount}
+                onCustomPanelCountChange={form.setCustomPanelCount}
+                disabled={form.isLoading}
+max={30}
+              />
+
+              <CharacterPicker
+                selectedIds={form.selectedCharacterIds}
+                onSelectionChange={form.handleCharacterSelection}
+                currentStyle={form.style}
+                disabled={form.isLoading}
+              />
+
+              <ReferenceImagePanel
+                referenceImage={form.referenceImage}
+                referenceImages={form.referenceImages}
+                referenceLabels={form.referenceLabels}
+                controlMode={form.controlMode}
+                onImageChange={form.setReferenceImage}
+                onImagesChange={form.setReferenceImages}
+                onLabelsChange={form.setReferenceLabels}
+                onControlModeChange={form.setControlMode}
+                onAIGenerate={form.handleAIGenerateReference}
+                onAIGenerateCharacters={form.handleAIGenerateCharacters}
+onRegenerateRef={form.handleRegenerateFormRef}
+                onRefVersionChange={form.handleFormRefVersionChange}
+                title={content}
+                referenceEntries={form.referenceEntries}
+                onEntriesChange={form.setReferenceEntries}
+                genMode={form.genMode}
+                onGenModeChange={form.setGenMode}
+              />
+            </div>
+)}
+        </div>
 
         <ErrorAlert message={form.error} onClose={() => form.setError("")} />
 

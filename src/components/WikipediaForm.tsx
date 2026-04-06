@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { useContentForm } from "@/hooks/useContentForm";
 import { StyleSelector } from "./StyleSelector";
 import { PanelCountSelector } from "./PanelCountSelector";
@@ -52,6 +53,7 @@ export function WikipediaForm({ initialTopic = "" }: { initialTopic?: string }) 
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [contentViewMode, setContentViewMode] = useState<"edit" | "preview">("edit");
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const resultsRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -442,69 +444,90 @@ export function WikipediaForm({ initialTopic = "" }: { initialTopic?: string }) 
 
         {/* 配置选项 */}
         {selectedArticle && (
-          <>
-            <ModelSelector type="llm" value={form.selectedLLMId} onChange={form.setSelectedLLMId} disabled={form.isLoading} />
-            <ModelSelector type="image" value={form.selectedImageId} onChange={form.setSelectedImageId} disabled={form.isLoading} />
-
+          <div className="space-y-4">
+            {/* 核心配置 - 默认显示 */}
             <GenerationPresetSelector
               value={form.selectedPresetId}
               onChange={form.setSelectedPresetId}
               disabled={form.isLoading}
             />
 
-            <AdvancedGenerationSettings
-              value={form.advancedSettings}
-              onChange={form.setAdvancedSettings}
-              disabled={form.isLoading}
-            />
-
             <StyleSelector value={form.style} onChange={form.setStyle} disabled={form.isLoading} />
-
-            <PanelCountSelector
-              panelCount={form.panelCount}
-              customPanelCount={form.customPanelCount}
-              onPanelCountChange={form.setPanelCount}
-              onCustomPanelCountChange={form.setCustomPanelCount}
-              disabled={form.isLoading}
-            />
 
             <QualitySelector value={form.quality} onChange={form.setQuality} disabled={form.isLoading} />
 
-            {form.showGuideCharacterToggle && (
-              <GuideCharacterToggle
-                checked={form.allowGuideCharacter}
-                onChange={form.setAllowGuideCharacter}
-                disabled={form.isLoading}
-              />
-            )}
+            {/* 高级设置 - 可折叠 */}
+            <div className="border-t pt-4">
+              <button
+                type="button"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                className="flex items-center justify-between w-full text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <span className="font-medium">高级设置</span>
+                {showAdvanced ? (
+                  <ChevronUp className="w-4 h-4" />
+                ) : (
+                  <ChevronDown className="w-4 h-4" />
+                )}
+              </button>
 
-            <CharacterPicker
-              selectedIds={form.selectedCharacterIds}
-              onSelectionChange={form.handleCharacterSelection}
-              currentStyle={form.style}
-              disabled={form.isLoading}
-            />
+              {showAdvanced && (
+                <div className="mt-4 space-y-4 animate-fade-in">
+                  <ModelSelector type="llm" value={form.selectedLLMId} onChange={form.setSelectedLLMId} disabled={form.isLoading} />
+                  <ModelSelector type="image" value={form.selectedImageId} onChange={form.setSelectedImageId} disabled={form.isLoading} />
 
-            <ReferenceImagePanel
-              referenceImage={form.referenceImage}
-              referenceImages={form.referenceImages}
-              referenceLabels={form.referenceLabels}
-              controlMode={form.controlMode}
-              onImageChange={form.setReferenceImage}
-              onImagesChange={form.setReferenceImages}
-              onLabelsChange={form.setReferenceLabels}
-              onControlModeChange={form.setControlMode}
-              onAIGenerate={form.handleAIGenerateReference}
-              onAIGenerateCharacters={form.handleAIGenerateCharacters}
-              onRegenerateRef={form.handleRegenerateFormRef}
-              onRefVersionChange={form.handleFormRefVersionChange}
-              title={topic}
-              referenceEntries={form.referenceEntries}
-              onEntriesChange={form.setReferenceEntries}
-              genMode={form.genMode}
-              onGenModeChange={form.setGenMode}
-            />
-          </>
+                  <AdvancedGenerationSettings
+                    value={form.advancedSettings}
+                    onChange={form.setAdvancedSettings}
+                    disabled={form.isLoading}
+                  />
+
+                  <PanelCountSelector
+                    panelCount={form.panelCount}
+                    customPanelCount={form.customPanelCount}
+                    onPanelCountChange={form.setPanelCount}
+                    onCustomPanelCountChange={form.setCustomPanelCount}
+                    disabled={form.isLoading}
+                  />
+
+                  {form.showGuideCharacterToggle && (
+                    <GuideCharacterToggle
+                      checked={form.allowGuideCharacter}
+                      onChange={form.setAllowGuideCharacter}
+                      disabled={form.isLoading}
+                    />
+                  )}
+
+                  <CharacterPicker
+                    selectedIds={form.selectedCharacterIds}
+                    onSelectionChange={form.handleCharacterSelection}
+                    currentStyle={form.style}
+                    disabled={form.isLoading}
+                  />
+
+                  <ReferenceImagePanel
+                    referenceImage={form.referenceImage}
+                    referenceImages={form.referenceImages}
+                    referenceLabels={form.referenceLabels}
+                    controlMode={form.controlMode}
+                    onImageChange={form.setReferenceImage}
+                    onImagesChange={form.setReferenceImages}
+                    onLabelsChange={form.setReferenceLabels}
+                    onControlModeChange={form.setControlMode}
+                    onAIGenerate={form.handleAIGenerateReference}
+                    onAIGenerateCharacters={form.handleAIGenerateCharacters}
+                    onRegenerateRef={form.handleRegenerateFormRef}
+                    onRefVersionChange={form.handleFormRefVersionChange}
+                    title={topic}
+                    referenceEntries={form.referenceEntries}
+                    onEntriesChange={form.setReferenceEntries}
+                    genMode={form.genMode}
+                    onGenModeChange={form.setGenMode}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
         )}
 
         <ErrorAlert message={form.error} onClose={() => form.setError("")} />
@@ -520,7 +543,7 @@ export function WikipediaForm({ initialTopic = "" }: { initialTopic?: string }) 
               生成中...
             </span>
           ) : (
-            "生成百科漫画"
+            "一键生成百科漫画"
           )}
         </button>
       </div>

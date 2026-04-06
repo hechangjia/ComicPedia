@@ -16,8 +16,8 @@ const makeScript = (): ComicScript => ({
   style: "flat",
   characterDescription: "一个科学家",
   panels: [
-    { id: "p1", scene: "实验室", dialogue: "你好", imagePrompt: "a scientist in lab", imageUrl: "", status: "completed" },
-    { id: "p2", scene: "户外", dialogue: "再见", imagePrompt: "outdoor scene", imageUrl: "", status: "completed" },
+    { id: 1, scene: "实验室", dialogue: "你好", imagePrompt: "a scientist in lab", imageUrl: "", status: "completed" },
+    { id: 2, scene: "户外", dialogue: "再见", imagePrompt: "outdoor scene", imageUrl: "", status: "completed" },
   ] as ComicScript["panels"],
 });
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { useContentForm } from "@/hooks/useContentForm";
 import { StyleSelector } from "./StyleSelector";
 import { PanelCountSelector } from "./PanelCountSelector";
@@ -34,8 +35,9 @@ export function XhsForm({ initialTopic = "" }: { initialTopic?: string }) {
   );
 
   const getDraftInputText = form.getDraftInputText;
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // 恢复草稿文本
+  //恢复草稿文本
   useEffect(() => {
     if (initialTopic) return;
     const draft = getDraftInputText();

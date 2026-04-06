@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -14,6 +14,7 @@ import { useTaskSubscription } from "@/hooks/useTaskSubscription";
 import { resumeTaskLifecycle, useTaskPageLifecycle } from "@/hooks/useTaskPageLifecycle";
 import { useTaskActions } from "@/hooks/useTaskActions";
 import { getStoredConfigs, getStoredRequestConfigs } from "@/hooks/useAPIConfig";
+import { useUIMode } from "@/hooks/useUIMode";
 import { StyleSwitcher } from "@/components/result/StyleSwitcher";
 import { ScriptReadyWorkspace } from "@/components/result/ScriptReadyWorkspace";
 import { ScriptValidationPanel } from "@/components/result/ScriptValidationPanel";
@@ -30,7 +31,7 @@ import { ScriptEditor } from "@/components/editor/ScriptEditor";
 import { DirectorSidebar } from "@/components/result/DirectorSidebar";
 import "@/app/result/print.css";
 import { resolveResultBackHref } from "@/app/history/historyNavigation";
-import { AlertTriangle, ChevronLeft, RefreshCw, X } from "lucide-react";
+import { AlertTriangle, ChevronLeft, RefreshCw, X, Settings, Sparkles } from "lucide-react";
 
 
 const QuizPanel = dynamic(() =>
@@ -69,6 +70,7 @@ export default function ResultPage() {
 
   const { task, setTask, error } = useTaskSubscription(taskId);
   useTaskPageLifecycle(task);
+  const { isSimpleMode, toggleMode } = useUIMode();
 
   // --- Model selection ---
   const storedConfigs = useMemo(() => getStoredConfigs(), []);
@@ -115,7 +117,9 @@ export default function ResultPage() {
     clearActionError,
   } = useTaskActions(taskId, setTask, selectedImageId, selectedLLMId);
 
-  const [viewMode, setViewMode] = useState<"edit" | "read" | "play">("edit");
+  const [viewMode, setViewMode] = useState<"edit" | "read" | "play">(
+    task?.status === "completed" || task?.status === "image_queue_paused" || task?.status === "deep_review_paused" ? "read" : "edit"
+  );
   const [selectedPanelIds, setSelectedPanelIds] = useState<number[]>([]);
   const taskPanels = task?.script?.panels;
 
@@ -127,6 +131,12 @@ export default function ResultPage() {
       }
     }
   }, [setTask, task?.status, taskId]);
+
+  useEffect(() => {
+    if ((task?.status === "completed" || task?.status === "image_queue_paused" || task?.status === "deep_review_paused") && viewMode === "edit") {
+      setViewMode("read");
+    }
+  }, [task?.status, viewMode]);
 
   const validSelectedPanelIds = useMemo(() => (
     taskPanels
@@ -260,14 +270,15 @@ export default function ResultPage() {
   }
 
   const isScripting = SCRIPT_IN_PROGRESS_STATUSES.has(task.status);
-  const isScriptReady = task.status === "script_ready" || task.status === "image_queue_paused";
+  const isScriptReady = task.status === "script_ready";
   const isLegacyGenerating = task.status === "generating";
-  const isQueueRunning = task.status === "image_queue_running";
+  const isQueueRunning = task.status === "image_queue_running" || task.status === "calibrating";
+  const isImageQueuePaused = task.status === "image_queue_paused";
   const isDeepReviewRunning = task.status === "deep_review_running";
   const isDeepReviewPaused = task.status === "deep_review_paused";
   const isGenerating = isLegacyGenerating || isQueueRunning;
   const isCompleted = task.status === "completed";
-  const showPausedResume = task.status === "deep_review_paused";
+  const showPausedResume = isImageQueuePaused || isDeepReviewPaused;
   const showScriptReadyWorkspace = !!task.script && (
     task.status === "script_ready"
     || task.status === "image_queue_running"
@@ -288,14 +299,36 @@ export default function ResultPage() {
   // ── 渲染：主页面 ──
   return (
     <div className="max-w-4xl mx-auto space-y-6 sm:space-y-8 pb-20 print-container">
-      {/* 返回按钮 */}
-      <Link
-        href={backHref}
-        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground no-print min-h-[44px]"
-      >
-        <ChevronLeft className="w-4 h-4" />
-        {backHref === "/" ? "返回" : "返回历史"}
-      </Link>
+      {/* 返回按钮 + 模式切换 */}
+      <div className="flex items-center justify-between">
+        <Link
+          href={backHref}
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground no-print min-h-[44px]"
+        >
+          <ChevronLeft className="w-4 h-4" />
+          {backHref === "/" ? "返回" : "返回历史"}
+        </Link>
+
+        {/* 模式切换按钮 */}
+        <button
+          type="button"
+          onClick={toggleMode}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border hover:bg-muted transition-colors no-print min-h-[36px]"
+          aria-label={isSimpleMode ? "切换到高级模式" : "切换到极简模式"}
+        >
+          {isSimpleMode ? (
+            <>
+              <Settings className="w-3.5 h-3.5" />
+              <span>高级模式</span>
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>极简模式</span>
+            </>
+          )}
+        </button>
+      </div>
 
       {/* 标题 */}
       <div className="text-center space-y-2 print-title">
@@ -459,19 +492,21 @@ export default function ResultPage() {
           </details>
         )}
 
-        {/* 阅读/编辑模式切换 */}
-        {(isCompleted || isScriptReady) && task.script?.panels && (
+        {/* 阅读/编辑模式切换 - 仅在高级模式显示 */}
+        {!isSimpleMode && (isCompleted || isScriptReady || isImageQueuePaused || isDeepReviewPaused) && task.script?.panels && (
           <div className="flex justify-center gap-1 p-1 rounded-lg bg-muted/50 w-fit mx-auto no-print">
-            <button
-              onClick={() => setViewMode("edit")}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                viewMode === "edit"
-                  ? "bg-background shadow-sm text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              编辑模式
-            </button>
+            {isScriptReady && (
+              <button
+                onClick={() => setViewMode("edit")}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  viewMode === "edit"
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                编辑模式
+              </button>
+            )}
             <button
               onClick={() => setViewMode("read")}
               className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
@@ -496,8 +531,8 @@ export default function ResultPage() {
         )}
       </div>
 
-      {/* 风格切换条 */}
-      {(isScriptReady || isCompleted) && task.script && (
+      {/* 风格切换条 - 仅在高级模式显示 */}
+      {!isSimpleMode && isScriptReady && task.script && (
         <StyleSwitcher
           currentStyle={task.script.style}
           generatingAll={generatingAll}
@@ -534,19 +569,19 @@ export default function ResultPage() {
         <div className="p-4 rounded-xl border bg-warning/5 no-print">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm text-warning">
-              离页后深度评审已暂停。
+              {isImageQueuePaused ? "离页后图片生成已暂停。" : "离页后深度评审已暂停。"}
             </p>
             <button
               onClick={handleResumePausedTask}
               className="px-4 py-2 text-sm bg-warning text-white rounded-lg hover:bg-warning/90 transition-colors min-h-[40px] shrink-0"
             >
-              继续评审
+              {isImageQueuePaused ? "继续生成" : "继续评审"}
             </button>
           </div>
         </div>
       )}
 
-      {showScriptReadyWorkspace && task.script && (
+      {showScriptReadyWorkspace && task.script && !isSimpleMode && (
         <ScriptReadyWorkspace
           taskStatus={task.status}
           panels={task.script.panels}
@@ -572,8 +607,8 @@ export default function ResultPage() {
         />
       )}
 
-      {/* Detail tabs: Accuracy / Script Validation / Quality Score */}
-      {(isScriptReady || isCompleted || isDeepReviewRunning || isDeepReviewPaused) && (
+      {/* Detail tabs: Accuracy / Script Validation / Quality Score - 仅在高级模式显示 */}
+      {!isSimpleMode && (isScriptReady || isCompleted || isDeepReviewRunning || isDeepReviewPaused) && (
         <DetailTabs tabs={[
           {
             id: "accuracy",
@@ -582,7 +617,7 @@ export default function ResultPage() {
               ? (task.accuracyReview.repairableIssueCount ?? 0) + (task.accuracyReview.blockingIssueCount ?? 0)
               : undefined,
             content: <AccuracySummary task={task} />,
-            visible: !!(task.researchBrief || task.accuracyReview || task.accuracyErrorSummary),
+            visible: !!(task.researchBrief || task.accuracyReview || task.accuracyErrorSummary || task.factPack?.sourceEntries?.length),
           },
           {
             id: "validation",
@@ -617,7 +652,13 @@ export default function ResultPage() {
                 onRunDiagnosisRepair={handleRunDiagnosisRepair}
               />
             ) : null,
-            visible: (isCompleted || isDeepReviewRunning || isDeepReviewPaused) && !!task.script,
+            visible: !!task.script && (
+              !!task.qualityScore
+              || !!task.visualQualityScore
+              || !!task.visualDiagnosisReport
+              || !!task.visualDiagnosisState
+              || !!task.visualRetrySummary
+            ),
           },
           {
             id: "director",
@@ -625,7 +666,7 @@ export default function ResultPage() {
             content: task.script ? (
               <DirectorSidebar task={task} />
             ) : null,
-            visible: !!task.script,
+            visible: !!task.script && !!task.narrativeOutline,
           },
         ]} />
       )}
@@ -652,8 +693,8 @@ export default function ResultPage() {
         </div>
       )}
 
-      {/* 参考图设置 */}
-      {(isScriptReady || isCompleted) && task.script && (
+      {/* 参考图设置 - 仅在高级模式显示 */}
+      {!isSimpleMode && isScriptReady && task.script && (
         <ReferenceImagePanel
           referenceImage={task.script.referenceImage}
           referenceImages={task.script.referenceImages}
@@ -721,7 +762,7 @@ export default function ResultPage() {
       {/* VLM 评审进行中提示 */}
 
       {/* 知识测验 */}
-      {isCompleted && task.script && (
+      {isCompleted && task.script?.quiz && (
         <QuizPanel
           script={task.script}
           llmConfig={selectedLLMConfig}
@@ -730,7 +771,7 @@ export default function ResultPage() {
       )}
 
       {/* 延伸阅读（仅 wikipedia/science 类型） */}
-      {isCompleted && task.script && (
+      {isCompleted && !!task.script?.relatedTopics?.length && (
         <RelatedTopicsPanel
           script={task.script}
           llmConfig={selectedLLMConfig}
@@ -760,6 +801,7 @@ export default function ResultPage() {
         task={task}
         onExportMarkdown={handleExportMarkdown}
         onRegenerateScript={handleRegenerateScript}
+        onContinueRemaining={handleContinueRemaining}
         generatingAll={generatingAll}
       />
     </div>

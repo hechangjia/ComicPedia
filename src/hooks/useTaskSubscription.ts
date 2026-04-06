@@ -11,6 +11,21 @@ const TERMINAL_STATUSES = new Set<GenerateTask["status"]>(["completed", "failed"
 /** Browser-owned active states where real-time updates come via notifyListeners → Zustand store. */
 const REALTIME_STATUSES = new Set<GenerateTask["status"]>(["generating", "scripting", "pending"]);
 const RECOVERABLE_LOCAL_STATUSES = new Set<GenerateTask["status"]>(["generating", "scripting"]);
+const DURABLE_QUEUE_ACTIVE_STATUSES = new Set<GenerateTask["status"]>([
+  "research_running",
+  "script_running",
+  "image_queue_running",
+  "deep_review_running",
+  "calibrating",
+]);
+
+export function isRecoverableLocalStatus(status: GenerateTask["status"]): boolean {
+  return RECOVERABLE_LOCAL_STATUSES.has(status);
+}
+
+export function isServerPollingStatus(status: GenerateTask["status"]): boolean {
+  return DURABLE_QUEUE_ACTIVE_STATUSES.has(status) || status === "script_ready";
+}
 
 /**
  * Subscribe to task state changes.
@@ -71,7 +86,7 @@ export function useTaskSubscription(taskId: string) {
           }
         }
 
-        if (RECOVERABLE_LOCAL_STATUSES.has(loadedTask.status)) {
+        if (isRecoverableLocalStatus(loadedTask.status)) {
           await recoverZombieTask(taskId);
           loadedTask = await getTask(taskId) ?? loadedTask;
           useTaskStore.getState().updateTask(loadedTask);
@@ -152,21 +167,20 @@ export function useTaskSubscription(taskId: string) {
 }
 
 /** Return polling interval (ms) based on task status */
-function getPollingInterval(task: GenerateTask | null): number {
+export function getPollingInterval(task: GenerateTask | null): number {
   if (!task) return 2000;
+  if (isServerPollingStatus(task.status)) {
+    return 2000;
+  }
   switch (task.status) {
     case "created":
-    case "research_running":
-    case "script_running":
     case "scripting":
     case "generating":
     case "pending":
-      return 2000;  // Active states: 2s
-    case "script_ready":
-      return 5000;  // Script ready, waiting for user: 5s
+      return 2000;
     case "completed":
     case "failed":
-      return 8000;  // Terminal states (fallback, rarely reached): 8s
+      return 8000;
     default:
       return 5000;
   }
