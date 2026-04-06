@@ -25,6 +25,9 @@ function mockFetchResponse(body: unknown, status = 200) {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  // Mock window/document to simulate browser environment
+  (global as any).window = {};
+  (global as any).document = {};
 });
 
 // ============================================================
@@ -45,9 +48,20 @@ describe("callLLM", () => {
     });
 
     expect(result).toBe("hello world");
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.targetUrl).toContain("/chat/completions");
-    expect(body.headers.Authorization).toBe("Bearer sk-test");
+    // Check either proxy format or direct format
+    const firstArg = mockFetch.mock.calls[0][0];
+    const secondArg = mockFetch.mock.calls[0][1];
+    if (firstArg === "/api/llm") {
+      // Proxy mode
+      const body = JSON.parse(secondArg.body);
+      expect(body.targetUrl).toContain("/chat/completions");
+      expect(body.headers.Authorization).toBe("Bearer sk-test");
+    } else {
+      // Direct mode
+      expect(firstArg).toContain("/chat/completions");
+      const headers = secondArg.headers as Record<string, string>;
+      expect(headers.Authorization).toBe("Bearer sk-test");
+    }
   });
 
   it("routes to Anthropic and returns content", async () => {
@@ -64,10 +78,20 @@ describe("callLLM", () => {
     });
 
     expect(result).toBe("anthropic reply");
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.headers["x-api-key"]).toBe("ant-key");
-    expect(body.headers["anthropic-version"]).toBe("2023-06-01");
-    expect(body.payload.max_tokens).toBe(2048);
+    const firstArg = mockFetch.mock.calls[0][0];
+    const secondArg = mockFetch.mock.calls[0][1];
+    if (firstArg === "/api/llm") {
+      // Proxy mode
+      const body = JSON.parse(secondArg.body);
+      expect(body.headers["x-api-key"]).toBe("ant-key");
+      expect(body.headers["anthropic-version"]).toBe("2023-06-01");
+      expect(body.payload.max_tokens).toBe(2048);
+    } else {
+      // Direct mode
+      const headers = secondArg.headers as Record<string, string>;
+      expect(headers["x-api-key"]).toBe("ant-key");
+      expect(headers["anthropic-version"]).toBe("2023-06-01");
+    }
   });
 
   it("throws when apiUrl is missing", async () => {
@@ -103,8 +127,16 @@ describe("callLLM", () => {
     vi.stubGlobal("fetch", mockFetch);
 
     await callLLM("test", { apiUrl: "https://api.deepseek.com/v1", provider: "openai-compatible" });
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.targetUrl).toBe("https://api.deepseek.com/v1/chat/completions");
+    const firstArg = mockFetch.mock.calls[0][0];
+    const secondArg = mockFetch.mock.calls[0][1];
+    if (firstArg === "/api/llm") {
+      // Proxy mode
+      const body = JSON.parse(secondArg.body);
+      expect(body.targetUrl).toBe("https://api.deepseek.com/v1/chat/completions");
+    } else {
+      // Direct mode
+      expect(firstArg).toBe("https://api.deepseek.com/v1/chat/completions");
+    }
   });
 
   it("preserves apiUrl when it already contains /chat/completions", async () => {
@@ -117,8 +149,16 @@ describe("callLLM", () => {
       apiUrl: "https://custom.api.com/v1/chat/completions",
       provider: "openai-compatible",
     });
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.targetUrl).toBe("https://custom.api.com/v1/chat/completions");
+    const firstArg = mockFetch.mock.calls[0][0];
+    const secondArg = mockFetch.mock.calls[0][1];
+    if (firstArg === "/api/llm") {
+      // Proxy mode
+      const body = JSON.parse(secondArg.body);
+      expect(body.targetUrl).toBe("https://custom.api.com/v1/chat/completions");
+    } else {
+      // Direct mode
+      expect(firstArg).toBe("https://custom.api.com/v1/chat/completions");
+    }
   });
 
   it("strips trailing slashes from apiUrl before appending path", async () => {
@@ -128,8 +168,16 @@ describe("callLLM", () => {
     vi.stubGlobal("fetch", mockFetch);
 
     await callLLM("test", { apiUrl: "https://api.example.com/v1///", provider: "openai-compatible" });
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.targetUrl).toBe("https://api.example.com/v1/chat/completions");
+    const firstArg = mockFetch.mock.calls[0][0];
+    const secondArg = mockFetch.mock.calls[0][1];
+    if (firstArg === "/api/llm") {
+      // Proxy mode
+      const body = JSON.parse(secondArg.body);
+      expect(body.targetUrl).toBe("https://api.example.com/v1/chat/completions");
+    } else {
+      // Direct mode
+      expect(firstArg).toBe("https://api.example.com/v1/chat/completions");
+    }
   });
 });
 
@@ -276,8 +324,17 @@ describe("generateTopicResearch", () => {
 
     expect(result.expandedDescription).toBe("desc");
     // Verify Anthropic-specific headers
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.headers["x-api-key"]).toBe("ant-key");
+    const firstArg = mockFetch.mock.calls[0][0];
+    const secondArg = mockFetch.mock.calls[0][1];
+    if (firstArg === "/api/llm") {
+      // Proxy mode
+      const body = JSON.parse(secondArg.body);
+      expect(body.headers["x-api-key"]).toBe("ant-key");
+    } else {
+      // Direct mode
+      const headers = secondArg.headers as Record<string, string>;
+      expect(headers["x-api-key"]).toBe("ant-key");
+    }
   });
 });
 

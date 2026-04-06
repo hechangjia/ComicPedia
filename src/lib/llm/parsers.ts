@@ -61,7 +61,12 @@ export async function generateScriptStream(
   const script = handler.parseResponse(response);
 
   if (!script) {
-    console.error("[LLM] 无法解析脚本，原始响应前500字符:", response.substring(0, 500));
+    console.error("[LLM] 无法解析脚本（流式），原始响应前1000字符:", response.substring(0, 1000));
+    console.error("[LLM] 完整响应长度:", response.length, "字符");
+    console.error("[LLM] 响应是否包含 '{' :", response.includes("{"));
+    console.error("[LLM] 响应是否包含 '}' :", response.includes("}"));
+    console.error("[LLM] 响应是否包含 markdown code fence :", response.includes("```"));
+    console.error("[LLM] 响应 trim 后:", response.trim().substring(0, 500));
     throw new Error("无法解析 LLM 返回的脚本");
   }
 
@@ -103,7 +108,12 @@ export async function generateScript(
   const script = handler.parseResponse(response);
 
   if (!script) {
-    console.error("[LLM] 无法解析脚本，原始响应前500字符:", response.substring(0, 500));
+    console.error("[LLM] 无法解析脚本（非流式），原始响应前1000字符:", response.substring(0, 1000));
+    console.error("[LLM] 完整响应长度:", response.length, "字符");
+    console.error("[LLM] 响应是否包含 '{' :", response.includes("{"));
+    console.error("[LLM] 响应是否包含 '}' :", response.includes("}"));
+    console.error("[LLM] 响应是否包含 markdown code fence :", response.includes("```"));
+    console.error("[LLM] 响应 trim 后:", response.trim().substring(0, 500));
     throw new Error("无法解析 LLM 返回的脚本");
   }
 
@@ -267,7 +277,7 @@ JSON format:
         : undefined,
     };
   } catch (e) {
-    console.error("[LLM] Failed to parse topic research JSON:", cleaned.substring(0, 300));
+    console.error("[LLM] Failed to parse topic research JSON, raw response:", cleaned.substring(0, 500));
     // Graceful fallback: return the raw topic without expansion
     return {
       originalTopic: topic,

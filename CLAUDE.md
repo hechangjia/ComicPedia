@@ -4,6 +4,7 @@
 
 | 时间 | 操作 | 说明 |
 |------|------|------|
+| 2026-04-06 | 增量扫描 | 新增 directorAgent（导演助手）、角色关系图谱、taskOrchestrator（持久化编排）、relations API 等模块；测试文件更新为 69 个；更新模块索引与结构图 |
 | 2026-04-05 | 发版同步 | `dev` 已完成 durable orchestration、accuracy loop、visual diagnosis、角色关系图谱与体验改版；API 路由更新为 32 个，tracked 测试文件更新为 62 个 |
 | 2026-04-02 | 增量扫描 | 新增准确性闭环、VLM 视觉诊断/修复、导演大纲、脚本校验/修复、Wikipedia 代理、模型发现、ComfyUI 等模块文档；API 路由从 23 增至 28；测试文件从 0 增至 31；更新模块索引与结构图 |
 | 2026-03-27 | 交付流程 | 新增 GitHub Actions CI 与 `pnpm ship:check` 本地发版检查 |
@@ -45,7 +46,8 @@ ComicPedia 是一个 AI 驱动的漫画生成工具。用户输入文本（科�
 |  | API Routes        |  | Server Libs                 |  |
 |  | (proxy + CRUD +   |->| (db.ts / imageExtractor /   |  |
 |  |  accuracy +       |  |  imageStorage / demoSeed /   |  |
-|  |  wikipedia)       |  |  wikipedia)                  |  |
+|  |  wikipedia +      |  |  wikipedia / taskOrchestrator) |  |
+|  |  relations)       |  +-----------------------------+  |
 |  +-------------------+  +-----------------------------+  |
 |        |                        |                        |
 |        v                        v                        |
@@ -98,7 +100,7 @@ graph TD
     SRC --> LIB["lib/"]
     SRC --> STORES["stores/"]
     SRC --> PROMPTS["prompts/"]
-    SRC --> TESTS["__tests__/ (62 test files)"]
+    SRC --> TESTS["__tests__/ (69 test files)"]
 
     APP --> PAGES["pages (/, /gallery, /create,\n/characters, /history,\n/settings, /trash,\n/poetry, /series,\n/migrate, /result/[id])"]
     APP --> API["api/ (32 endpoints)"]
@@ -108,14 +110,16 @@ graph TD
     API --> API_CRUD["tasks/, characters/,\nseries/, trash/\n(CRUD)"]
     API --> API_SYS["health/, config/, models/,\nbackup/, demo/,\nmigrate/, cleanup/"]
     API --> API_ACCURACY["accuracy/research/,\naccuracy/providers/test/,\nwikipedia/\n(accuracy closed-loop)"]
+    API --> API_RELATIONS["relations/, relations/[id]/,\nseries/[id]/arc-snapshots/,\ntasks/[id]/actions/\n(relations + orchestration)"]
 
     LIB --> CLIENT["client/\n(generator, db, eventBus,\nabortManager, panelManager,\nreferenceManager, imageStore,\npromptEnhancer, taskLifecycle)"]
-    LIB --> SERVER["server/\n(db, imageStorage,\nimageExtractor, demoSeed,\nwikipedia)"]
+    LIB --> SERVER["server/\n(db, imageStorage,\nimageExtractor, demoSeed,\nwikipedia, taskOrchestrator)"]
     LIB --> CONFIG["config/\n(styles, quality,\ntemplates, presets,\ncharacterPresets)"]
     LIB --> ACCURACY["accuracy/\n(research, claimReview,\nrepair, providerRegistry,\nproviderConfig, providerClients,\ngoldenTopicSmoke)"]
     LIB --> VLM["VLM subsystem\n(vlmScorer, vlmDiagnosis,\nvlmDiagnosisState, vlmRetry)"]
     LIB --> QUALITY["Quality agents\n(director, scriptValidator,\nscriptRepair, qualityScore,\npipelineSummary)"]
-    LIB --> CORE["core utils\n(llm, imageGen, security,\nconcurrency, retryQueue,\nerrors, types, series,\ncontentRegistry,\ndownloadUtils, exportImport,\nshareCard, quizGenerator,\nrelatedTopics, aiEditor,\nguideCharacterPolicy, utils)"]
+    LIB --> DIRECTOR_AGENT["directorAgent/\n(narrativeAnalyzer, rhythmAnalyzer,\nshotAnalyzer, suggestionGenerator,\nvisualization)"]
+    LIB --> CORE["core utils\n(llm, imageGen, security,\nconcurrency, retryQueue,\nerrors, types, series,\ncontentRegistry,\ndownloadUtils, exportImport,\nshareCard, quizGenerator,\nrelatedTopics, aiEditor,\nguideCharacterPolicy, utils,\ncharacterContext)"]
 ```
 
 ---
@@ -128,16 +132,17 @@ graph TD
 | `src/components/` | React UI 组件（约 95 个） | `ScienceForm.tsx`, `WikipediaForm.tsx`, `PoetryForm.tsx`, `NovelForm.tsx`, `XhsForm.tsx`, `ComicReader.tsx`, `DownloadMenu.tsx`, `result/VisualDiagnosisWorkbench.tsx`, `result/QualityScorePanel.tsx`, `result/AccuracySummary.tsx`, `settings/AccuracyProviderSection.tsx` 等 |
 | `src/hooks/` | 自定义 React Hooks（11 个） | `useAPIConfig.ts`, `useTaskSubscription.ts`, `useContentForm.ts`, `useTaskActions.ts`, `useConfigForm.ts`, `useModelDiscovery.ts`, `useUndoRedo.ts` |
 | `src/lib/client/` | 客户端核心逻辑（生成管线、DB、事件总线） | `generator.ts` (facade), `taskLifecycle.ts`, `panelManager.ts`, `referenceManager.ts`, `db.ts`, `eventBus.ts`, `abortManager.ts`, `imageStore.ts`, `promptEnhancer.ts` |
-| `src/lib/server/` | 服务端核心逻辑（SQLite、图片文件系统、Wikipedia） | `db.ts`, `imageStorage.ts`, `imageExtractor.ts`, `demoSeed.ts`, `wikipedia.ts` |
+| `src/lib/server/` | 服务端核心逻辑（SQLite、图片文件系统、Wikipedia、任务编排） | `db.ts`, `imageStorage.ts`, `imageExtractor.ts`, `demoSeed.ts`, `wikipedia.ts`, `taskOrchestrator/` |
 | `src/lib/config/` | 配置数据源（风格、质量、模板、预设） | `styles.ts`, `quality.ts`, `templates.ts`, `presets.ts`, `characterPresets.ts` |
 | `src/lib/accuracy/` | 准确性闭环子系统（研究、审查、修复） | `research.ts`, `claimReview.ts`, `repair.ts`, `providerRegistry.ts`, `providerConfig.ts`, `providerClients.ts`, `goldenTopicSmoke.ts` |
 | `src/lib/imageGen/` | 文生图适配器（兼容多种 API 格式） | `index.ts` |
 | `src/lib/` (VLM) | VLM 视觉质量子系统 | `vlmScorer.ts`, `vlmDiagnosis.ts`, `vlmDiagnosisState.ts`, `vlmRetry.ts` |
 | `src/lib/` (Quality) | 质量保障 Agent 链 | `director.ts`, `scriptValidator.ts`, `scriptRepair.ts`, `qualityScore.ts`, `pipelineSummary.ts` |
-| `src/lib/` (Core) | 共享工具库 | `llm.ts`, `types.ts`, `security.ts`, `concurrency.ts`, `retryQueue.ts`, `errors.ts`, `series.ts`, `contentRegistry.ts`, `downloadUtils.ts`, `exportImport.ts`, `shareCard.ts`, `quizGenerator.ts`, `relatedTopics.ts`, `aiEditor.ts`, `guideCharacterPolicy.ts`, `utils.ts` |
+| `src/lib/directorAgent/` | 导演助手（叙事分析、节奏分析、分镜建议） | `index.ts`, `types.ts`, `analyzer/narrativeAnalyzer.ts`, `analyzer/rhythmAnalyzer.ts`, `analyzer/shotAnalyzer.ts`, `suggestionGenerator.ts`, `visualization.ts` |
+| `src/lib/` (Core) | 共享工具库（含角色关系上下文） | `llm.ts`, `types.ts`, `security.ts`, `concurrency.ts`, `retryQueue.ts`, `errors.ts`, `series.ts`, `contentRegistry.ts`, `downloadUtils.ts`, `exportImport.ts`, `shareCard.ts`, `quizGenerator.ts`, `relatedTopics.ts`, `aiEditor.ts`, `guideCharacterPolicy.ts`, `utils.ts`, `characterContext.ts` |
 | `src/prompts/` | LLM Prompt 模板（按内容类型分离） | `scriptGenerator.ts`, `poetryGenerator.ts`, `novelGenerator.ts`, `xhsGenerator.ts`, `wikipediaGenerator.ts` |
 | `src/stores/` | Zustand 状态管理 | `taskStore.ts`, `listCache.ts` |
-| `src/__tests__/` | Vitest 单元/集成测试（62 文件） | `security.test.ts`, `taskLifecycle.test.ts`, `vlmDiagnosis.test.ts`, `accuracyResearch.test.ts`, `director.test.ts`, `scriptValidator.test.ts` 等 |
+| `src/__tests__/` | Vitest 单元/集成测试（69 文件） | `security.test.ts`, `taskLifecycle.test.ts`, `vlmDiagnosis.test.ts`, `accuracyResearch.test.ts`, `director.test.ts`, `scriptValidator.test.ts`, `directorAgent/*.test.ts`, `characterRelations.test.ts`, `taskOrchestratorStore.test.ts` 等 |
 | `docs/` | 项目文档 | `ai/handoff.md`, `ai/ship.md` |
 
 ---
@@ -261,6 +266,15 @@ curl http://localhost:61323/api/health
 | `/api/accuracy/providers/test` | POST | 准确性 Provider 连通性测试 |
 | `/api/wikipedia` | GET | Wikipedia 搜索与摘要代理 |
 
+### 角色关系与任务编排
+
+| 路由 | 方法 | 说明 |
+|------|------|------|
+| `/api/relations` | GET/POST | 角色关系列表 / 创建关系 |
+| `/api/relations/[id]` | GET/PUT/DELETE | 获取 / 更新 / 删除角色关系 |
+| `/api/series/[id]/arc-snapshots` | POST | 连载弧光快照 |
+| `/api/tasks/[id]/actions` | POST | 任务级动作（重试/修复等） |
+
 ### 系统
 
 | 路由 | 方法 | 说明 |
@@ -281,12 +295,14 @@ curl http://localhost:61323/api/health
 
 ## 核心数据模型
 
-### SQLite 表结构 (6 tables)
+### SQLite 表结构 (7 tables)
 
 | 表名 | 主键 | 说明 |
 |------|------|------|
 | `tasks` | `id (TEXT)` | 漫画生成任务（含 JSON 序列化的 script/character/accuracy/vlm 数据） |
-| `characters` | `id (TEXT)` | 角色定义（外观、参考图、变体） |
+| `task_jobs` | `id (TEXT)` | 任务作业记录（持久化编排状态） |
+| `characters` | `id (TEXT)` | 角色定义（外观、参考图、变体、人格） |
+| `character_relations` | `id (TEXT)` | 角色关系（朋友/对手/导师/爱人/家人/盟友/敌人） |
 | `series` | `id (TEXT)` | 连载系列（有序 episodes，引用 task ID） |
 | `config` | `id (TEXT, default 'main')` | 用户 API 配置 (v2 多配置 + 准确性 Provider 配置) |
 | `images` | `key (TEXT)` | 图片注册表（key -> 文件路径映射） |
@@ -298,7 +314,8 @@ curl http://localhost:61323/api/health
   - 新增字段: `factPack`, `researchBrief`, `accuracyReview`, `narrativeOutline`, `scriptValidation`, `scriptRepairRounds`, `qualityScore`, `visualQualityScore`, `reviewStatus`, `panelReview`, `visualRetrySummary`, `visualDiagnosisReport`, `visualDiagnosisState`, `visualRepairExecution`, `generationConfig`
 - `ComicScript` -- 分镜脚本 (title, topic, style, panels[], referenceEntries[], quiz[], relatedTopics[])
 - `ComicPanel` -- 单个面板 (scene, dialogue, imagePrompt, imageUrl, imageVersions[], styleOverride, enhancementLog)
-- `Character` -- 角色 (appearance, referenceEntries[], variants[], tags[])
+- `Character` -- 角色 (appearance, referenceEntries[], variants[], tags[], personality)
+- `CharacterRelation` -- 角色关系 (fromId, toId, type, label, strength, bidirectional, evolution[])
 - `Series` -- 连载 (episodes[{taskId, title, episodeNumber}])
 - `UserAPIConfigV2` -- 多 LLM/Image 配置 (llmConfigs[], imageConfigs[], activeLLMId, activeImageId, accuracyConfig)
 - `NarrativeOutline` -- 导演大纲 (templateType, panels[PanelBlueprint], characterList, narrativeArc)
@@ -308,6 +325,7 @@ curl http://localhost:61323/api/health
 - `VisualQualityScore` -- VLM 视觉评分 (panels[PanelVisualScore], crossPanelConsistency, retryRecommendations[])
 - `VisualDiagnosisReport` -- 诊断报告 (panels[VisualDiagnosisPanel], summary)
 - `QualityScore` -- 文本质量评分 (knowledge, visualConsistency, narrativeCoherence, compositionDiversity)
+- `DirectorAnalysisReport` -- 导演助手分析报告 (narrativeSuggestions, rhythmAnalysis, characterAnalysis, shotSuggestions, overallScore)
 
 ### 图片存储
 
@@ -341,6 +359,7 @@ curl http://localhost:61323/api/health
   -> 状态: completed
   -> [Phase 4 (用户触发): VLM Diagnosis (深度视觉诊断)]
   -> [Phase 4.1 (用户触发): Visual Repair (patch/rewrite/batch_patch)]
+  -> [Phase 5 (用户触发): Director Agent (叙事/节奏/分镜分析)]
 ```
 
 ### quality=fast 快速模式
@@ -365,6 +384,7 @@ curl http://localhost:61323/api/health
 - **VLM 诊断**: `vlmDiagnosis.ts` 深度诊断可疑面板，生成结构化问题报告与修复建议
 - **VLM 修复**: `vlmRetry.ts` 将诊断结果转化为 prompt 补丁（规则映射，零 LLM），支持 patch/rewrite/batch_patch 三种模式
 - **讲解员策略**: `guideCharacterPolicy.ts` 自动检测并移除不被允许的虚拟讲解员角色
+- **导演助手**: `directorAgent/` 提供叙事分析、节奏分析、分镜建议，支持可视化展示
 
 ---
 
@@ -435,6 +455,82 @@ Generated Images -> [vlmScorer.ts] -> VisualQualityScore (per-panel + cross-pane
 
 ---
 
+## 导演助手子系统 (src/lib/directorAgent/)
+
+### 架构
+
+```
+ComicScript -> [narrativeAnalyzer] -> NarrativeSuggestions
+                [rhythmAnalyzer] -> RhythmAnalysis
+                [shotAnalyzer] -> ShotSuggestions
+                [suggestionGenerator] -> DirectorAnalysisReport
+                [visualization] -> RhythmVisualizationData
+```
+
+### 组件职责
+
+| 文件 | 职责 |
+|------|------|
+| `types.ts` | 类型定义（建议类型、节奏分析、角色一致性、分镜建议、可视化数据） |
+| `analyzer/narrativeAnalyzer.ts` | 叙事结构分析（开篇/铺垫/发展/高潮/结局/尾声） |
+| `analyzer/rhythmAnalyzer.ts` | 节奏分析（面板强度、信息密度、曲线类型：progressive/front-loaded/spiral/sandwich/unbalanced） |
+| `analyzer/shotAnalyzer.ts` | 分镜建议（构图、镜头意图） |
+| `suggestionGenerator.ts` | 完整报告生成，整合各分析器结果 |
+| `visualization.ts` | 节奏可视化数据生成（用于图表展示） |
+
+### 关键类型
+
+- `DirectorSuggestion`: 单个建议（类型、严重程度、面板索引、标题、描述、建议内容、置信度）
+- `RhythmAnalysis`: 节奏分析结果（面板强度数组、信息密度数组、曲线类型、建议列表）
+- `ShotSuggestion`: 分镜建议（面板索引、建议构图、建议镜头意图、理由）
+- `DirectorAnalysisReport`: 完整分析报告（叙事建议、节奏分析、角色分析、分镜建议、总体评分）
+
+---
+
+## 角色关系图谱
+
+### 数据模型
+
+```typescript
+type RelationType = "friend" | "rival" | "mentor" | "lover" | "family" | "ally" | "enemy";
+
+interface CharacterRelation {
+  id: string;
+  fromId: string;
+  toId: string;
+  type: RelationType;
+  label: string;
+  strength: number; // 0-1
+  bidirectional: boolean;
+  evolution: RelationEvent[]; // 关系演变事件
+  createdAt: number;
+  updatedAt: number;
+}
+
+interface RelationEvent {
+  episodeNumber: number;
+  change: string;
+  newStrength: number;
+  newType?: RelationType;
+}
+```
+
+### API 路由
+
+| 路由 | 方法 | 说明 |
+|------|------|------|
+| `/api/relations` | GET | 获取所有角色关系 |
+| `/api/relations` | POST | 创建或更新角色关系 |
+| `/api/relations/[id]` | GET | 获取单个关系 |
+| `/api/relations/[id]` | PUT | 更新关系 |
+| `/api/relations/[id]` | DELETE | 删除关系 |
+
+### 可视化
+
+使用 d3-force + d3-zoom + d3-selection 实现力导向图展示角色关系网络，支持缩放、拖拽、节点选中高亮。
+
+---
+
 ## 支持的内容类型
 
 | 类型 | 入口组件 | Prompt 生成器 | 推荐风格 |
@@ -455,7 +551,7 @@ flat, anime, cartoon, chibi, manga, realistic, watercolor, sketch, inkwash, pixe
 
 ## 测试策略
 
-**当前状态：项目已有 31 个测试文件，覆盖核心业务逻辑。**
+**当前状态：项目已有 69 个测试文件，覆盖核心业务逻辑。**
 
 - Test runner: Vitest，配置位于 `vitest.config.ts`
 - 测试目录：`src/__tests__/*.test.ts`
@@ -474,18 +570,24 @@ flat, anime, cartoon, chibi, manga, realistic, watercolor, sketch, inkwash, pixe
 | 准确性 | `accuracyResearch.test.ts`, `accuracyClaimReview.test.ts`, `accuracyRepair.test.ts`, `accuracyProviderConfig.test.ts`, `accuracyProviderRegistry.test.ts`, `accuracyGoldenTopicSmoke.test.ts`, `accuracyGoldenTopicSmoke.live.test.ts` |
 | 脚本质量 | `scriptValidator.test.ts`, `scriptRepair.test.ts`, `director.test.ts` |
 | VLM | `vlmDiagnosis.test.ts`, `vlmDiagnosisState.test.ts`, `vlmRetry.test.ts`, `visualDiagnosisRepair.test.ts`, `VisualDiagnosisWorkbench.test.ts`, `VisualRewriteConfirmDialog.test.ts` |
+| 导演助手 | `directorAgent/types.test.ts`, `directorAgent/narrativeAnalyzer.test.ts`, `directorAgent/rhythmAnalyzer.test.ts`, `directorAgent/suggestionGenerator.test.ts`, `directorAgent/shotAnalyzer.test.ts` |
+| 角色关系 | `characterRelations.test.ts`, `characterContext.test.ts` |
 | 任务生命周期 | `taskLifecycle.test.ts`, `useTaskActions.test.ts` |
+| 任务编排 | `taskOrchestratorStore.test.ts`, `taskRecovery.test.ts`, `taskRuntimeScript.test.ts`, `taskRuntimeReplay.test.ts` |
 | 内容注册 | `contentRegistry.test.ts` |
 | 管线摘要 | `pipelineSummary.test.ts` |
-| API 路由 | `tasksRoute.test.ts`, `configRoute.test.ts` |
-| 其他 | `promptEnhancer.test.ts`, `useUndoRedo.test.ts`, `guideCharacterPolicy.test.ts`, `serverDbReviewPersistence.test.ts` |
+| API 路由 | `tasksRoute.test.ts`, `configRoute.test.ts`, `taskByIdRoute.test.ts`, `taskActionsRoute.test.ts` |
+| 其他 | `promptEnhancer.test.ts`, `useUndoRedo.test.ts`, `guideCharacterPolicy.test.ts`, `serverDbReviewPersistence.test.ts`, `series.test.ts`, `llm.test.ts`, `exportImport.test.ts`, `imageGen.test.ts`, `topicPresets.test.ts`, `characterArc.test.ts`, `quizGenerator.test.ts`, `relatedTopics.test.ts`, `aiEditor.test.ts`, `utils.test.ts`, `shareCard.test.ts`, `arcSnapshot.test.ts`, `imageProviderServices.test.ts`, `historyPage.test.ts`, `historyNavigation.test.ts`, `imageQueueRunner.test.ts`, `generationPresets.test.ts`, `scriptRelations.test.ts`, `lightCheckWorker.test.ts`, `reviewRunner.test.ts`, `taskReplayPayload.test.ts`, `buildWarningsRegression.test.ts` |
 
 ### 建议优先补充
 
-1. API routes -- 更多集成测试（特别是 accuracy/wikipedia/comfyui 路由）
+1. API routes -- 更多集成测试（特别是 accuracy/wikipedia/comfyui/relations 路由）
 2. 核心用户路径 -- E2E 测试（创建脚本、生成图片、导出、恢复）
 3. 大任务量 / 大列表场景 -- 性能与回归测试
 4. `src/lib/server/imageExtractor.ts` -- 图片引用重写逻辑的边界条件
+5. `src/lib/directorAgent/` -- 导演助手端到端测试
+
+---
 
 ## 发版流程
 
@@ -498,9 +600,10 @@ ComicPedia 当前采用"轻量 ship"流程，而不是强依赖独立 `VERSION` 
 4. 合并前做最小人工冒烟：
    - `/create` 创建入口
    - `/history` 历史列表
-   - `/result/[id]` 结果页（含诊断工作台）
+   - `/result/[id]` 结果页（含诊断工作台、导演助手）
+   - `/characters` 角色管理（含关系图谱）
    - `/settings` 配置页（含准确性 Provider）
-5. 如果改动涉及 prompt / 角色 / review loop / accuracy，优先再验证一条真实生成链路
+5. 如果改动涉及 prompt / 角色 / review loop / accuracy / directorAgent，优先再验证一条真实生成链路
 
 ---
 
@@ -516,6 +619,7 @@ ComicPedia 当前采用"轻量 ship"流程，而不是强依赖独立 `VERSION` 
   - `src/lib/server/` -- 服务端运行时代码
   - `src/lib/config/` -- 静态配置数据
   - `src/lib/accuracy/` -- 准确性闭环子系统
+  - `src/lib/directorAgent/` -- 导演助手子系统
   - `src/prompts/` -- LLM prompt 模板
   - `src/components/` -- React 组件
   - `src/hooks/` -- 自定义 Hooks
@@ -540,6 +644,8 @@ ComicPedia 当前采用"轻量 ship"流程，而不是强依赖独立 `VERSION` 
 7. **准确性子系统**: 修改 accuracy/ 下的文件时，注意 research -> claimReview -> repair 的数据流契约（FactPack -> AccuracyReviewResult -> repaired script）
 8. **VLM 子系统**: vlmScorer (评分) -> vlmRetry (自动重试) -> vlmDiagnosis (深度诊断) -> vlmRetry (用户修复) 是分层的；诊断状态通过 vlmDiagnosisState 管理
 9. **质量管线**: director -> scriptValidator -> scriptRepair 在脚本生成后自动执行；validator 是纯规则零 LLM，repair 才调用 LLM
+10. **导演助手子系统**: directorAgent/ 是独立的后处理分析模块，不介入生成管线，仅在 completed 状态后由用户触发
+11. **角色关系**: character_relations 表支持关系演变 (evolution)，可记录连载中关系随集数的变化
 
 ### 高风险区域
 
@@ -551,6 +657,7 @@ ComicPedia 当前采用"轻量 ship"流程，而不是强依赖独立 `VERSION` 
 - `src/lib/accuracy/research.ts` -- 多源事实采集，Provider 超时与降级逻辑复杂
 - `src/lib/accuracy/claimReview.ts` -- 事实比对逻辑，误判可能导致错误修复
 - `src/lib/vlmDiagnosis.ts` -- VLM 诊断 prompt 与解析逻辑，影响修复建议质量
+- `src/lib/directorAgent/analyzer/*.ts` -- 各分析器的规则逻辑，修改可能影响建议质量
 
 ### 常见任务指引
 
@@ -561,6 +668,7 @@ ComicPedia 当前采用"轻量 ship"流程，而不是强依赖独立 `VERSION` 
 - **添加新内容类型**: 在 `contentRegistry.ts` 注册 + `src/prompts/` 添加生成器 + `src/components/` 添加表单组件
 - **添加新准确性 Provider**: 在 `providerClients.ts` 添加调用适配 + `providerConfig.ts` 添加 vendor 归一化
 - **添加新 VLM 修复规则**: 在 `vlmRetry.ts` 的 `ISSUE_PATTERNS` 数组中添加新的 keywords -> patch 映射
+- **添加新导演助手分析器**: 在 `src/lib/directorAgent/analyzer/` 创建新分析器 + 在 `types.ts` 添加对应类型 + 在 `suggestionGenerator.ts` 集成
 
 ## Design System
 Always read DESIGN.md before making any visual or UI decisions.

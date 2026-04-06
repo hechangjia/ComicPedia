@@ -1,5 +1,76 @@
 import { PartialLLMConfig } from "../types";
 import { withRetry } from "../retryQueue";
+import { isUrlSafe, safeReadText, PROXY_TIMEOUT_MS } from "../security";
+
+/**
+ * 检测是否在浏览器环境运行
+ */
+function isBrowser(): boolean {
+  return typeof window !== "undefined" && typeof document !== "undefined";
+}
+
+/**
+ * 服务端直连：直接调用外部 LLM API（不走代理）
+ */
+async function fetchDirect(
+  targetUrl: string,
+  headers: Record<string, string>,
+  payload: unknown
+): Promise<Response> {
+  // SSRF 防护：校验目标 URL
+  const urlCheck = isUrlSafe(targetUrl);
+  if (!urlCheck.safe) {
+    throw new Error(urlCheck.reason);
+  }
+
+  const forwardHeaders: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...headers,
+  };
+
+  return await fetch(targetUrl, {
+    method: "POST",
+    headers: forwardHeaders,
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(PROXY_TIMEOUT_MS),
+  });
+}
+
+/**
+ * 客户端代理：通过 /api/llm 路由调用
+ */
+async function fetchProxy(
+  proxyPath: string,
+  targetUrl: string,
+  headers: Record<string, string>,
+  payload: unknown
+): Promise<Response> {
+  return await fetch(proxyPath, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      targetUrl,
+      headers,
+      payload,
+    }),
+  });
+}
+
+/**
+ * 根据环境选择调用方式
+ */
+async function fetchLLM(
+  targetUrl: string,
+  headers: Record<string, string>,
+  payload: unknown,
+  proxyPath: string = "/api/llm"
+): Promise<Response> {
+  if (isBrowser()) {
+    return fetchProxy(proxyPath, targetUrl, headers, payload);
+  } else {
+    return fetchDirect(targetUrl, headers, payload);
+  }
+}
 
 /** SSE 流式 chunk 回调：每次收到新文本时触发 */
 export type StreamChunkCallback = (chunk: string, accumulated: string) => void;
@@ -52,19 +123,14 @@ export async function callOpenAICompatible(prompt: string, config: LLMConfig): P
     console.log("[LLM] 请求 URL:", normalizedUrl);
     console.log("[LLM] 请求 Model:", config.model);
 
-    // 所有请求通过 Next.js 代理，避免浏览器 CORS 限制
-    const response = await fetch("/api/llm", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        targetUrl: normalizedUrl,
-        headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {},
-        payload: requestBody,
-      }),
-    });
+    const response = await fetchLLM(
+      normalizedUrl,
+      config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {},
+      requestBody
+    );
 
     if (!response.ok) {
-      const errorText = await response.text().catch(() => "");
+      const errorText = await (isBrowser() ? response.text() : safeReadText(response)).catch(() => "");
       console.error("[LLM] 错误响应:", response.status, errorText);
 
       // 对 429/5xx 进行重试
@@ -105,22 +171,17 @@ export async function callAnthropic(prompt: string, config: LLMConfig): Promise<
       messages: [{ role: "user", content: prompt }],
     };
 
-    // 所有请求通过 Next.js 代理，避免浏览器 CORS 限制
-    const response = await fetch("/api/llm", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        targetUrl: config.apiUrl,
-        headers: {
-          "x-api-key": config.apiKey,
-          "anthropic-version": "2023-06-01",
-        },
-        payload: anthropicPayload,
-      }),
-    });
+    const response = await fetchLLM(
+      config.apiUrl,
+      {
+        "x-api-key": config.apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      anthropicPayload
+    );
 
     if (!response.ok) {
-      const errorText = await response.text().catch(() => "");
+      const errorText = await (isBrowser() ? response.text() : safeReadText(response)).catch(() => "");
       console.error("[LLM] 错误响应:", response.status, errorText);
 
       if (response.status === 429 || response.status >= 500) {
@@ -222,17 +283,18 @@ export async function callOpenAICompatibleStream(
 
   console.log("[LLM Stream] 请求 URL:", normalizedUrl);
 
-  // 所有请求通过 Next.js 代理，避免浏览器 CORS 限制
-  const response = await fetch("/api/llm-stream", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      targetUrl: normalizedUrl,
-      headers: { Authorization: `Bearer ${config.apiKey}` },
-      payload: requestBody,
-    }),
-    signal,
-  });
+  const response = isBrowser()
+    ? await fetch("/api/llm-stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetUrl: normalizedUrl,
+          headers: { Authorization: `Bearer ${config.apiKey}` },
+          payload: requestBody,
+        }),
+        signal,
+      })
+    : await fetchDirect(normalizedUrl, { Authorization: `Bearer ${config.apiKey}` }, requestBody);
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
@@ -259,20 +321,28 @@ export async function callAnthropicStream(
     messages: [{ role: "user", content: prompt }],
   };
 
-  // 所有请求通过 Next.js 代理，避免浏览器 CORS 限制
-  const response = await fetch("/api/llm-stream", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      targetUrl: config.apiUrl,
-      headers: {
-        "x-api-key": config.apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      payload,
-    }),
-    signal,
-  });
+  const response = isBrowser()
+    ? await fetch("/api/llm-stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetUrl: config.apiUrl,
+          headers: {
+            "x-api-key": config.apiKey,
+            "anthropic-version": "2023-06-01",
+          },
+          payload,
+        }),
+        signal,
+      })
+    : await fetchDirect(
+        config.apiUrl,
+        {
+          "x-api-key": config.apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        payload
+      );
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "");
@@ -307,18 +377,14 @@ export async function callOpenAIWithMessages(
       : `${config.apiUrl.replace(/\/+$/, "")}/chat/completions`;
 
   const doRequest = async () => {
-    const response = await fetch("/api/llm", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        targetUrl: normalizedUrl,
-        headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {},
-        payload: requestBody,
-      }),
-    });
+    const response = await fetchLLM(
+      normalizedUrl,
+      config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {},
+      requestBody
+    );
 
     if (!response.ok) {
-      const errorText = await response.text().catch(() => "");
+      const errorText = await (isBrowser() ? response.text() : safeReadText(response)).catch(() => "");
       if (response.status === 429 || response.status >= 500) {
         throw new Error(`LLM 暂时不可用: ${response.status} ${errorText}`);
       }
@@ -347,21 +413,17 @@ export async function callAnthropicWithMessages(
       temperature: 0.3,
     };
 
-    const response = await fetch("/api/llm", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        targetUrl: config.apiUrl,
-        headers: {
-          "x-api-key": config.apiKey,
-          "anthropic-version": "2023-06-01",
-        },
-        payload: anthropicPayload,
-      }),
-    });
+    const response = await fetchLLM(
+      config.apiUrl,
+      {
+        "x-api-key": config.apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      anthropicPayload
+    );
 
     if (!response.ok) {
-      const errorText = await response.text().catch(() => "");
+      const errorText = await (isBrowser() ? response.text() : safeReadText(response)).catch(() => "");
       if (response.status === 429 || response.status >= 500) {
         throw new Error(`LLM 暂时不可用: ${response.status} ${errorText}`);
       }
