@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { getTasksPaginated, upsertTask, clearAllTasks, getAllTaskIds } from "@/lib/server/db";
+import { getTasksPaginated, upsertTask, clearAllTasks, getAllTaskIds, deleteTasksByIds } from "@/lib/server/db";
 import { extractTaskImagesAsync, fileRefsToUrls, trashTaskImages } from "@/lib/server/imageExtractor";
 import { countRecoverableComfyJobs } from "@/lib/server/taskOrchestrator/queueMeta";
 import { getTaskRuntime } from "@/lib/server/taskOrchestrator/runtime";
@@ -126,18 +126,41 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/** DELETE /api/tasks — 批量清空所有任务（软删除，图片移到 .trash/） */
-export async function DELETE() {
+/** DELETE /api/tasks — 批量清空所有任务或删除指定任务（软删除，图片移到 .trash/） */
+export async function DELETE(request: NextRequest) {
   try {
-    // 先获取所有任务 ID 用于图片清理
-    const taskIds = getAllTaskIds();
-    // 逐个软删除图片到回收站
-    for (const id of taskIds) {
-      trashTaskImages(id);
+    let deletedCount = 0;
+    let taskIds: string[] = [];
+
+    // 检查是否有请求体（批量删除指定任务）
+    const contentType = request.headers.get("content-type");
+    if (contentType?.includes("application/json")) {
+      try {
+        const body = await request.json();
+        if (body.ids && Array.isArray(body.ids)) {
+          taskIds = body.ids;
+        }
+      } catch {
+        // 没有请求体或解析失败，清空所有任务
+      }
     }
-    // 批量删除数据库记录
-    const count = clearAllTasks();
-    return NextResponse.json({ success: true, deleted: count });
+
+    if (taskIds.length > 0) {
+      // 批量删除指定任务
+      for (const id of taskIds) {
+        trashTaskImages(id);
+      }
+      deletedCount = deleteTasksByIds(taskIds);
+    } else {
+      // 清空所有任务
+      taskIds = getAllTaskIds();
+      for (const id of taskIds) {
+        trashTaskImages(id);
+      }
+      deletedCount = clearAllTasks();
+    }
+
+    return NextResponse.json({ success: true, deleted: deletedCount });
   } catch (error) {
     console.error("[API /tasks DELETE]", error);
     return NextResponse.json(

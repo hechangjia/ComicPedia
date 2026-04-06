@@ -169,6 +169,8 @@ const stmtGetAllTaskIds = db.prepare("SELECT id FROM tasks");
 const stmtDeleteTask = db.prepare("DELETE FROM tasks WHERE id = ?");
 const stmtClearTasks = db.prepare("DELETE FROM tasks");
 const stmtClearAllTaskJobs = db.prepare("DELETE FROM task_jobs");
+const stmtClearTaskJobsByTaskIds = db.prepare("DELETE FROM task_jobs WHERE task_id IN (SELECT value FROM json_each(?))");
+const stmtDeleteTasksByIds = db.prepare("DELETE FROM tasks WHERE id IN (SELECT value FROM json_each(?))");
 
 const stmtPatchTaskTags = db.prepare("UPDATE tasks SET tags = @tags, updated_at = @updated_at WHERE id = @id");
 const stmtPatchTaskFavorited = db.prepare("UPDATE tasks SET favorited = @favorited, updated_at = @updated_at WHERE id = @id");
@@ -559,6 +561,14 @@ export function deleteTask(id: string): boolean {
 export function clearAllTasks(): number {
   const result = stmtClearTasks.run();
   stmtClearAllTaskJobs.run();
+  return result.changes;
+}
+
+export function deleteTasksByIds(ids: string[]): number {
+  if (ids.length === 0) return 0;
+  const idsJson = JSON.stringify(ids);
+  stmtClearTaskJobsByTaskIds.run(idsJson);
+  const result = stmtDeleteTasksByIds.run(idsJson);
   return result.changes;
 }
 

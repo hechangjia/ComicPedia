@@ -249,6 +249,24 @@ export async function deleteComic(id: string) {
   cleanupTaskState(id);
 }
 
+export async function deleteComicsByIds(ids: string[]) {
+  if (ids.length === 0) return;
+  try {
+    await apiCall('/api/tasks', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+  } catch (err) {
+    console.warn('[DB] deleteComicsByIds API failed:', err);
+  }
+  // 逐个清理本地缓存和状态
+  for (const id of ids) {
+    await cacheDelete('comics', id);
+    cleanupTaskState(id);
+  }
+}
+
 export async function clearAllComics() {
   try {
     await apiCall('/api/tasks', { method: 'DELETE' });

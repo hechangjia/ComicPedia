@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback, memo, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { getAllComics, deleteComic, clearAllComics, saveTask } from "@/lib/client/db";
+import { getAllComics, deleteComic, clearAllComics, saveTask, deleteComicsByIds } from "@/lib/client/db";
 import { useListCache } from "@/stores/listCache";
 import { recoverZombieTask } from "@/lib/client/generator";
 import { reconcileTaskLifecycle, shouldAttemptOffPageReconcile } from "@/hooks/useTaskPageLifecycle";
@@ -86,6 +86,7 @@ interface HistoryCardProps {
   item: GenerateTask;
   activeFilter: HistoryFilterId;
   exportMode: boolean;
+  deleteMode: boolean;
   isSelected: boolean;
   onToggleSelect: (id: string) => void;
   onRemove: (id: string) => void;
@@ -132,17 +133,19 @@ const HistoryCard = memo(function HistoryCard({
   item,
   activeFilter,
   exportMode,
+  deleteMode,
   isSelected,
   onToggleSelect,
   onRemove,
 }: HistoryCardProps) {
   const auxStatusLabels = getHistoryAuxStatusLabels(item);
+  const selectMode = exportMode || deleteMode;
   return (
     <div
       className={`rounded-xl border overflow-hidden bg-card transition-shadow group ${
-        exportMode ? "cursor-pointer" : "hover:shadow-lg"
-      } ${exportMode && isSelected ? "ring-2 ring-primary" : ""}`}
-      onClick={exportMode ? () => onToggleSelect(item.id) : undefined}
+        selectMode ? "cursor-pointer" : "hover:shadow-lg"
+      } ${selectMode && isSelected ? "ring-2 ring-primary" : ""}`}
+      onClick={selectMode ? () => onToggleSelect(item.id) : undefined}
     >
       {/* 缩略图 */}
       <div className="aspect-video bg-muted relative">
@@ -162,7 +165,7 @@ const HistoryCard = memo(function HistoryCard({
           </div>
         )}
         {/* 选中复选框 */}
-        {exportMode && (
+        {selectMode && (
           <div className="absolute top-2 left-2">
             <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
               isSelected
@@ -193,8 +196,8 @@ const HistoryCard = memo(function HistoryCard({
             </div>
           ))}
         </div>
-        {/* 删除按钮 - 导出模式下隐藏 */}
-        {!exportMode && (
+        {/* 删除按钮 - 选择模式下隐藏 */}
+        {!selectMode && (
           <button
             onClick={(e) => {
               e.preventDefault();
@@ -211,7 +214,7 @@ const HistoryCard = memo(function HistoryCard({
       </div>
 
       {/* 信息区 */}
-      {exportMode ? (
+      {selectMode ? (
         <div className="p-3 space-y-1">
           <h3 className="font-medium truncate">{item.script?.title || "无标题"}</h3>
           {auxStatusLabels.length > 0 && (
@@ -279,8 +282,9 @@ export default function HistoryPage() {
   const importFileRef = useRef<HTMLInputElement>(null);
   const clearConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Selective export state
+  // Selective export/delete state
   const [exportMode, setExportMode] = useState(false);
+  const [deleteMode, setDeleteMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
   const urlFilter = useMemo(() => parseHistoryFilter(searchParams.get("filter")), [searchParams]);
@@ -290,6 +294,8 @@ export default function HistoryPage() {
     () => filterHistoryItems(history, activeFilter),
     [activeFilter, history],
   );
+
+  const selectionMode = exportMode || deleteMode;
 
   const loadHistory = useCallback(async (page: number) => {
     try {
@@ -417,11 +423,29 @@ export default function HistoryPage() {
 
   const enterExportMode = useCallback(() => {
     setExportMode(true);
+    setDeleteMode(false);
     setSelectedIds(new Set());
   }, []);
 
   const exitExportMode = useCallback(() => {
     setExportMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  const enterDeleteMode = useCallback(() => {
+    setDeleteMode(true);
+    setExportMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  const exitDeleteMode = useCallback(() => {
+    setDeleteMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  const exitSelectionMode = useCallback(() => {
+    setExportMode(false);
+    setDeleteMode(false);
     setSelectedIds(new Set());
   }, []);
 
@@ -468,6 +492,25 @@ export default function HistoryPage() {
       setExportProgress(null);
     }
   }, [history]);
+
+  const handleDeleteSelected = useCallback(async () => {
+    const selected = history.filter((t) => selectedIds.has(t.id));
+    if (selected.length === 0) return;
+
+    if (!confirm(`确定删除选中的 ${selected.length} 个漫画？此操作不可恢复。`)) {
+      return;
+    }
+
+    try {
+      await deleteComicsByIds(Array.from(selectedIds));
+      invalidateTasks();
+      loadHistory(1);
+      exitDeleteMode();
+    } catch (err) {
+      console.error("Delete failed:", err);
+      alert("删除失败，请查看控制台日志");
+    }
+  }, [exitDeleteMode, history, invalidateTasks, loadHistory, selectedIds]);
 
   // ── Import ──
 
@@ -519,8 +562,8 @@ export default function HistoryPage() {
           <h1 className="text-2xl font-bold">历史记录</h1>
         </div>
 
-        {history.length > 0 && exportMode ? (
-          /* ── Export selection toolbar ── */
+        {history.length > 0 && selectionMode ? (
+          /* ── Selection toolbar (export or delete) ── */
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">
               已选 {selectedIds.size} / {visibleHistory.length}
@@ -531,20 +574,41 @@ export default function HistoryPage() {
             >
               {selectedIds.size === visibleHistory.length ? "取消全选" : "全选"}
             </button>
-            <button
-              onClick={handleExportSelected}
-              disabled={selectedIds.size === 0}
-              className="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center gap-1.5"
-            >
-              <Download className="w-4 h-4" />
-              导出 {selectedIds.size} 个
-            </button>
-            <button
-              onClick={exitExportMode}
-              className="px-3 py-2 text-sm rounded-lg border hover:bg-accent transition-colors"
-            >
-              取消
-            </button>
+            {exportMode ? (
+              <>
+                <button
+                  onClick={handleExportSelected}
+                  disabled={selectedIds.size === 0}
+                  className="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center gap-1.5"
+                >
+                  <Download className="w-4 h-4" />
+                  导出 {selectedIds.size} 个
+                </button>
+                <button
+                  onClick={exitExportMode}
+                  className="px-3 py-2 text-sm rounded-lg border hover:bg-accent transition-colors"
+                >
+                  取消
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={handleDeleteSelected}
+                  disabled={selectedIds.size === 0}
+                  className="px-4 py-2 text-sm rounded-lg bg-error text-white hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  删除 {selectedIds.size} 个
+                </button>
+                <button
+                  onClick={exitDeleteMode}
+                  className="px-3 py-2 text-sm rounded-lg border hover:bg-accent transition-colors"
+                >
+                  取消
+                </button>
+              </>
+            )}
           </div>
         ) : history.length > 0 ? (
           /* ── Normal toolbar ── */
@@ -557,6 +621,15 @@ export default function HistoryPage() {
             >
               <Download className="w-4 h-4" />
               <span className="hidden sm:inline">导出</span>
+            </button>
+            {/* 选择删除 */}
+            <button
+              onClick={enterDeleteMode}
+              className="px-3 py-2 text-sm rounded-lg border hover:bg-accent transition-colors flex items-center gap-1.5"
+              title="选择并删除"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span className="hidden sm:inline">批量删除</span>
             </button>
             {/* 全部导出 */}
             <button
@@ -703,6 +776,7 @@ export default function HistoryPage() {
               item={item}
               activeFilter={activeFilter}
               exportMode={exportMode}
+              deleteMode={deleteMode}
               isSelected={selectedIds.has(item.id)}
               onToggleSelect={toggleSelect}
               onRemove={handleRemove}
