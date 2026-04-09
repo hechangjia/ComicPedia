@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { registerImage } from "@/lib/server/db";
 import { saveImageFileAsync } from "@/lib/server/imageStorage";
 
+function sanitizeTaskId(taskId: string): string {
+  return taskId.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_");
+}
+
 /**
  * 图片保存 API 路由
  * 将 Base64 图片保存到 data/images/ 目录，并登记到 images 表
@@ -36,9 +40,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const safeTaskId = sanitizeTaskId(taskId);
     const key = type === "reference"
-      ? `${taskId}_ref${body.refIndex ?? 0}`
-      : `${taskId}_panel${panelIndex}_cur`;
+      ? `${safeTaskId}_ref${body.refIndex ?? 0}`
+      : `${safeTaskId}_panel${panelIndex}_cur`;
 
     const stored = await saveImageFileAsync(key, base64Data);
     if (!stored) {

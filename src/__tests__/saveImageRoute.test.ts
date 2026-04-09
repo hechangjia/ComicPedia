@@ -77,9 +77,52 @@ describe("/api/save-image POST", () => {
     const body = await response.json();
 
     expect(saveImageFileAsyncMock).toHaveBeenCalledWith("task-1_ref0", "data:image/png;base64,ref");
-    expect(body).toMatchObject({
+    expect(registerImageMock).toHaveBeenCalledWith(
+      "task-1_ref0",
+      "data/images/task-1/task-1_ref0.png",
+      55,
+    );
+    expect(body).toEqual({
+      success: true,
       ref: "file://task-1_ref0",
       url: "/api/images/task-1_ref0",
+      key: "task-1_ref0",
+      size: 55,
+    });
+  });
+
+  it("sanitizes unsafe taskId in reference key construction", async () => {
+    saveImageFileAsyncMock.mockResolvedValue({
+      filePath: "data/images/A_B/A_B_ref0.png",
+      size: 77,
+    });
+
+    const { POST } = await import("@/app/api/save-image/route");
+    const request = new NextRequest("http://localhost:3000/api/save-image", {
+      method: "POST",
+      body: JSON.stringify({
+        taskId: "A/B",
+        refIndex: 0,
+        type: "reference",
+        base64Data: "data:image/png;base64,unsafe",
+      }),
+    });
+
+    const response = await POST(request);
+    const body = await response.json();
+
+    expect(saveImageFileAsyncMock).toHaveBeenCalledWith("A_B_ref0", "data:image/png;base64,unsafe");
+    expect(registerImageMock).toHaveBeenCalledWith(
+      "A_B_ref0",
+      "data/images/A_B/A_B_ref0.png",
+      77,
+    );
+    expect(body).toEqual({
+      success: true,
+      ref: "file://A_B_ref0",
+      url: "/api/images/A_B_ref0",
+      key: "A_B_ref0",
+      size: 77,
     });
   });
 });
