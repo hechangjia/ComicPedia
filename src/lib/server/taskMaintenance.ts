@@ -1,4 +1,6 @@
-import { getAllTasks, getAllTrash } from "@/lib/server/db";
+import { randomUUID } from "node:crypto";
+import { addMaintenanceAction, deleteImagesByPrefix, deleteTask, getAllTasks, getAllTrash, getTaskById } from "@/lib/server/db";
+import { deleteImagesByDir } from "@/lib/server/imageStorage";
 import { inferTaskOrigin } from "@/lib/taskOrigin";
 import type { GenerateTask } from "@/lib/types";
 
@@ -22,6 +24,11 @@ export interface TaskLookupRecord {
   hasImages: boolean;
   inTrash: boolean;
   invisibilityReason: "default_visible" | "filtered_non_formal" | "trash_only";
+}
+
+export interface TaskCleanupSnapshotEntry {
+  id: string;
+  snapshotToken: string;
 }
 
 function buildSnapshotToken(task: Pick<GenerateTask, "id" | "status" | "updatedAt" | "origin" | "script">): string {
@@ -141,6 +148,52 @@ export function lookupTaskRecords(query: string) {
     });
 
   return { active, trash };
+}
+
+export function executeTaskHealthCleanup(snapshot: TaskCleanupSnapshotEntry[], actor: string) {
+  const deleted: Array<{ id: string }> = [];
+  const skipped: Array<{ id: string; reason: string }> = [];
+
+  for (const entry of snapshot) {
+    const task = getTaskById(entry.id);
+    if (!task) {
+      skipped.push({ id: entry.id, reason: "missing_task" });
+      continue;
+    }
+
+    if (buildSnapshotToken(task) !== entry.snapshotToken) {
+      skipped.push({ id: entry.id, reason: "snapshot_mismatch" });
+      continue;
+    }
+
+    const classified = classifyTask(task);
+    if (!classified || classified.bucket !== "autoDelete") {
+      skipped.push({ id: entry.id, reason: "not_auto_delete_candidate" });
+      continue;
+    }
+
+    deleteImagesByPrefix(task.id);
+    deleteImagesByDir(task.id);
+    const removed = deleteTask(task.id);
+
+    if (!removed) {
+      skipped.push({ id: entry.id, reason: "delete_failed" });
+      continue;
+    }
+
+    deleted.push({ id: task.id });
+  }
+
+  addMaintenanceAction({
+    id: randomUUID(),
+    action: "task_health_execute",
+    actor,
+    summary: `${deleted.length} auto-delete task(s) removed`,
+    payload: { deleted, skipped, snapshotSize: snapshot.length },
+    createdAt: new Date().toISOString(),
+  });
+
+  return { deleted, skipped };
 }
 
 export { buildSnapshotToken };

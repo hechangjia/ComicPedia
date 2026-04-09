@@ -3,10 +3,12 @@ import { NextRequest } from "next/server";
 
 const scanTaskHealthMock = vi.fn();
 const lookupTaskRecordsMock = vi.fn();
+const executeTaskHealthCleanupMock = vi.fn();
 
 vi.mock("@/lib/server/taskMaintenance", () => ({
   scanTaskHealth: scanTaskHealthMock,
   lookupTaskRecords: lookupTaskRecordsMock,
+  executeTaskHealthCleanup: executeTaskHealthCleanupMock,
 }));
 
 describe("task maintenance routes", () => {
@@ -36,5 +38,29 @@ describe("task maintenance routes", () => {
     const body = await response.json();
 
     expect(body.active[0].id).toBe("real-1");
+  });
+
+  it("returns execution report for previewed cleanup snapshots", async () => {
+    executeTaskHealthCleanupMock.mockReturnValue({
+      deleted: [{ id: "arc_test_2" }],
+      skipped: [],
+    });
+
+    const { POST } = await import("@/app/api/admin/task-health/execute/route");
+    const request = new NextRequest("http://localhost:3000/api/admin/task-health/execute", {
+      method: "POST",
+      body: JSON.stringify({
+        actor: "settings",
+        snapshot: [{ id: "arc_test_2", snapshotToken: "arc_test_2|completed|2026-04-09T00:00:00.000Z|test" }],
+      }),
+    });
+    const response = await POST(request);
+    const body = await response.json();
+
+    expect(executeTaskHealthCleanupMock).toHaveBeenCalledWith(
+      [{ id: "arc_test_2", snapshotToken: "arc_test_2|completed|2026-04-09T00:00:00.000Z|test" }],
+      "settings",
+    );
+    expect(body.deleted).toEqual([{ id: "arc_test_2" }]);
   });
 });

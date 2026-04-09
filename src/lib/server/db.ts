@@ -93,6 +93,15 @@ db.exec(`
     updated_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS maintenance_actions (
+    id         TEXT PRIMARY KEY,
+    action     TEXT NOT NULL,
+    actor      TEXT NOT NULL,
+    summary    TEXT NOT NULL,
+    payload    TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS images (
     key        TEXT PRIMARY KEY,
     file_path  TEXT NOT NULL,
@@ -1022,6 +1031,10 @@ const stmtRegisterImage = db.prepare(`
 
 const stmtGetImagePath = db.prepare("SELECT file_path FROM images WHERE key = ?");
 const stmtDeleteImage = db.prepare("DELETE FROM images WHERE key = ?");
+const stmtInsertMaintenanceAction = db.prepare(`
+  INSERT INTO maintenance_actions (id, action, actor, summary, payload, created_at)
+  VALUES (@id, @action, @actor, @summary, @payload, @created_at)
+`);
 
 export function registerImage(key: string, filePath: string, size: number): void {
   stmtRegisterImage.run({
@@ -1046,6 +1059,26 @@ export function deleteImagesByPrefix(prefix: string): number {
   const stmt = db.prepare("DELETE FROM images WHERE key LIKE ?");
   const result = stmt.run(`${prefix}%`);
   return result.changes;
+}
+
+export interface MaintenanceActionRecord {
+  id: string;
+  action: "task_health_execute";
+  actor: string;
+  summary: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
+}
+
+export function addMaintenanceAction(record: MaintenanceActionRecord): void {
+  stmtInsertMaintenanceAction.run({
+    id: record.id,
+    action: record.action,
+    actor: record.actor,
+    summary: record.summary,
+    payload: JSON.stringify(record.payload),
+    created_at: record.createdAt,
+  });
 }
 
 // ============================================================
