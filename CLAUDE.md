@@ -86,7 +86,7 @@ graph TD
 | 路径 | 职责 | 关键文件 |
 |------|------|----------|
 | `src/app/` | 12 页面 + 32 API 路由的 App Router 外壳 | `layout.tsx`, `page.tsx`, `api/tasks/route.ts`, `result/[id]/page.tsx` |
-| `src/components/` | 约 96 个 UI 组件（含 7 个子目录） | `ScienceForm.tsx`, `WikipediaForm.tsx`, `result/VisualDiagnosisWorkbench.tsx`, `characters/RelationGraph.tsx` |
+| `src/components/` | UI 组件集合（含多个子目录） | `ScienceForm.tsx`, `WikipediaForm.tsx`, `result/VisualDiagnosisWorkbench.tsx`, `characters/RelationGraph.tsx` |
 | `src/hooks/` | 12 个自定义 hook | `useContentForm.ts`, `useTaskActions.ts`, `useTaskSubscription.ts`, `useTaskPageLifecycle.ts`, `useUIMode.ts` |
 | `src/stores/` | Zustand 内存态 | `taskStore.ts`, `listCache.ts` |
 | `src/lib/client/` | 浏览器生成运行时与 phase 拆分 | `generator.ts`, `taskLifecycle.ts`, `db.ts`, `eventBus.ts`, `phases/*` |
@@ -99,7 +99,7 @@ graph TD
 | `src/lib/export/` | 多格式导出（PDF/ZIP/XHS/Markdown/Seedance） | `pdf.ts`, `zip.ts`, `xhs.ts`, `markdown.ts`, `seedance.ts`,`image.ts` |
 | `src/lib/client/phases/` | 客户端生成流程各阶段 | `script.ts`, `imageGen.ts`, `vlm.ts`, `research.ts`, `quality.ts` |
 | `src/lib/` | 共享工具库、VLM、质量链、类型 | `types.ts`, `llm.ts`, `vlmScorer.ts`, `qualityScore.ts`, `generationPresets.ts` |
-| `src/__tests__/` | 当前 71 个测试文件（含 directorAgent 子目录 5 个） | `taskLifecycle.test.ts`, `panelManager.test.ts`, `accuracyResearch.test.ts`, `imageQueueRunner.test.ts`, `directorAgent/*.test.ts` |
+| `src/__tests__/` | 测试文件集合（含 directorAgent 子目录） | `taskLifecycle.test.ts`, `panelManager.test.ts`, `accuracyResearch.test.ts`, `imageQueueRunner.test.ts`, `directorAgent/*.test.ts` |
 
 ---
 
@@ -118,6 +118,8 @@ pnpm ship:check
 pnpm smoke:accuracy
 ```
 
+说明：`pnpm lint` 当前可能包含 `.worktrees/...` 下的非阻塞 warning，是否通过以命令退出码为准。
+
 ### 运行特征
 
 - Next.js `output: "standalone"`
@@ -131,7 +133,7 @@ pnpm smoke:accuracy
 
 ### 当前扫描结果
 
-- 测试文件：70
+- 测试规模持续增长（以 `pnpm test` 实际输出为准）
 - 已直接覆盖模块较强：accuracy、task orchestrator、VLM diagnosis、directorAgent、task actions、history/navigation
 - 仍偏弱：多数 API route、client facade、stores、export 子模块、Wikipedia/ComfyUI 边界
 
@@ -162,7 +164,7 @@ pnpm smoke:accuracy
 
 Rules:
 
-1. `client_local` 状态优先读 Zustand / IndexedDB 临时态，不用 SQLite 回写覆盖。
+1. `client_local` 状态优先读 Zustand 内存态；IndexedDB 仅作为本地持久化/回退缓存，不作为同级首选 authority，且不以 SQLite 回写覆盖。
 2. `server_durable` 状态优先读 `/api/tasks/:id`，页面离开和恢复只按 durable queue 规则处理。
 3. 新增任务状态时，必须先更新 `src/lib/taskStateAuthority.ts`，再改调用方。
 
