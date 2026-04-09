@@ -187,7 +187,7 @@ export function deleteImagesByDir(dirName: string): number {
   let count = 0;
 
   // 精确匹配：删除 IMAGE_BASE/{dirName}/ 目录
-  count += removeDir(path.join(IMAGE_BASE, dirName));
+  count += removeDirWithin(IMAGE_BASE, path.join(IMAGE_BASE, dirName));
 
   // 前缀匹配：删除 IMAGE_BASE/{dirName}_*/ 目录（迁移格式每张图片一个子目录）
   try {
@@ -195,7 +195,7 @@ export function deleteImagesByDir(dirName: string): number {
       const entries = fs.readdirSync(IMAGE_BASE, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.isDirectory() && entry.name.startsWith(dirName + "_")) {
-          count += removeDir(path.join(IMAGE_BASE, entry.name));
+          count += removeDirWithin(IMAGE_BASE, path.join(IMAGE_BASE, entry.name));
         }
       }
     }
@@ -250,7 +250,7 @@ export function moveImagesToTrash(dirName: string): number {
       // rename 跨盘时会失败，降级为复制+删除
       try {
         count += copyDir(src, dest);
-        removeDir(src);
+        removeDirWithin(IMAGE_BASE, src);
       } catch { /* 静默 */ }
     }
   }
