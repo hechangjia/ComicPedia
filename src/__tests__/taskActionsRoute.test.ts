@@ -282,6 +282,68 @@ describe("/api/tasks/[id]/actions POST", () => {
     }));
   });
 
+  it("serializes action task payloads with stateAuthority and without server-only fields", async () => {
+    getTaskByIdMock.mockReturnValue({
+      id: "task-actions",
+      status: "deep_review_paused",
+      progress: 90,
+      script: {
+        title: "Task Actions",
+        topic: "Topic",
+        style: "anime",
+        panels: [
+          { id: 1, scene: "Scene 1", dialogue: "Dialogue 1", imagePrompt: "Prompt 1", status: "completed" },
+        ],
+      },
+      createdAt: new Date("2026-04-05T00:00:00.000Z"),
+      updatedAt: new Date("2026-04-05T00:00:00.000Z"),
+    });
+    resumeTaskJobsMock.mockResolvedValue({
+      id: "task-actions",
+      status: "deep_review_running",
+      progress: 90,
+      queueSummary: {
+        queued: 1,
+        running: 0,
+        paused: 0,
+        failed: 0,
+        attachFailed: 0,
+        completed: 0,
+        calibrationPending: 0,
+      },
+      requestSnapshot: { llmConfig: { apiKey: "secret" } },
+      serverScriptReplay: { llm: { fallback: { model: "gpt-4o" } } },
+      script: {
+        title: "Task Actions",
+        topic: "Topic",
+        style: "anime",
+        panels: [
+          { id: 1, scene: "Scene 1", dialogue: "Dialogue 1", imagePrompt: "Prompt 1", status: "completed" },
+        ],
+      },
+      createdAt: new Date("2026-04-05T00:00:00.000Z"),
+      updatedAt: new Date("2026-04-05T00:00:00.000Z"),
+    });
+
+    const { POST } = await import("@/app/api/tasks/[id]/actions/route");
+    const request = new NextRequest("http://localhost:3000/api/tasks/task-actions/actions", {
+      method: "POST",
+      body: JSON.stringify({ action: "resume" }),
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ id: "task-actions" }) });
+    const body = await response.json();
+
+    expect(response.status).toBe(202);
+    expect(body.task).toMatchObject({
+      id: "task-actions",
+      status: "deep_review_running",
+      stateAuthority: "server_durable",
+    });
+    expect(body.task).not.toHaveProperty("requestSnapshot");
+    expect(body.task).not.toHaveProperty("serverScriptReplay");
+  });
+
   it("does not enqueue the image runtime when resume returns a non-image durable state", async () => {
     getTaskByIdMock.mockReturnValue({
       id: "task-actions",

@@ -439,4 +439,36 @@ describe("/api/tasks routes", () => {
     expect(clearAllTasksMock).not.toHaveBeenCalled();
     expect(deleteTasksByIdsMock).not.toHaveBeenCalled();
   });
+
+  it("returns 400 when delete payload is an empty object", async () => {
+    const { DELETE } = await import("@/app/api/tasks/route");
+    const request = new NextRequest("http://localhost:3000/api/tasks", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    const response = await DELETE(request);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "删除请求体必须包含 ids 字符串数组" });
+    expect(clearAllTasksMock).not.toHaveBeenCalled();
+    expect(deleteTasksByIdsMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when delete payload omits ids", async () => {
+    const { DELETE } = await import("@/app/api/tasks/route");
+    const request = new NextRequest("http://localhost:3000/api/tasks", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ foo: "bar" }),
+    });
+
+    const response = await DELETE(request);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "删除请求体必须包含 ids 字符串数组" });
+    expect(clearAllTasksMock).not.toHaveBeenCalled();
+    expect(deleteTasksByIdsMock).not.toHaveBeenCalled();
+  });
 });

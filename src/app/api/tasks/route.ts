@@ -114,8 +114,16 @@ export async function DELETE(request: NextRequest) {
     if (contentType?.includes("application/json")) {
       try {
         const body = await request.json();
-        const hasExplicitIds = typeof body === "object"
+        const hasExplicitIdsContainer = typeof body === "object"
           && body !== null
+          && !Array.isArray(body);
+        if (!hasExplicitIdsContainer || !Object.prototype.hasOwnProperty.call(body, "ids")) {
+          return NextResponse.json(
+            { error: "删除请求体必须包含 ids 字符串数组" },
+            { status: 400 },
+          );
+        }
+        const hasExplicitIds = hasExplicitIdsContainer
           && Object.prototype.hasOwnProperty.call(body, "ids");
         if (hasExplicitIds) {
           requestedExplicitIds = true;

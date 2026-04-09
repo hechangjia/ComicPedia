@@ -4,6 +4,7 @@ import { startDeepReview } from "@/lib/server/taskOrchestrator/deepReviewRunner"
 import { approveTaskCalibration, enqueuePanelImageJobs } from "@/lib/server/taskOrchestrator/imageRunner";
 import { pauseTaskJobs, reconcileTaskJobs, resumeTaskJobs } from "@/lib/server/taskOrchestrator/reconcile";
 import { getTaskRuntime } from "@/lib/server/taskOrchestrator/runtime";
+import { buildTaskMutationResponse } from "@/lib/server/taskClientView";
 import { shouldResumeDeepReviewRuntime, shouldResumeImageQueueRuntime } from "@/lib/taskStateAuthority";
 import type { PartialImageGenConfig, PartialLLMConfig } from "@/lib/types";
 
@@ -74,7 +75,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       const updatedTask = await pauseTaskJobs(id);
       return NextResponse.json({
         success: true,
-        task: updatedTask,
+        task: buildTaskMutationResponse(updatedTask),
         queueSummary: updatedTask.queueSummary,
       });
     }
@@ -89,7 +90,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
       return NextResponse.json({
         success: true,
-        task: updatedTask,
+        task: buildTaskMutationResponse(updatedTask),
         queueSummary: updatedTask.queueSummary,
       }, { status: 202 });
     }
@@ -104,7 +105,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
       return NextResponse.json({
         success: true,
-        task: updatedTask,
+        task: buildTaskMutationResponse(updatedTask),
         queueSummary: updatedTask.queueSummary,
       });
     }
@@ -120,7 +121,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       getTaskRuntime().enqueueDeepReview(id);
       return NextResponse.json({
         success: true,
-        task: updatedTask,
+        task: buildTaskMutationResponse(updatedTask),
         queueSummary: updatedTask.queueSummary,
       }, { status: 202 });
     }
@@ -130,7 +131,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       getTaskRuntime().enqueueImageQueue(id);
       return NextResponse.json({
         success: true,
-        task: updatedTask,
+        task: buildTaskMutationResponse(updatedTask),
         enqueuedPanelIndices: [],
         queueSummary: updatedTask.queueSummary,
       }, { status: 202 });
@@ -165,7 +166,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({
       success: true,
-      task: result.task,
+      task: buildTaskMutationResponse(result.task),
       enqueuedPanelIndices: result.enqueuedPanelIndices,
       queueSummary: result.queueSummary,
     }, { status: 202 });

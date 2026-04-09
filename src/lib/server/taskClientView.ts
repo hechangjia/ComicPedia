@@ -4,8 +4,23 @@ import { summarizeTaskJobs } from "@/lib/server/taskOrchestrator/store";
 import { attachTaskStateAuthority } from "@/lib/taskStateAuthority";
 import type { GenerateTask, TaskJobRecord } from "@/lib/types";
 
+type ClientSafeTask = GenerateTask & {
+  serverScriptReplay?: unknown;
+  requestSnapshot?: unknown;
+};
+
 function normalizeTaskJobs(taskJobs: TaskJobRecord[] | undefined): TaskJobRecord[] {
   return Array.isArray(taskJobs) ? taskJobs : [];
+}
+
+function stripServerOnlyTaskFields(task: ClientSafeTask): GenerateTask {
+  const {
+    serverScriptReplay: _serverScriptReplay,
+    requestSnapshot: _requestSnapshot,
+    ...taskForClient
+  } = task;
+
+  return taskForClient;
 }
 
 export function buildTaskListItem(task: GenerateTask, taskJobs: TaskJobRecord[] | undefined) {
@@ -46,15 +61,16 @@ export function buildTaskListItem(task: GenerateTask, taskJobs: TaskJobRecord[] 
 }
 
 export function buildTaskDetailResponse(
-  task: GenerateTask,
+  task: ClientSafeTask,
   taskJobs: TaskJobRecord[] | undefined,
   withImages: string | null,
 ) {
   const jobs = normalizeTaskJobs(taskJobs);
+  const taskForClient = stripServerOnlyTaskFields(task);
   const enrichedTask = attachTaskStateAuthority({
-    ...task,
-    queueSummary: task.queueSummary ?? summarizeTaskJobs(jobs),
-    comfyuiRemotePendingCount: task.comfyuiRemotePendingCount ?? countRecoverableComfyJobs(jobs),
+    ...taskForClient,
+    queueSummary: taskForClient.queueSummary ?? summarizeTaskJobs(jobs),
+    comfyuiRemotePendingCount: taskForClient.comfyuiRemotePendingCount ?? countRecoverableComfyJobs(jobs),
     queueJobs: jobs.map(({ payload: _payload, ...job }) => job),
   });
 
@@ -65,4 +81,12 @@ export function buildTaskDetailResponse(
     return fileRefsToUrls(enrichedTask);
   }
   return enrichedTask;
+}
+
+export function buildTaskMutationResponse(task: ClientSafeTask | undefined) {
+  if (!task) {
+    return task;
+  }
+
+  return attachTaskStateAuthority(stripServerOnlyTaskFields(task));
 }
