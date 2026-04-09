@@ -15,7 +15,7 @@ const eslintConfig = [
     },
   },
   {
-    ignores: [".next/", "node_modules/", "data/", "public/output/"],
+    ignores: [".next/", ".worktrees/", "node_modules/", "data/", "public/output/"],
   },
 ];
 
