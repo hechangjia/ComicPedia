@@ -1,5 +1,65 @@
 # Handoff
 
+## 2026-04-09 Promotion Readiness Status
+
+- 当前 HEAD: `60ab9c94dcdf154cc4d070f1ad187738ba58ee27`
+- 当前分支: `dev`
+- 当前工作区状态: 代码已提交，未跟踪文件只剩用户自己的 `AGENTS.md`
+
+### 这轮最后完成的事情
+
+- Track 1 数据治理已经落地并跑过一次真实清理：
+  - `436 auto-delete task(s) removed`
+  - `20 origin fixture task(s) removed`
+- SQLite 当前只剩 `33` 条任务
+- 空白 `Episode / Test` 垃圾历史项已经被清掉
+- `神农尝百草` 已确认仍在主库，不在回收站：
+  - task id: `264c7dde-27af-48b0-b3ad-3c7f9d49d404`
+  - title: `神农尝百草：从传说到医药文明`
+  - result url: `/result/264c7dde-27af-48b0-b3ad-3c7f9d49d404`
+  - image dir: `data/images/264c7dde-27af-48b0-b3ad-3c7f9d49d404`
+- Accuracy provider 配置不再只是“测试可用”：
+  - `runAccuracyResearch()` 现在真的会使用 Search / Fetch 槽位
+  - 运行时命中链路落在 `factPack.queryPlan.providerExecutions`
+  - 结果页 `Accuracy Summary` 会显示实际命中的 provider
+- 图片连接测试不再把 HTML 网页误报成成功
+  - `https://aiapi.exe.xyz` 的真实 API 根已确认是 `https://aiapi.exe.xyz/v1`
+  - `google/nano-banana-2` 当前仍被上游返回 `insufficient_user_quota`
+  - 所以不要把它切成默认发布模型，除非额度问题先解决
+
+### 下次启动最短路径
+
+```bash
+pnpm install
+pnpm dev
+```
+
+启动后先看这三个页面：
+
+1. `/settings`
+2. `/history`
+3. `/result/264c7dde-27af-48b0-b3ad-3c7f9d49d404`
+
+### 下次如果用户再报类似问题
+
+- 历史页又出现空白垃圾卡片：
+  - 去 `设置 -> 维护与修复`
+  - `扫描任务健康`
+  - 看 `autoDelete`
+  - 再 `执行自动删除`
+- 作品“消失”：
+  - 去 `设置 -> 维护与修复`
+  - 用 `作品找回搜索`
+  - 可按任务 ID、标题或主题搜 SQLite 权威数据
+- 用户质疑 Accuracy provider 是否生效：
+  - 让他打开任意 `science / wikipedia` 结果页
+  - 展开 `Accuracy Summary`
+  - 看 `命中链路`
+- 用户说图片测试返回 HTML：
+  - 先确认 URL 是否是 API 根而不是站点首页
+  - 对 `aiapi.exe.xyz`，应使用 `/v1`
+  - 如果已是 `/v1`，再看是否是额度不足而不是接口不通
+
 ## 当前目标
 主线基础设施收敛已经完成到“可继续往上做产品功能”的阶段。当前优先级从结果页/存储一致性收尾，转到继续补 API route 覆盖和后续 accuracy / queue 相关高风险边界。
 

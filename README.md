@@ -51,6 +51,7 @@
 - [快速开始](#快速开始)
   - [环境要求](#环境要求)
   - [本地开发](#本地开发)
+  - [断网后快速恢复](#断网后快速恢复)
   - [Docker 部署](#docker-部署)
   - [配置说明](#配置说明)
 - [项目结构](#项目结构)
@@ -281,6 +282,60 @@ pnpm dev
 > ```
 >
 > 同时建议清除浏览器中对应站点的 IndexedDB 缓存（开发者工具 → Application → IndexedDB → 删除 `comicpedia` 数据库），避免旧数据从浏览器缓存回写到服务端。
+
+### 断网后快速恢复
+
+下次重新开始时，先做这 4 步：
+
+```bash
+pnpm install
+pnpm dev
+```
+
+然后在浏览器里按这个顺序确认：
+
+1. 打开 `http://localhost:3000/settings`
+2. 确认 `Accuracy Research Providers` 仍然存在
+3. 确认图片配置里默认项还是当前可用模型
+4. 再打开首页、历史页、结果页
+
+这轮收尾后的已知状态：
+
+- 历史垃圾数据已经清理过一次，SQLite 当前剩余 `33` 条任务
+- 维护日志里有两条清理记录：
+  - `436 auto-delete task(s) removed`
+  - `20 origin fixture task(s) removed`
+- `神农尝百草` 没丢，直接访问：
+  - `http://localhost:3000/result/264c7dde-27af-48b0-b3ad-3c7f9d49d404`
+- 设置页新增了 `维护与修复` 面板，可以做两件事：
+  - `扫描任务健康 -> 执行自动删除`
+  - `作品找回搜索`
+
+如果你再次遇到“历史里出现空白 Episode / Test”：
+
+1. 进入 `设置 -> 维护与修复`
+2. 点击 `扫描任务健康`
+3. 先看 `可自动删除` 数量
+4. 再点击 `执行自动删除`
+
+如果你要确认 Accuracy provider 真的在起作用：
+
+1. 生成一个 `science` 或 `wikipedia` 任务
+2. 打开结果页
+3. 展开 `Accuracy Summary`
+4. 看 `命中链路`
+
+这里会显示本次研究实际用了哪个 `主 Search / 备 Search / 主 Fetch / 备 Fetch`。
+
+如果图片配置再次提示“返回 HTML 页面，不是图片 API”：
+
+- 说明 `API URL` 指到了站点首页，不是接口根地址
+- 这次已经确认 `aiapi.exe.xyz` 的正确 API 根应为：
+  - `https://aiapi.exe.xyz/v1`
+- 但 `google/nano-banana-2` 当前仍会被上游返回 `insufficient_user_quota`
+- 所以它现在只适合保留为候选配置，不适合直接设成默认发布模型
+
+当前默认图片模型仍建议保持可用配置，不要切到 `nano-banana-2`，除非你已经补足上游额度。
 
 ### 质量检查与发版
 
