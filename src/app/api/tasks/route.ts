@@ -127,7 +127,7 @@ export async function DELETE(request: NextRequest) {
           && Object.prototype.hasOwnProperty.call(body, "ids");
         if (hasExplicitIds) {
           requestedExplicitIds = true;
-          if (!Array.isArray(body.ids) || !body.ids.every((id) => typeof id === "string")) {
+          if (!Array.isArray(body.ids) || !body.ids.every((id: unknown) => typeof id === "string")) {
             return NextResponse.json(
               { error: "删除请求体中的 ids 必须是字符串数组" },
               { status: 400 },
