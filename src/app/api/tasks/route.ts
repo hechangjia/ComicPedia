@@ -114,8 +114,17 @@ export async function DELETE(request: NextRequest) {
     if (contentType?.includes("application/json")) {
       try {
         const body = await request.json();
-        if (Array.isArray(body.ids)) {
+        const hasExplicitIds = typeof body === "object"
+          && body !== null
+          && Object.prototype.hasOwnProperty.call(body, "ids");
+        if (hasExplicitIds) {
           requestedExplicitIds = true;
+          if (!Array.isArray(body.ids) || !body.ids.every((id) => typeof id === "string")) {
+            return NextResponse.json(
+              { error: "删除请求体中的 ids 必须是字符串数组" },
+              { status: 400 },
+            );
+          }
           taskIds = body.ids;
         }
       } catch {

@@ -391,4 +391,52 @@ describe("/api/tasks routes", () => {
     expect(clearAllTasksMock).not.toHaveBeenCalled();
     expect(deleteTasksByIdsMock).not.toHaveBeenCalled();
   });
+
+  it("returns 400 when delete payload includes ids: null", async () => {
+    const { DELETE } = await import("@/app/api/tasks/route");
+    const request = new NextRequest("http://localhost:3000/api/tasks", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: null }),
+    });
+
+    const response = await DELETE(request);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "删除请求体中的 ids 必须是字符串数组" });
+    expect(clearAllTasksMock).not.toHaveBeenCalled();
+    expect(deleteTasksByIdsMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when delete payload includes ids as a string", async () => {
+    const { DELETE } = await import("@/app/api/tasks/route");
+    const request = new NextRequest("http://localhost:3000/api/tasks", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: "task-1" }),
+    });
+
+    const response = await DELETE(request);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "删除请求体中的 ids 必须是字符串数组" });
+    expect(clearAllTasksMock).not.toHaveBeenCalled();
+    expect(deleteTasksByIdsMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when delete payload includes mixed-type ids", async () => {
+    const { DELETE } = await import("@/app/api/tasks/route");
+    const request = new NextRequest("http://localhost:3000/api/tasks", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: ["task-1", 2] }),
+    });
+
+    const response = await DELETE(request);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "删除请求体中的 ids 必须是字符串数组" });
+    expect(clearAllTasksMock).not.toHaveBeenCalled();
+    expect(deleteTasksByIdsMock).not.toHaveBeenCalled();
+  });
 });
