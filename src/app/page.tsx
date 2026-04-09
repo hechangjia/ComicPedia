@@ -4,8 +4,8 @@ import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Globe, FlaskConical, ScrollText, BookOpen, Smartphone, ArrowRight, Sparkles } from "lucide-react";
-import { getAllComics } from "@/lib/client/db";
-import { GenerateTask, ComicPanel, ComicStyle } from "@/lib/types";
+import { getComicSummaries } from "@/lib/client/db";
+import { ComicStyle, TaskListItem } from "@/lib/types";
 import { STYLE_DESCRIPTIONS } from "@/lib/config/styles";
 import { formatDate } from "@/lib/utils";
 
@@ -27,7 +27,7 @@ const styleNames: Record<string, string> = Object.fromEntries(
 export default function HomePage() {
   const router = useRouter();
   const isShowcaseMode = process.env.NEXT_PUBLIC_SHOWCASE_MODE === "true";
-  const [tasks, setTasks] = useState<GenerateTask[]>([]);
+  const [tasks, setTasks] = useState<TaskListItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -35,7 +35,7 @@ export default function HomePage() {
       router.replace("/gallery");
       return;
     }
-    getAllComics(1, 20).then((result) => {
+    getComicSummaries(1, 20).then((result) => {
       setTasks(result.items);
       setLoading(false);
     }).catch((e) => {
@@ -45,9 +45,7 @@ export default function HomePage() {
   }, [isShowcaseMode, router]);
 
   const completedTasks = useMemo(() =>
-    tasks.filter((t) => t.status === "completed" && t.script?.panels.some(
-      (p) => p.status === "completed" && p.imageUrl && !p.imageUrl.startsWith("data:text/plain")
-    )),
+    tasks.filter((task) => task.status === "completed" && (task.scriptSummary?.panelCount ?? 0) > 0 && task.scriptSummary?.coverImageUrl),
     [tasks]
   );
 
@@ -55,11 +53,11 @@ export default function HomePage() {
 
   const stats = useMemo(() => {
     const totalPanels = completedTasks.reduce((sum, t) =>
-      sum + (t.script?.panels.filter(p => p.status === "completed" && p.imageUrl).length ?? 0), 0
+      sum + (t.scriptSummary?.panelCount ?? 0), 0
     );
     const styleCounts: Record<string, number> = {};
     completedTasks.forEach((t) => {
-      const s = t.script?.style;
+      const s = t.scriptSummary?.style;
       if (s) styleCounts[s] = (styleCounts[s] || 0) + 1;
     });
     const topStyle = Object.entries(styleCounts).sort((a, b) => b[1] - a[1])[0];
@@ -67,9 +65,6 @@ export default function HomePage() {
   }, [completedTasks]);
 
   if (isShowcaseMode) return null;
-
-  const getValidPanels = (task: GenerateTask): ComicPanel[] =>
-    task.script?.panels.filter(p => p.status === "completed" && p.imageUrl && !p.imageUrl.startsWith("data:text/plain")) ?? [];
 
   return (
     <div className="max-w-5xl mx-auto space-y-8">
@@ -165,15 +160,13 @@ export default function HomePage() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {recentWorks.map((task) => {
-              const panels = getValidPanels(task);
-              const firstPanel = panels[0];
               return (
                 <Link key={task.id} href={`/result/${task.id}`}
                   className="group bg-surface dark:bg-surface rounded-lg border border-border-subtle dark:border-border-subtle overflow-hidden shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 cursor-pointer"
                 >
                   <div className="h-36 overflow-hidden bg-surface-raised">
-                    {firstPanel?.imageUrl ? (
-                      <img src={firstPanel.imageUrl} alt={task.script?.title || ""} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" />
+                    {task.scriptSummary?.coverImageUrl ? (
+                      <img src={task.scriptSummary.coverImageUrl} alt={task.scriptSummary?.title || ""} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-muted-foreground">
                         <Sparkles className="w-8 h-8 opacity-30" />
@@ -181,14 +174,14 @@ export default function HomePage() {
                     )}
                   </div>
                   <div className="p-3.5">
-                    <div className="font-semibold text-[14px] truncate mb-1.5">{task.script?.title || "无标题"}</div>
+                    <div className="font-semibold text-[14px] truncate mb-1.5">{task.scriptSummary?.title || "无标题"}</div>
                     <div className="flex items-center gap-2 text-[11.5px] text-muted-foreground">
-                      {task.script?.style && (
+                      {task.scriptSummary?.style && (
                         <span className="px-2 py-0.5 rounded-[6px] bg-teal-soft text-teal text-[10px] font-semibold">
-                          {styleNames[task.script.style] || task.script.style}
+                          {styleNames[task.scriptSummary.style] || task.scriptSummary.style}
                         </span>
                       )}
-                      <span>{panels.length} 格</span>
+                      <span>{task.scriptSummary?.panelCount ?? 0} 格</span>
                       <span>{formatDate(task.createdAt)}</span>
                     </div>
                   </div>

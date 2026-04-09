@@ -1,9 +1,10 @@
 import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
-import type { GenerateTask, Character, CharacterRelation, UserAPIConfigV2, ComicScript, TaskJobRecord } from "@/lib/types";
+import type { GenerateTask, Character, CharacterRelation, UserAPIConfigV2, ComicScript, TaskJobRecord, TaskListItem, TaskOrigin } from "@/lib/types";
 import type { Series } from "@/lib/series";
 import type { ServerScriptReplayPayload } from "@/lib/server/taskOrchestrator/replay";
+import { DEFAULT_TASK_ORIGIN, inferTaskOrigin, normalizeTaskOrigin } from "@/lib/taskOrigin";
 
 // ============================================================
 // SQLite 数据库初始化（单例）
@@ -161,10 +162,56 @@ const stmtInsertTask = db.prepare(`
   VALUES (@id, @status, @progress, @script, @character, @error, @metadata, @tags, @favorited, @created_at, @updated_at)
 `);
 
+const TASK_ORIGIN_SQL = `
+  CASE
+    WHEN json_extract(metadata, '$.origin') IS NOT NULL THEN json_extract(metadata, '$.origin')
+    WHEN id LIKE 'arc_test_%' THEN 'test'
+    WHEN json_extract(script, '$.topic') = 'Test' AND json_extract(script, '$.title') LIKE 'Episode %' THEN 'test'
+    ELSE 'user'
+  END
+`;
+
 const stmtGetTask = db.prepare("SELECT * FROM tasks WHERE id = ?");
 const stmtGetAllTasks = db.prepare("SELECT * FROM tasks ORDER BY created_at DESC");
 const stmtGetAllTasksPaged = db.prepare("SELECT * FROM tasks ORDER BY created_at DESC LIMIT ? OFFSET ?");
+const stmtGetAllTasksPagedByOrigin = db.prepare(`
+  SELECT * FROM tasks
+  WHERE ${TASK_ORIGIN_SQL} IN (SELECT value FROM json_each(?))
+  ORDER BY created_at DESC
+  LIMIT ? OFFSET ?
+`);
 const stmtCountTasks = db.prepare("SELECT COUNT(*) as total FROM tasks");
+const stmtCountTasksByOrigin = db.prepare(`
+  SELECT COUNT(*) as total
+  FROM tasks
+  WHERE ${TASK_ORIGIN_SQL} IN (SELECT value FROM json_each(?))
+`);
+const stmtGetTaskSummariesPaged = db.prepare(`
+  SELECT
+    id,
+    status,
+    progress,
+    metadata,
+    tags,
+    favorited,
+    created_at,
+    updated_at,
+    ${TASK_ORIGIN_SQL} AS origin,
+    json_extract(script, '$.title') AS title,
+    json_extract(script, '$.topic') AS topic,
+    json_extract(script, '$.style') AS style,
+    COALESCE(json_array_length(json_extract(script, '$.panels')), 0) AS panel_count,
+    json_extract(script, '$.panels[0].imageUrl') AS cover_image_url
+  FROM tasks
+  WHERE ${TASK_ORIGIN_SQL} IN (SELECT value FROM json_each(?))
+  ORDER BY created_at DESC
+  LIMIT ? OFFSET ?
+`);
+const stmtCountTaskSummaries = db.prepare(`
+  SELECT COUNT(*) as total
+  FROM tasks
+  WHERE ${TASK_ORIGIN_SQL} IN (SELECT value FROM json_each(?))
+`);
 const stmtGetAllTaskIds = db.prepare("SELECT id FROM tasks");
 const stmtDeleteTask = db.prepare("DELETE FROM tasks WHERE id = ?");
 const stmtClearTasks = db.prepare("DELETE FROM tasks");
@@ -187,6 +234,7 @@ const stmtClearTaskJobsByTaskId = db.prepare("DELETE FROM task_jobs WHERE task_i
 function taskToRow(task: GenerateTask & { serverScriptReplay?: ServerScriptReplayPayload }) {
   // Pack non-core fields into a single metadata JSON column
   const metadata: Record<string, unknown> = {};
+  if (task.origin !== undefined) metadata.origin = normalizeTaskOrigin(task.origin);
   if (task.qualityScore) metadata.qualityScore = task.qualityScore;
   if (task.visualQualityScore) metadata.visualQualityScore = task.visualQualityScore;
   if (task.reviewStatus !== undefined) metadata.reviewStatus = task.reviewStatus;
@@ -483,6 +531,11 @@ function rowToTask(row: Record<string, unknown>): GenerateTask {
 
   return {
     id: row.id as string,
+    origin: inferTaskOrigin({
+      id: row.id as string,
+      origin: meta.origin,
+      script: safeJsonParse(row.script as string | null),
+    }),
     status: row.status as GenerateTask["status"],
     progress: row.progress as number,
     script: safeJsonParse(row.script as string | null),
@@ -517,6 +570,68 @@ function rowToTask(row: Record<string, unknown>): GenerateTask {
     favorited: (row.favorited as number) === 1,
     createdAt: new Date(row.created_at as string),
     updatedAt: new Date(row.updated_at as string),
+  };
+}
+
+type TaskSummaryRow = {
+  id: string;
+  status: GenerateTask["status"];
+  progress: number;
+  metadata: string | null;
+  tags: string | null;
+  favorited: number;
+  created_at: string;
+  updated_at: string;
+  origin: string | null;
+  title: string | null;
+  topic: string | null;
+  style: string | null;
+  panel_count: number | null;
+  cover_image_url: string | null;
+};
+
+function rowToTaskSummary(row: TaskSummaryRow): TaskListItem {
+  const meta = safeJsonParse<Record<string, unknown>>(row.metadata) ?? {};
+  const visualQualityScore = meta.visualQualityScore as Record<string, unknown> | undefined;
+  const visualRetrySummary = meta.visualRetrySummary as Record<string, unknown> | undefined;
+
+  return {
+    id: row.id,
+    origin: inferTaskOrigin({
+      id: row.id,
+      origin: row.origin ?? meta.origin,
+      script: {
+        title: row.title ?? undefined,
+        topic: row.topic ?? undefined,
+      } as GenerateTask["script"],
+    }),
+    status: row.status,
+    progress: row.progress,
+    reviewStatus: parseReviewStatus(meta.reviewStatus),
+    lastReviewAt: typeof meta.lastReviewAt === "string" ? meta.lastReviewAt : undefined,
+    visualQualityScore: visualQualityScore ? {
+      overall: visualQualityScore.overall as number,
+      retryRecommendations: visualQualityScore.retryRecommendations as NonNullable<GenerateTask["visualQualityScore"]>["retryRecommendations"],
+    } : undefined,
+    visualRetrySummary: visualRetrySummary ? {
+      status: visualRetrySummary.status as NonNullable<GenerateTask["visualRetrySummary"]>["status"],
+      finalOverallScore: visualRetrySummary.finalOverallScore as number | undefined,
+    } : undefined,
+    queueSummary: meta.queueSummary as GenerateTask["queueSummary"],
+    comfyuiRemotePendingCount: typeof meta.comfyuiRemotePendingCount === "number"
+      ? meta.comfyuiRemotePendingCount
+      : undefined,
+    tags: safeJsonParse<string[]>(row.tags) ?? [],
+    favorited: row.favorited === 1,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+    scriptSummary: {
+      title: row.title ?? undefined,
+      topic: row.topic ?? undefined,
+      style: row.style as NonNullable<TaskListItem["scriptSummary"]>["style"],
+      panelCount: row.panel_count ?? 0,
+      coverImageUrl: row.cover_image_url ?? undefined,
+    },
   };
 }
 
@@ -567,6 +682,30 @@ export function getTasksPaginated(page: number = 1, pageSize: number = 50): { ta
   const totalRow = stmtCountTasks.get() as { total: number };
   const rows = stmtGetAllTasksPaged.all(pageSize, offset) as Record<string, unknown>[];
   return { tasks: rows.map(rowToTask), total: totalRow.total };
+}
+
+export function getTasksPaginatedByOrigins(
+  page: number = 1,
+  pageSize: number = 50,
+  origins: TaskOrigin[] = [DEFAULT_TASK_ORIGIN],
+): { tasks: GenerateTask[]; total: number } {
+  const offset = (page - 1) * pageSize;
+  const originsJson = JSON.stringify(origins.map((origin) => normalizeTaskOrigin(origin)));
+  const totalRow = stmtCountTasksByOrigin.get(originsJson) as { total: number };
+  const rows = stmtGetAllTasksPagedByOrigin.all(originsJson, pageSize, offset) as Record<string, unknown>[];
+  return { tasks: rows.map(rowToTask), total: totalRow.total };
+}
+
+export function getTaskSummariesPaginated(
+  page: number = 1,
+  pageSize: number = 50,
+  origins: TaskOrigin[] = [DEFAULT_TASK_ORIGIN],
+): { items: TaskListItem[]; total: number } {
+  const offset = (page - 1) * pageSize;
+  const originsJson = JSON.stringify(origins.map((origin) => normalizeTaskOrigin(origin)));
+  const totalRow = stmtCountTaskSummaries.get(originsJson) as { total: number };
+  const rows = stmtGetTaskSummariesPaged.all(originsJson, pageSize, offset) as TaskSummaryRow[];
+  return { items: rows.map(rowToTaskSummary), total: totalRow.total };
 }
 
 export function deleteTask(id: string): boolean {

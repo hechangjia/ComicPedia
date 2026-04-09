@@ -1,5 +1,5 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
-import { GenerateTask, Character } from '@/lib/types';
+import { GenerateTask, Character, TaskListItem } from '@/lib/types';
 import { Series } from '@/lib/series';
 import { shouldPreferLocalTaskSnapshot } from "@/lib/taskStateAuthority";
 import { cleanupTaskState } from './eventBus';
@@ -216,10 +216,23 @@ export interface PaginatedResult<T> {
   hasMore: boolean;
 }
 
+export async function getComicSummaries(page = 1, pageSize = 100): Promise<PaginatedResult<TaskListItem>> {
+  const data = await apiCall<{ tasks: TaskListItem[]; total: number; page: number; pageSize: number }>(
+    `/api/tasks?page=${page}&pageSize=${pageSize}`
+  );
+  return {
+    items: data.tasks,
+    total: data.total,
+    page: data.page,
+    pageSize: data.pageSize,
+    hasMore: data.page * data.pageSize < data.total,
+  };
+}
+
 export async function getAllComics(page = 1, pageSize = 100): Promise<PaginatedResult<GenerateTask>> {
   try {
     const data = await apiCall<{ tasks: GenerateTask[]; total: number; page: number; pageSize: number }>(
-      `/api/tasks?page=${page}&pageSize=${pageSize}`
+      `/api/tasks?page=${page}&pageSize=${pageSize}&view=full&origin=user`
     );
     // Parallel cache update — use allSettled to not lose all if one fails
     await Promise.allSettled(data.tasks.map(t => cachePut('comics', t)));

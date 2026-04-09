@@ -420,6 +420,7 @@ export type GenerateTaskStatus =
   | "deep_review_paused";
 
 export type TaskStateAuthority = "client_local" | "server_durable" | "settled";
+export type TaskOrigin = "user" | "demo" | "test" | "imported" | "system";
 
 export type TaskJobKind = "panel_image" | "deep_review" | "reconcile";
 
@@ -442,6 +443,33 @@ export interface TaskQueueSummary {
   attachFailed: number;
   completed: number;
   calibrationPending: number;
+}
+
+export interface TaskScriptSummary {
+  title?: string;
+  topic?: string;
+  style?: ComicStyle;
+  panelCount: number;
+  coverImageUrl?: string;
+}
+
+export interface TaskListItem {
+  id: string;
+  origin: TaskOrigin;
+  status: GenerateTaskStatus;
+  stateAuthority?: TaskStateAuthority;
+  progress: number;
+  reviewStatus?: ReviewStatus;
+  lastReviewAt?: string;
+  visualQualityScore?: Pick<VisualQualityScore, "overall" | "retryRecommendations">;
+  visualRetrySummary?: Pick<VisualRetrySummary, "status" | "finalOverallScore">;
+  queueSummary?: TaskQueueSummary;
+  comfyuiRemotePendingCount?: number;
+  tags?: string[];
+  favorited?: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  scriptSummary?: TaskScriptSummary;
 }
 
 export interface TaskJobRecord {
@@ -494,6 +522,7 @@ export interface PipelineStageTrace {
 
 export interface GenerateTask {
   id: string;
+  origin?: TaskOrigin;
   status: GenerateTaskStatus;
   stateAuthority?: TaskStateAuthority;
   progress: number; // 0-100

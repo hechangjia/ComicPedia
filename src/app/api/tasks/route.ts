@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { getTasksPaginated, upsertTask, clearAllTasks, getAllTaskIds, deleteTasksByIds } from "@/lib/server/db";
+import { getTaskSummariesPaginated, getTasksPaginated, getTasksPaginatedByOrigins, upsertTask, clearAllTasks, getAllTaskIds, deleteTasksByIds } from "@/lib/server/db";
 import { extractTaskImagesAsync, trashTaskImages } from "@/lib/server/imageExtractor";
-import { buildTaskListItem } from "@/lib/server/taskClientView";
+import { buildTaskListItem, buildTaskSummaryItem } from "@/lib/server/taskClientView";
 import { getTaskRuntime } from "@/lib/server/taskOrchestrator/runtime";
 import { buildServerScriptReplayPayload, validateServerReplayPayload } from "@/lib/server/taskOrchestrator/replay";
 import { listTaskJobsByTaskId } from "@/lib/server/taskOrchestrator/store";
-import type { GenerateRequest, GenerateTask, TaskJobRecord } from "@/lib/types";
+import type { GenerateRequest, GenerateTask, TaskJobRecord, TaskListItem } from "@/lib/types";
+import { getDefaultListOrigins, normalizeTaskOrigin } from "@/lib/taskOrigin";
 
 function parsePositiveInt(value: string | null, fallback: number): number {
   if (!value) {
@@ -23,6 +24,12 @@ async function toListItem(task: GenerateTask) {
   return buildTaskListItem(task, taskJobs);
 }
 
+async function toSummaryItem(task: TaskListItem) {
+  const needsJobFallback = !task.queueSummary || task.comfyuiRemotePendingCount === undefined;
+  const taskJobs: TaskJobRecord[] = needsJobFallback ? await listTaskJobsByTaskId(task.id) : [];
+  return buildTaskSummaryItem(task, taskJobs);
+}
+
 /** GET /api/tasks — 获取任务列表（支持分页，轻量返回） */
 export async function GET(request: NextRequest) {
   try {
@@ -30,8 +37,22 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const page = parsePositiveInt(searchParams.get("page"), 1);
     const pageSize = Math.min(parsePositiveInt(searchParams.get("pageSize"), 100), 200);
+    const view = searchParams.get("view");
 
-    const { tasks, total } = getTasksPaginated(page, pageSize);
+    if (view !== "full") {
+      const requestedOrigins = searchParams.getAll("origin");
+      const origins = requestedOrigins.length > 0
+        ? requestedOrigins.map((origin) => normalizeTaskOrigin(origin))
+        : getDefaultListOrigins();
+      const { items, total } = getTaskSummariesPaginated(page, pageSize, origins);
+      const tasks = await Promise.all(items.map(toSummaryItem));
+      return NextResponse.json({ tasks, total, page, pageSize });
+    }
+
+    const requestedOrigins = searchParams.getAll("origin");
+    const { tasks, total } = requestedOrigins.length > 0
+      ? getTasksPaginatedByOrigins(page, pageSize, requestedOrigins.map((origin) => normalizeTaskOrigin(origin)))
+      : getTasksPaginated(page, pageSize);
     const items = await Promise.all(tasks.map(toListItem));
 
     return NextResponse.json({ tasks: items, total, page, pageSize });
@@ -64,6 +85,7 @@ export async function POST(request: NextRequest) {
       const now = new Date();
       const serverTask: GenerateTask = {
         id: randomUUID(),
+        origin: "user",
         status: "created",
         progress: 0,
         presetSnapshot: createRequest.presetSnapshot,

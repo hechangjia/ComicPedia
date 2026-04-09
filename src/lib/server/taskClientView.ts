@@ -2,7 +2,7 @@ import { fileRefsToUrls, restoreFileRefs } from "@/lib/server/imageExtractor";
 import { countRecoverableComfyJobs } from "@/lib/server/taskOrchestrator/queueMeta";
 import { summarizeTaskJobs } from "@/lib/server/taskOrchestrator/store";
 import { attachTaskStateAuthority } from "@/lib/taskStateAuthority";
-import type { GenerateTask, TaskJobRecord } from "@/lib/types";
+import type { GenerateTask, TaskJobRecord, TaskListItem } from "@/lib/types";
 
 type ClientSafeTask = GenerateTask & {
   serverScriptReplay?: unknown;
@@ -55,6 +55,17 @@ export function buildTaskListItem(task: GenerateTask, taskJobs: TaskJobRecord[] 
         dialogue: panel.dialogue,
       })),
     } : undefined,
+  });
+
+  return fileRefsToUrls(stripped);
+}
+
+export function buildTaskSummaryItem(summary: TaskListItem, taskJobs: TaskJobRecord[] | undefined) {
+  const jobs = normalizeTaskJobs(taskJobs);
+  const stripped = attachTaskStateAuthority({
+    ...summary,
+    queueSummary: summary.queueSummary ?? summarizeTaskJobs(jobs),
+    comfyuiRemotePendingCount: summary.comfyuiRemotePendingCount ?? countRecoverableComfyJobs(jobs),
   });
 
   return fileRefsToUrls(stripped);

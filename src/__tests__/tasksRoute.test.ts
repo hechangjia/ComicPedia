@@ -2,6 +2,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
 const {
+  getTaskSummariesPaginatedMock,
+  getTasksPaginatedByOriginsMock,
   getTasksPaginatedMock,
   upsertTaskMock,
   clearAllTasksMock,
@@ -19,6 +21,8 @@ const {
   validateServerReplayPayloadMock,
   randomUUIDMock,
 } = vi.hoisted(() => ({
+  getTaskSummariesPaginatedMock: vi.fn(),
+  getTasksPaginatedByOriginsMock: vi.fn(),
   getTasksPaginatedMock: vi.fn(),
   upsertTaskMock: vi.fn(),
   clearAllTasksMock: vi.fn(),
@@ -42,6 +46,8 @@ vi.mock("node:crypto", () => ({
 }));
 
 vi.mock("@/lib/server/db", () => ({
+  getTaskSummariesPaginated: getTaskSummariesPaginatedMock,
+  getTasksPaginatedByOrigins: getTasksPaginatedByOriginsMock,
   getTasksPaginated: getTasksPaginatedMock,
   upsertTask: upsertTaskMock,
   clearAllTasks: clearAllTasksMock,
@@ -80,6 +86,8 @@ vi.mock("@/lib/server/taskOrchestrator/replay", () => ({
 
 describe("/api/tasks routes", () => {
   beforeEach(() => {
+    getTaskSummariesPaginatedMock.mockReset();
+    getTasksPaginatedByOriginsMock.mockReset();
     getTasksPaginatedMock.mockReset();
     upsertTaskMock.mockReset();
     clearAllTasksMock.mockReset();
@@ -103,29 +111,133 @@ describe("/api/tasks routes", () => {
     extractTaskImagesAsyncMock.mockImplementation(async (task) => task);
   });
 
-  it("keeps persisted review summary fields in list items for history badges", async () => {
+  it("returns summary view by default and filters to user origin", async () => {
+    getTaskSummariesPaginatedMock.mockReturnValue({
+      total: 1,
+      items: [
+        {
+          id: "summary-1",
+          origin: "user",
+          status: "completed",
+          progress: 100,
+          createdAt: new Date("2026-04-09T00:00:00.000Z"),
+          updatedAt: new Date("2026-04-09T00:00:00.000Z"),
+          scriptSummary: {
+            title: "Summary Task",
+            topic: "Topic",
+            style: "anime",
+            panelCount: 4,
+            coverImageUrl: "file://summary-1_panel0_cur",
+          },
+          queueSummary: {
+            queued: 0,
+            running: 0,
+            paused: 0,
+            failed: 0,
+            attachFailed: 0,
+            completed: 4,
+            calibrationPending: 0,
+          },
+        },
+      ],
+    });
+
+    const { GET } = await import("@/app/api/tasks/route");
+    const response = await GET(new NextRequest("http://localhost:3000/api/tasks?page=1&pageSize=10"));
+    const body = await response.json();
+
+    expect(getTaskSummariesPaginatedMock).toHaveBeenCalledWith(1, 10, ["user"]);
+    expect(getTasksPaginatedMock).not.toHaveBeenCalled();
+    expect(body.tasks[0]).toMatchObject({
+      id: "summary-1",
+      scriptSummary: expect.objectContaining({
+        title: "Summary Task",
+        panelCount: 4,
+      }),
+    });
+    expect(body.tasks[0].script).toBeUndefined();
+  });
+
+  it("returns full tasks when view=full is requested", async () => {
     getTasksPaginatedMock.mockReturnValue({
       total: 1,
       tasks: [
         {
+          id: "full-1",
+          origin: "user",
+          status: "completed",
+          progress: 100,
+          createdAt: new Date("2026-04-09T00:00:00.000Z"),
+          updatedAt: new Date("2026-04-09T00:00:00.000Z"),
+          script: {
+            title: "Full Task",
+            topic: "Topic",
+            style: "flat",
+            panels: [
+              { id: 1, scene: "Scene", dialogue: "Line", imageUrl: "file://full-1_panel0_cur", status: "completed" },
+            ],
+          },
+        },
+      ],
+    });
+
+    const { GET } = await import("@/app/api/tasks/route");
+    const response = await GET(new NextRequest("http://localhost:3000/api/tasks?page=1&pageSize=10&view=full"));
+    const body = await response.json();
+
+    expect(getTasksPaginatedMock).toHaveBeenCalledWith(1, 10);
+    expect(body.tasks[0].script.panels).toHaveLength(1);
+  });
+
+  it("filters full tasks by origin when view=full specifies origins", async () => {
+    getTasksPaginatedByOriginsMock.mockReturnValue({
+      total: 1,
+      tasks: [
+        {
+          id: "full-user-1",
+          origin: "user",
+          status: "completed",
+          progress: 100,
+          createdAt: new Date("2026-04-09T00:00:00.000Z"),
+          updatedAt: new Date("2026-04-09T00:00:00.000Z"),
+          script: {
+            title: "User Full Task",
+            topic: "Topic",
+            style: "flat",
+            panels: [
+              { id: 1, scene: "Scene", dialogue: "Line", imageUrl: "file://full-user-1_panel0_cur", status: "completed" },
+            ],
+          },
+        },
+      ],
+    });
+
+    const { GET } = await import("@/app/api/tasks/route");
+    const response = await GET(new NextRequest("http://localhost:3000/api/tasks?page=1&pageSize=10&view=full&origin=user"));
+    const body = await response.json();
+
+    expect(getTasksPaginatedByOriginsMock).toHaveBeenCalledWith(1, 10, ["user"]);
+    expect(getTasksPaginatedMock).not.toHaveBeenCalled();
+    expect(body.tasks[0].id).toBe("full-user-1");
+  });
+
+  it("keeps persisted review summary fields in list items for history badges", async () => {
+    getTaskSummariesPaginatedMock.mockReturnValue({
+      total: 1,
+      items: [
+        {
           id: "task-1",
+          origin: "user",
           status: "completed",
           progress: 100,
           createdAt: new Date("2026-03-27T00:00:00.000Z"),
           updatedAt: new Date("2026-03-27T01:00:00.000Z"),
-          script: {
+          scriptSummary: {
             title: "Review Task",
             topic: "Topic",
             style: "anime",
-            panels: [
-              {
-                id: 1,
-                scene: "Scene 1",
-                dialogue: "Dialogue 1",
-                imageUrl: "data:image/png;base64,1",
-                status: "completed",
-              },
-            ],
+            panelCount: 1,
+            coverImageUrl: "file://task-1_panel0_cur",
           },
           reviewStatus: "needs_repair",
           visualQualityScore: {
@@ -167,6 +279,7 @@ describe("/api/tasks routes", () => {
     const body = await response.json();
 
     expect(getTaskRuntimeMock).toHaveBeenCalledTimes(1);
+    expect(getTaskSummariesPaginatedMock).toHaveBeenCalledWith(1, 10, ["user"]);
     expect(body.tasks[0]).toMatchObject({
       id: "task-1",
       reviewStatus: "needs_repair",
@@ -178,15 +291,22 @@ describe("/api/tasks routes", () => {
   });
 
   it("enriches queueSummary from durable jobs when task metadata does not contain queueSummary", async () => {
-    getTasksPaginatedMock.mockReturnValue({
+    getTaskSummariesPaginatedMock.mockReturnValue({
       total: 1,
-      tasks: [
+      items: [
         {
           id: "task-fallback",
+          origin: "user",
           status: "image_queue_running",
           progress: 45,
           createdAt: new Date("2026-03-27T00:00:00.000Z"),
           updatedAt: new Date("2026-03-27T01:00:00.000Z"),
+          scriptSummary: {
+            title: "Fallback Task",
+            topic: "Topic",
+            style: "flat",
+            panelCount: 0,
+          },
         },
       ],
     });
@@ -224,9 +344,9 @@ describe("/api/tasks routes", () => {
   });
 
   it("defaults invalid pagination params before reading paginated tasks", async () => {
-    getTasksPaginatedMock.mockReturnValue({
+    getTaskSummariesPaginatedMock.mockReturnValue({
       total: 0,
-      tasks: [],
+      items: [],
     });
 
     const { GET } = await import("@/app/api/tasks/route");
@@ -235,7 +355,7 @@ describe("/api/tasks routes", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(getTasksPaginatedMock).toHaveBeenCalledWith(1, 100);
+    expect(getTaskSummariesPaginatedMock).toHaveBeenCalledWith(1, 100, ["user"]);
     expect(body).toEqual({
       tasks: [],
       total: 0,
@@ -245,15 +365,16 @@ describe("/api/tasks routes", () => {
   });
 
   it("adds stateAuthority to task list items", async () => {
-    getTasksPaginatedMock.mockReturnValue({
+    getTaskSummariesPaginatedMock.mockReturnValue({
       total: 1,
-      tasks: [{
+      items: [{
         id: "task-list-state",
+        origin: "user",
         status: "script_ready",
         progress: 30,
         createdAt: new Date("2026-04-09T00:00:00.000Z"),
         updatedAt: new Date("2026-04-09T00:00:00.000Z"),
-        script: { title: "List Task", topic: "Topic", style: "anime", panels: [] },
+        scriptSummary: { title: "List Task", topic: "Topic", style: "anime", panelCount: 0 },
       }],
     });
 
