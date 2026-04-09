@@ -14,6 +14,7 @@ export function AccuracySummary({ task }: AccuracySummaryProps) {
   const blocked = task.accuracyErrorSummary;
   const review = task.accuracyReview;
   const brief = task.researchBrief;
+  const providerExecutions = task.factPack?.queryPlan.providerExecutions || [];
 
   return (
     <details className="text-left mx-auto max-w-lg no-print">
@@ -41,6 +42,51 @@ export function AccuracySummary({ task }: AccuracySummaryProps) {
                 ))}
               </ul>
             )}
+            {providerExecutions.length > 0 ? (
+              <div className="space-y-1">
+                <p className="text-foreground/80">命中链路</p>
+                <ul className="list-disc pl-4 text-muted-foreground space-y-0.5">
+                  {providerExecutions.map((execution, index) => {
+                    const slotLabel = execution.slot
+                      ? {
+                          primarySearch: "主 Search",
+                          fallbackSearch: "备 Search",
+                          primaryFetch: "主 Fetch",
+                          fallbackFetch: "备 Fetch",
+                        }[execution.slot]
+                      : null;
+                    const phaseLabel = execution.phase === "whitelist_search"
+                      ? "Whitelist Search"
+                      : execution.phase === "whitelist_fetch"
+                        ? "Whitelist Fetch"
+                        : execution.phase === "open_web_search"
+                          ? "Open Web Search"
+                          : "Open Web Fetch";
+                    const outcomeLabel = execution.outcome === "success"
+                      ? execution.resultCount !== undefined
+                        ? `命中 ${execution.resultCount} 条`
+                        : "成功"
+                      : execution.outcome === "empty"
+                        ? "无结果"
+                        : execution.outcome === "skipped"
+                          ? "已跳过"
+                          : `失败${execution.detail ? `：${execution.detail}` : ""}`;
+
+                    return (
+                      <li key={`${execution.phase}-${execution.providerId || execution.providerName || "trace"}-${index}`}>
+                        {[phaseLabel, slotLabel, execution.providerName || execution.providerId, outcomeLabel]
+                          .filter(Boolean)
+                          .join(" / ")}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ) : !task.factPack?.queryPlan.fallbackUsed ? (
+              <p className="text-muted-foreground">
+                命中链路：本次仅使用 Wikipedia anchor，未触发外部 Search / Fetch provider。
+              </p>
+            ) : null}
           </>
         )}
 

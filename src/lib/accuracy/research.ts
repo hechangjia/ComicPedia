@@ -1,6 +1,9 @@
 import type {
   AccuracyCoverageGap,
   AccuracyHardFact,
+  AccuracyProviderConfig,
+  AccuracyProviderSlots,
+  AccuracyQueryExecution,
   AccuracySettings,
   AccuracySoftFact,
   AccuracySourceEntry,
@@ -11,7 +14,7 @@ import type {
 } from "@/lib/types";
 import { getWikipediaSummary, searchWikipedia } from "@/lib/server/wikipedia";
 import { resolveAccuracyProviders, getWhitelistDomains } from "@/lib/accuracy/providerRegistry";
-import { searchWithProvider } from "@/lib/accuracy/providerClients";
+import { fetchWithProvider, searchWithProvider, type ProviderSearchResult } from "@/lib/accuracy/providerClients";
 
 const MAX_ANCHOR_SOURCES = 3;
 const MAX_WHITELIST_SOURCES = 3;
@@ -264,6 +267,104 @@ function trimExcerpt(excerpt: string): string {
   return excerpt.trim().slice(0, MAX_EXCERPT_CHARS);
 }
 
+function getProviderSlot(
+  config: AccuracySettings,
+  provider: AccuracyProviderConfig,
+): keyof AccuracyProviderSlots | null {
+  const { slots } = config;
+  if (slots.primarySearch === provider.id) return "primarySearch";
+  if (slots.fallbackSearch === provider.id) return "fallbackSearch";
+  if (slots.primaryFetch === provider.id) return "primaryFetch";
+  if (slots.fallbackFetch === provider.id) return "fallbackFetch";
+  return null;
+}
+
+function pushProviderExecution(
+  queryPlan: FactPack["queryPlan"],
+  execution: AccuracyQueryExecution,
+): void {
+  if (!queryPlan.providerExecutions) {
+    queryPlan.providerExecutions = [];
+  }
+  queryPlan.providerExecutions.push(execution);
+}
+
+function getResolvedProviders(
+  config: AccuracySettings,
+  kind: AccuracyProviderConfig["kind"],
+): AccuracyProviderConfig[] {
+  return resolveAccuracyProviders(config, kind).filter((provider) => provider.kind === kind);
+}
+
+function buildSearchSourceEntry(
+  result: ProviderSearchResult,
+  sourceTier: AccuracySourceTier,
+  searchProvider: AccuracyProviderConfig,
+): Omit<AccuracySourceEntry, "id" | "excerpt" | "retrievedAt"> & { excerpt: string } {
+  return {
+    url: result.url,
+    domain: result.domain,
+    title: result.title,
+    sourceTier,
+    retrievalMethod: "search",
+    providerId: searchProvider.id,
+    excerpt: result.excerpt,
+    trustScore: sourceTier === "whitelist" ? 0.75 : 0.4,
+  };
+}
+
+async function buildFetchedSourceEntry(
+  input: {
+    accuracyConfig: AccuracySettings;
+    queryPlan: FactPack["queryPlan"];
+    result: ProviderSearchResult;
+    sourceTier: AccuracySourceTier;
+    fetchProviders: AccuracyProviderConfig[];
+  },
+): Promise<(Omit<AccuracySourceEntry, "id" | "excerpt" | "retrievedAt"> & { excerpt: string }) | null> {
+  const { accuracyConfig, queryPlan, result, sourceTier, fetchProviders } = input;
+
+  for (const provider of fetchProviders) {
+    try {
+      const fetched = await fetchWithProvider(provider, result.url, {
+        timeoutMs: PROVIDER_TIMEOUT_MS,
+      });
+      pushProviderExecution(queryPlan, {
+        phase: sourceTier === "whitelist" ? "whitelist_fetch" : "open_web_fetch",
+        kind: "fetch",
+        providerId: provider.id,
+        providerName: provider.name,
+        slot: getProviderSlot(accuracyConfig, provider),
+        url: result.url,
+        outcome: "success",
+      });
+      return {
+        url: fetched.url || result.url,
+        domain: fetched.domain || result.domain,
+        title: fetched.title || result.title,
+        sourceTier,
+        retrievalMethod: "fetch",
+        providerId: provider.id,
+        excerpt: fetched.excerpt || result.excerpt,
+        trustScore: sourceTier === "whitelist" ? 0.8 : 0.45,
+      };
+    } catch (error) {
+      pushProviderExecution(queryPlan, {
+        phase: sourceTier === "whitelist" ? "whitelist_fetch" : "open_web_fetch",
+        kind: "fetch",
+        providerId: provider.id,
+        providerName: provider.name,
+        slot: getProviderSlot(accuracyConfig, provider),
+        url: result.url,
+        outcome: "error",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return null;
+}
+
 function pushSourceEntry(
   sourceEntries: AccuracySourceEntry[],
   entry: Omit<AccuracySourceEntry, "id" | "excerpt" | "retrievedAt"> & { excerpt: string },
@@ -490,6 +591,7 @@ export async function runAccuracyResearch(input: AccuracyResearchInput): Promise
     hardFactQueries: [input.topic],
     softFactQueries: [`${input.topic} overview`],
     fallbackUsed: false,
+    providerExecutions: [],
   };
 
   const wikiLang = detectWikiLang(input.topic, input.wikipediaContent);
@@ -539,31 +641,68 @@ export async function runAccuracyResearch(input: AccuracyResearchInput): Promise
     if (Date.now() - startedAt >= budgetMs) {
       coverageGaps.push(buildCoverageGap(input.topic, "research budget exhausted before whitelist search", "warning", "budget"));
     } else {
-      const searchProviders = resolveAccuracyProviders(input.accuracyConfig, "search");
+      const searchProviders = getResolvedProviders(input.accuracyConfig, "search");
+      const fetchProviders = getResolvedProviders(input.accuracyConfig, "fetch");
       if (searchProviders.length === 0) {
         coverageGaps.push(buildCoverageGap(input.topic, "no search provider configured for whitelist expansion", "warning", "source"));
       } else {
         queryPlan.fallbackUsed = true;
         for (const provider of searchProviders) {
-          const results = await searchWithProvider(provider, input.topic, {
-            limit: MAX_WHITELIST_SOURCES + 2,
-            timeoutMs: PROVIDER_TIMEOUT_MS,
-          });
-
-          results
-            .filter((result) => whitelistDomains.some((domain) => result.domain === domain || result.domain.endsWith(`.${domain}`)))
-            .forEach((result) => {
-              pushSourceEntry(sourceEntries, {
-                url: result.url,
-                domain: result.domain,
-                title: result.title,
-                sourceTier: "whitelist",
-                retrievalMethod: "search",
-                providerId: provider.id,
-                excerpt: result.excerpt,
-                trustScore: 0.75,
-              });
+          try {
+            const results = await searchWithProvider(provider, input.topic, {
+              limit: MAX_WHITELIST_SOURCES + 2,
+              timeoutMs: PROVIDER_TIMEOUT_MS,
             });
+            const filteredResults = results.filter((result) =>
+              whitelistDomains.some((domain) => result.domain === domain || result.domain.endsWith(`.${domain}`))
+            );
+
+            pushProviderExecution(queryPlan, {
+              phase: "whitelist_search",
+              kind: "search",
+              providerId: provider.id,
+              providerName: provider.name,
+              slot: getProviderSlot(input.accuracyConfig, provider),
+              query: input.topic,
+              resultCount: filteredResults.length,
+              outcome: filteredResults.length > 0 ? "success" : "empty",
+            });
+
+            for (const result of filteredResults) {
+              if (Date.now() - startedAt >= budgetMs) {
+                coverageGaps.push(buildCoverageGap(input.topic, "research budget exhausted during whitelist fetch", "warning", "budget"));
+                break;
+              }
+
+              const fetchedEntry = await buildFetchedSourceEntry({
+                accuracyConfig: input.accuracyConfig,
+                queryPlan,
+                result,
+                sourceTier: "whitelist",
+                fetchProviders,
+              });
+
+              pushSourceEntry(
+                sourceEntries,
+                fetchedEntry ?? buildSearchSourceEntry(result, "whitelist", provider),
+              );
+
+              if (sourceEntries.filter((entry) => entry.sourceTier === "whitelist").length >= MAX_WHITELIST_SOURCES) {
+                break;
+              }
+            }
+          } catch (error) {
+            pushProviderExecution(queryPlan, {
+              phase: "whitelist_search",
+              kind: "search",
+              providerId: provider.id,
+              providerName: provider.name,
+              slot: getProviderSlot(input.accuracyConfig, provider),
+              query: input.topic,
+              outcome: "error",
+              detail: error instanceof Error ? error.message : String(error),
+            });
+          }
 
           if (sourceEntries.filter((entry) => entry.sourceTier === "whitelist").length >= MAX_WHITELIST_SOURCES) {
             break;
@@ -580,25 +719,65 @@ export async function runAccuracyResearch(input: AccuracyResearchInput): Promise
   }
 
   if (!hasSufficientCoverage(hardFacts) && Date.now() - startedAt < budgetMs) {
-    const searchProviders = resolveAccuracyProviders(input.accuracyConfig, "search");
+    const searchProviders = getResolvedProviders(input.accuracyConfig, "search");
+    const fetchProviders = getResolvedProviders(input.accuracyConfig, "fetch");
     if (searchProviders.length > 0) {
       queryPlan.fallbackUsed = true;
-      const results = await searchWithProvider(searchProviders[0], input.topic, {
-        limit: MAX_OPEN_WEB_SOURCES,
-        timeoutMs: PROVIDER_TIMEOUT_MS,
-      });
-      results.slice(0, MAX_OPEN_WEB_SOURCES).forEach((result) => {
-        pushSourceEntry(sourceEntries, {
-          url: result.url,
-          domain: result.domain,
-          title: result.title,
-          sourceTier: "open_web",
-          retrievalMethod: "search",
-          providerId: searchProviders[0].id,
-          excerpt: result.excerpt,
-          trustScore: 0.4,
-        });
-      });
+      for (const provider of searchProviders) {
+        try {
+          const results = await searchWithProvider(provider, input.topic, {
+            limit: MAX_OPEN_WEB_SOURCES,
+            timeoutMs: PROVIDER_TIMEOUT_MS,
+          });
+          const limitedResults = results.slice(0, MAX_OPEN_WEB_SOURCES);
+
+          pushProviderExecution(queryPlan, {
+            phase: "open_web_search",
+            kind: "search",
+            providerId: provider.id,
+            providerName: provider.name,
+            slot: getProviderSlot(input.accuracyConfig, provider),
+            query: input.topic,
+            resultCount: limitedResults.length,
+            outcome: limitedResults.length > 0 ? "success" : "empty",
+          });
+
+          for (const result of limitedResults) {
+            if (Date.now() - startedAt >= budgetMs) {
+              coverageGaps.push(buildCoverageGap(input.topic, "research budget exhausted during open-web fetch", "warning", "budget"));
+              break;
+            }
+
+            const fetchedEntry = await buildFetchedSourceEntry({
+              accuracyConfig: input.accuracyConfig,
+              queryPlan,
+              result,
+              sourceTier: "open_web",
+              fetchProviders,
+            });
+
+            pushSourceEntry(
+              sourceEntries,
+              fetchedEntry ?? buildSearchSourceEntry(result, "open_web", provider),
+            );
+          }
+
+          if (sourceEntries.filter((entry) => entry.sourceTier === "open_web").length > 0) {
+            break;
+          }
+        } catch (error) {
+          pushProviderExecution(queryPlan, {
+            phase: "open_web_search",
+            kind: "search",
+            providerId: provider.id,
+            providerName: provider.name,
+            slot: getProviderSlot(input.accuracyConfig, provider),
+            query: input.topic,
+            outcome: "error",
+            detail: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
       hardFacts = extractHardFacts(input.topic, sourceEntries);
     }
   } else if (!hasSufficientCoverage(hardFacts) && !coverageGaps.some((gap) => gap.missingType === "budget")) {

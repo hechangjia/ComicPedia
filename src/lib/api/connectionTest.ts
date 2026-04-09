@@ -7,6 +7,13 @@ export interface TestResult {
   detail?: string;
 }
 
+function looksLikeHtmlDocument(rawText: string, contentType: string): boolean {
+  const trimmed = rawText.trim().toLowerCase();
+  return contentType.includes("text/html")
+    || trimmed.startsWith("<!doctype html")
+    || trimmed.startsWith("<html");
+}
+
 /**
  * 测试 LLM 连接。
  * 纯函数，不依赖 React 状态。
@@ -276,6 +283,13 @@ export async function testImageConnection(c: UserImageConfig): Promise<TestResul
     // 非 JSON 响应
     if (rawText.startsWith("data:image") || rawText.match(/^https?:\/\//)) {
       return { status: "success", message: "连接成功，图片生成正常" };
+    }
+    if (looksLikeHtmlDocument(rawText, contentType)) {
+      return {
+        status: "error",
+        message: "返回的是 HTML 页面，不是图片 API",
+        detail: `测试地址：${normalizedUrl}。请确认 API URL 指向模型接口根地址或 /v1，而不是站点首页。`,
+      };
     }
     return {
       status: "success",

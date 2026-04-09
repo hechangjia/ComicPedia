@@ -59,7 +59,7 @@ export function AccuracyProviderSection({
         <div>
           <h2 className="font-medium">Accuracy Research Providers</h2>
           <p className="text-xs text-muted-foreground">
-            仅供 science / wikipedia 的准确性研究 agent 使用。支持 Search / Fetch 分槽位配置。
+            仅供 science / wikipedia 的准确性研究 agent 使用。支持 Search / Fetch 分槽位配置，实际命中链路会记录在结果页的 Accuracy Summary 中。
           </p>
         </div>
         {!showForm && (

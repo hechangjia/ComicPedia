@@ -188,6 +188,34 @@ function makeResultTask(overrides: Partial<GenerateTask> = {}): GenerateTask {
   });
 }
 
+function makeQueuedResultTask(status: GenerateTask["status"]): GenerateTask {
+  return makeResultTask({
+    status,
+    script: {
+      title: "队列中的漫画",
+      topic: "队列主题",
+      style: "flat",
+      panels: [
+        {
+          id: 1,
+          scene: "队列场景一",
+          dialogue: "队列对白一",
+          imagePrompt: "queued prompt 1",
+          status: "completed",
+          imageUrl: "file://queued-panel-1",
+        },
+        {
+          id: 2,
+          scene: "队列场景二",
+          dialogue: "队列对白二",
+          imagePrompt: "queued prompt 2",
+          status: "pending",
+        },
+      ],
+    },
+  });
+}
+
 function makeDeepReviewPausedTask(overrides: Partial<GenerateTask> = {}): GenerateTask {
   return makeHistoryTask({
     id: "task-review-paused-1",
@@ -363,7 +391,7 @@ describe("page navigation render", () => {
 
   it("keeps read and play view toggles available while the image queue is paused", () => {
     useTaskSubscriptionMock.mockReturnValue({
-      task: makeResultTask({ status: "image_queue_paused" }),
+      task: makeQueuedResultTask("image_queue_paused"),
       setTask: vi.fn(),
       error: "",
     });
@@ -531,7 +559,7 @@ describe("page navigation render", () => {
 
   it("does not expose script regeneration affordance while queue is running", () => {
     useTaskSubscriptionMock.mockReturnValue({
-      task: makeResultTask({ status: "image_queue_running" }),
+      task: makeQueuedResultTask("image_queue_running"),
       setTask: vi.fn(),
       error: "",
     });

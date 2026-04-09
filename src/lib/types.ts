@@ -872,10 +872,24 @@ export interface AccuracyConfidenceSummary {
   overallRisk: "low" | "medium" | "high";
 }
 
+export interface AccuracyQueryExecution {
+  phase: "whitelist_search" | "whitelist_fetch" | "open_web_search" | "open_web_fetch";
+  kind: "search" | "fetch";
+  providerId?: string;
+  providerName?: string;
+  slot?: keyof AccuracyProviderSlots | null;
+  query?: string;
+  url?: string;
+  resultCount?: number;
+  outcome: "success" | "empty" | "skipped" | "error";
+  detail?: string;
+}
+
 export interface AccuracyQueryPlan {
   hardFactQueries: string[];
   softFactQueries: string[];
   fallbackUsed: boolean;
+  providerExecutions?: AccuracyQueryExecution[];
 }
 
 export interface FactPack {

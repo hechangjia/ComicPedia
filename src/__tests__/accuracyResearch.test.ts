@@ -246,6 +246,121 @@ describe("accuracy research", () => {
     expect(result.researchBrief.safeToGenerate).toBe(false);
   });
 
+  it("uses configured fetch providers to enrich whitelist evidence and records the runtime provider trace", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "火药",
+      extract: "火药是一种重要发明。",
+      lang: "zh",
+      sections: ["历史"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E7%81%AB%E8%8D%AF",
+    });
+
+    resolveAccuracyProvidersMock.mockImplementation((_config, kind: "search" | "fetch") => {
+      if (kind === "search") {
+        return [
+          {
+            id: "search-primary",
+            name: "Tavily Search",
+            kind: "search",
+            vendor: "tavily",
+            baseUrl: "https://api.tavily.com",
+            apiKey: "tv",
+            enabled: true,
+            priority: 0,
+            capabilities: ["search"],
+          },
+        ];
+      }
+
+      return [
+        {
+          id: "fetch-primary",
+          name: "Firecrawl Fetch",
+          kind: "fetch",
+          vendor: "firecrawl",
+          baseUrl: "https://api.firecrawl.dev",
+          apiKey: "fc",
+          enabled: true,
+          priority: 0,
+          capabilities: ["fetch"],
+        },
+      ];
+    });
+
+    searchWithProviderMock.mockResolvedValue([
+      {
+        url: "https://allowed.com/history/gunpowder",
+        title: "火药历史",
+        domain: "allowed.com",
+        excerpt: "搜索摘要",
+      },
+    ]);
+    fetchWithProviderMock.mockResolvedValue({
+      url: "https://allowed.com/history/gunpowder",
+      title: "火药历史",
+      domain: "allowed.com",
+      excerpt: "学术界一般认为火药发明于7世纪的中国，为当时中国术士炼制长生不老药时意外得到的副产品。",
+    });
+
+    const result = await runAccuracyResearch({
+      topic: "火药",
+      contentType: "science",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: "search-primary",
+          fallbackSearch: null,
+          primaryFetch: "fetch-primary",
+          fallbackFetch: null,
+        },
+        whitelistDomains: ["allowed.com"],
+      },
+    });
+
+    expect(searchWithProviderMock).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "search-primary" }),
+      "火药",
+      expect.objectContaining({ limit: 5 }),
+    );
+    expect(fetchWithProviderMock).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "fetch-primary" }),
+      "https://allowed.com/history/gunpowder",
+      expect.objectContaining({ timeoutMs: 8000 }),
+    );
+    expect(result.factPack.sourceEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceTier: "whitelist",
+          retrievalMethod: "fetch",
+          providerId: "fetch-primary",
+          excerpt: expect.stringContaining("7世纪的中国"),
+        }),
+      ]),
+    );
+    expect(result.factPack.queryPlan.providerExecutions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          phase: "whitelist_search",
+          providerId: "search-primary",
+          providerName: "Tavily Search",
+          slot: "primarySearch",
+          resultCount: 1,
+          outcome: "success",
+        }),
+        expect.objectContaining({
+          phase: "whitelist_fetch",
+          providerId: "fetch-primary",
+          providerName: "Firecrawl Fetch",
+          slot: "primaryFetch",
+          url: "https://allowed.com/history/gunpowder",
+          outcome: "success",
+        }),
+      ]),
+    );
+  });
+
   it("extracts richer hard facts for the 牛顿 golden topic from anchor evidence", async () => {
     const { runAccuracyResearch } = await import("@/lib/accuracy/research");
 
