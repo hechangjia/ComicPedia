@@ -318,7 +318,14 @@ describe("/api/tasks/[id]/actions POST", () => {
         topic: "Topic",
         style: "anime",
         panels: [
-          { id: 1, scene: "Scene 1", dialogue: "Dialogue 1", imagePrompt: "Prompt 1", status: "completed" },
+          {
+            id: 1,
+            scene: "Scene 1",
+            dialogue: "Dialogue 1",
+            imagePrompt: "Prompt 1",
+            imageUrl: "file://panel-1",
+            status: "completed",
+          },
         ],
       },
       createdAt: new Date("2026-04-05T00:00:00.000Z"),
@@ -340,6 +347,7 @@ describe("/api/tasks/[id]/actions POST", () => {
       status: "deep_review_running",
       stateAuthority: "server_durable",
     });
+    expect(body.task.script.panels[0].imageUrl).toBe("/api/images/panel-1");
     expect(body.task).not.toHaveProperty("requestSnapshot");
     expect(body.task).not.toHaveProperty("serverScriptReplay");
   });

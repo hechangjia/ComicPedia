@@ -88,5 +88,5 @@ export function buildTaskMutationResponse(task: ClientSafeTask | undefined) {
     return task;
   }
 
-  return attachTaskStateAuthority(stripServerOnlyTaskFields(task));
+  return fileRefsToUrls(attachTaskStateAuthority(stripServerOnlyTaskFields(task)));
 }
