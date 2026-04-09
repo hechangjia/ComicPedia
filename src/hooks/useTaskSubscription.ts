@@ -2,29 +2,29 @@ import { useEffect, useState, useRef } from "react";
 import { GenerateTask } from "@/lib/types";
 import { getTask } from "@/lib/client/db";
 import { recoverZombieTask } from "@/lib/client/generator";
+import { getTaskStateAuthority, shouldAttemptZombieRecovery, shouldPollTaskFromServer } from "@/lib/taskStateAuthority";
 import { reconcileTaskLifecycle, shouldAttemptOffPageReconcile } from "@/hooks/useTaskPageLifecycle";
 import { useTaskStore } from "@/stores/taskStore";
 
 /** Terminal states that no longer need polling */
 const TERMINAL_STATUSES = new Set<GenerateTask["status"]>(["completed", "failed"]);
 
-/** Browser-owned active states where real-time updates come via notifyListeners → Zustand store. */
-const REALTIME_STATUSES = new Set<GenerateTask["status"]>(["generating", "scripting", "pending"]);
-const RECOVERABLE_LOCAL_STATUSES = new Set<GenerateTask["status"]>(["generating", "scripting"]);
-const DURABLE_QUEUE_ACTIVE_STATUSES = new Set<GenerateTask["status"]>([
-  "research_running",
-  "script_running",
-  "image_queue_running",
-  "deep_review_running",
-  "calibrating",
-]);
-
 export function isRecoverableLocalStatus(status: GenerateTask["status"]): boolean {
-  return RECOVERABLE_LOCAL_STATUSES.has(status);
+  return shouldAttemptZombieRecovery({ status });
 }
 
 export function isServerPollingStatus(status: GenerateTask["status"]): boolean {
-  return DURABLE_QUEUE_ACTIVE_STATUSES.has(status) || status === "script_ready";
+  return getTaskStateAuthority(status) === "server_durable";
+}
+
+export function shouldContinuePollingAfterRead(task: GenerateTask | null | undefined): boolean {
+  if (!task) {
+    return true;
+  }
+  if (shouldPollTaskFromServer(task)) {
+    return true;
+  }
+  return task.status === "failed" && !!task.script;
 }
 
 /**
@@ -137,19 +137,22 @@ export function useTaskSubscription(taskId: string) {
         // come via notifyListeners → Zustand store. Polling the server would
         // return stale pre-generation data and cause UI flickering.
         const currentStatus = taskRef.current?.status;
-        if (currentStatus && REALTIME_STATUSES.has(currentStatus)) {
+        if (currentStatus && getTaskStateAuthority(currentStatus) === "client_local") {
           schedulePoll();
           return;
         }
 
         const t = await getTask(taskId);
-        if (!t) return;
+        if (!t) {
+          schedulePoll();
+          return;
+        }
 
         // Refresh store (if changed, selector auto-triggers re-render)
         useTaskStore.getState().updateTask(t);
 
         // Unrecoverable failure: stop polling
-        if (t.status === "failed" && !t.script) return;
+        if (!shouldContinuePollingAfterRead(t)) return;
 
         schedulePoll();
       }, getPollingInterval(current));

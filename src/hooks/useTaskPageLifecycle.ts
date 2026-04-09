@@ -1,15 +1,9 @@
 import { useEffect, useRef } from "react";
 import type { GenerateTask } from "@/lib/types";
-
-const PAGEHIDE_PAUSEABLE_STATUSES = new Set<GenerateTask["status"]>([
-  "image_queue_running",
-  "deep_review_running",
-]);
-const OFF_PAGE_RECONCILE_STATUSES = new Set<GenerateTask["status"]>([
-  "image_queue_running",
-  "deep_review_running",
-]);
-const OFF_PAGE_RECONCILE_STALE_MS = 5 * 60 * 1000;
+import {
+  shouldAttemptOffPageTaskReconcile,
+  shouldPauseTaskOnLeave as shouldPauseTaskOnLeaveByAuthority,
+} from "@/lib/taskStateAuthority";
 
 type TaskLifecycleAction = "pause" | "resume" | "reconcile";
 
@@ -24,35 +18,19 @@ interface BindTaskPageLifecycleOptions {
 }
 
 function shouldPauseTaskOnLeave(task: GenerateTask | null): task is GenerateTask {
-  return !!task
-    && PAGEHIDE_PAUSEABLE_STATUSES.has(task.status)
-    && task.presetSnapshot?.leavePagePolicy !== "continue_in_background";
+  return !!task && shouldPauseTaskOnLeaveByAuthority(task);
 }
 
 export function isTaskPagePauseable(task: GenerateTask | null): task is GenerateTask {
   return shouldPauseTaskOnLeave(task);
 }
 
-function getTaskTimestamp(value: Date | string | undefined): number | null {
-  if (!value) {
-    return null;
-  }
-
-  const timestamp = value instanceof Date ? value.getTime() : new Date(value).getTime();
-  return Number.isFinite(timestamp) ? timestamp : null;
-}
-
 export function shouldAttemptOffPageReconcile(task: GenerateTask | null, now = Date.now()): task is GenerateTask {
-  if (!task || !OFF_PAGE_RECONCILE_STATUSES.has(task.status)) {
+  if (!task) {
     return false;
   }
 
-  const updatedAt = getTaskTimestamp(task.updatedAt);
-  if (updatedAt === null) {
-    return false;
-  }
-
-  return now - updatedAt >= OFF_PAGE_RECONCILE_STALE_MS;
+  return shouldAttemptOffPageTaskReconcile(task, now);
 }
 
 async function postTaskLifecycleAction(
