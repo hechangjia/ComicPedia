@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -29,6 +29,7 @@ import { DetailTabs } from "@/components/result/DetailTabs";
 import { StickyActionBar } from "@/components/result/StickyActionBar";
 import { ScriptEditor } from "@/components/editor/ScriptEditor";
 import { DirectorSidebar } from "@/components/result/DirectorSidebar";
+import { getDefaultResultViewMode, resolveResultViewMode } from "@/app/result/viewMode";
 import "@/app/result/print.css";
 import { resolveResultBackHref } from "@/app/history/historyNavigation";
 import { AlertTriangle, ChevronLeft, RefreshCw, X, Settings, Sparkles } from "lucide-react";
@@ -117,11 +118,12 @@ export default function ResultPage() {
     clearActionError,
   } = useTaskActions(taskId, setTask, selectedImageId, selectedLLMId);
 
-  const [viewMode, setViewMode] = useState<"edit" | "read" | "play">(
-    task?.status === "completed" || task?.status === "image_queue_paused" || task?.status === "deep_review_paused" ? "read" : "edit"
-  );
+  const [viewMode, setViewMode] = useState<"edit" | "read" | "play">(() => (
+    getDefaultResultViewMode(task?.status)
+  ));
   const [selectedPanelIds, setSelectedPanelIds] = useState<number[]>([]);
   const taskPanels = task?.script?.panels;
+  const resolvedViewMode = resolveResultViewMode(viewMode, task?.status);
 
   const handleResumePausedTask = useCallback(async () => {
     if (task?.status === "image_queue_paused" || task?.status === "deep_review_paused") {
@@ -131,12 +133,6 @@ export default function ResultPage() {
       }
     }
   }, [setTask, task?.status, taskId]);
-
-  useEffect(() => {
-    if ((task?.status === "completed" || task?.status === "image_queue_paused" || task?.status === "deep_review_paused") && viewMode === "edit") {
-      setViewMode("read");
-    }
-  }, [task?.status, viewMode]);
 
   const validSelectedPanelIds = useMemo(() => (
     taskPanels
@@ -499,7 +495,7 @@ export default function ResultPage() {
               <button
                 onClick={() => setViewMode("edit")}
                 className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                  viewMode === "edit"
+                  resolvedViewMode === "edit"
                     ? "bg-background shadow-sm text-foreground"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
@@ -510,7 +506,7 @@ export default function ResultPage() {
             <button
               onClick={() => setViewMode("read")}
               className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                viewMode === "read"
+                resolvedViewMode === "read"
                   ? "bg-background shadow-sm text-foreground"
                   : "text-muted-foreground hover:text-foreground"
               }`}
@@ -520,7 +516,7 @@ export default function ResultPage() {
             <button
               onClick={() => setViewMode("play")}
               className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                viewMode === "play"
+                resolvedViewMode === "play"
                   ? "bg-background shadow-sm text-foreground"
                   : "text-muted-foreground hover:text-foreground"
               }`}
@@ -734,9 +730,9 @@ export default function ResultPage() {
       )}
 
       {/* 漫画面板 */}
-      {task.script?.panels && viewMode === "play" ? (
+      {task.script?.panels && resolvedViewMode === "play" ? (
         <DynamicPlayer panels={task.script.panels} title={task.script.title} />
-      ) : task.script?.panels && isScriptReady && viewMode === "edit" ? (
+      ) : task.script?.panels && isScriptReady && resolvedViewMode === "edit" ? (
         <ScriptEditor script={task.script} onSave={handleScriptEditorSave} />
       ) : task.script?.panels && (
         <PanelGrid
@@ -744,7 +740,7 @@ export default function ResultPage() {
           title={task.script.title}
           taskId={taskId}
           taskStatus={task.status}
-          viewMode={viewMode === "read" ? "read" : "edit"}
+          viewMode={resolvedViewMode === "read" ? "read" : "edit"}
           globalStyle={task.script.style}
           script={task.script}
           llmConfig={selectedLLMConfig}
