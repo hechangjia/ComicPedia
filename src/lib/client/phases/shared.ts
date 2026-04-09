@@ -1,5 +1,6 @@
 import { GenerateTask, PipelineStageTrace } from "@/lib/types";
 import { shouldAutoRetry, generatePromptPatch, applyPromptPatch, buildPanelReview, buildTaskReviewStatus } from "@/lib/vlmRetry";
+import { persistClientImage, type PersistedImageLocation } from "../persistedImage";
 
 // Re-export commonly needed deps for phase modules
 export { saveTask, getTask, getCharacter } from "../db";
@@ -123,20 +124,23 @@ export async function saveImageToFileSystem(
   panelIndex: number,
   base64Data: string,
   title?: string,
-): Promise<void> {
+): Promise<PersistedImageLocation | null> {
   try {
-    if (!base64Data.startsWith("data:image")) return;
-    const res = await fetch("/api/save-image", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ taskId, panelIndex, base64Data, title }),
+    if (!base64Data.startsWith("data:image")) return null;
+    const persisted = await persistClientImage({
+      taskId,
+      panelIndex,
+      title,
+      base64Data,
+      type: "panel",
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      console.warn(`[SaveImage] Failed for panel ${panelIndex}:`, err);
+    if (!persisted) {
+      console.warn(`[SaveImage] Failed for panel ${panelIndex}`);
     }
+    return persisted;
   } catch (err) {
     console.warn(`[SaveImage] Network error for panel ${panelIndex}:`, err);
+    return null;
   }
 }
 

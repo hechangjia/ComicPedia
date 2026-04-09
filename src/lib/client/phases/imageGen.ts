@@ -84,10 +84,11 @@ export async function runImageGenPhase(
 
       try {
         const base64 = await urlToBase64(imageUrl);
-        firstPanel.imageUrl = base64;
         firstPanelImage = base64;
-        pushImageVersion(firstPanel, base64);
-        saveImageToFileSystem(task.id, firstIdx, base64, script.title);
+        const persisted = await saveImageToFileSystem(task.id, firstIdx, base64, script.title);
+        const finalImageUrl = persisted?.url ?? base64;
+        firstPanel.imageUrl = finalImageUrl;
+        pushImageVersion(firstPanel, finalImageUrl);
       } catch {
         pushImageVersion(firstPanel, imageUrl);
         firstPanelImage = imageUrl.startsWith("data:image") ? imageUrl : undefined;
@@ -165,17 +166,16 @@ export async function runImageGenPhase(
       panel.status = "completed";
       panel.imageUrl = imageUrl;
 
-      urlToBase64(imageUrl)
-        .then((base64) => {
-          panel.imageUrl = base64;
-          pushImageVersion(panel, base64);
-          saveImageToFileSystem(task.id, panelIndex, base64, script.title);
-          notifyListeners(task);
-        })
-        .catch((err) => {
-          console.warn(`Panel ${panelIndex} Base64 conversion failed:`, err);
-          pushImageVersion(panel, imageUrl);
-        });
+      try {
+        const base64 = await urlToBase64(imageUrl);
+        const persisted = await saveImageToFileSystem(task.id, panelIndex, base64, script.title);
+        const finalImageUrl = persisted?.url ?? base64;
+        panel.imageUrl = finalImageUrl;
+        pushImageVersion(panel, finalImageUrl);
+      } catch (err) {
+        console.warn(`Panel ${panelIndex} Base64 conversion failed:`, err);
+        pushImageVersion(panel, imageUrl);
+      }
     } catch (err) {
       console.error(`Panel ${panelIndex} generation failed:`, err);
       panel.status = "failed";

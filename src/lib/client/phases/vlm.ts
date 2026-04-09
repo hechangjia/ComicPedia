@@ -138,9 +138,10 @@ export async function runAutomaticVisualRetryCycle(
       panel.imageUrl = imageUrl;
       try {
         const base64 = await urlToBase64(imageUrl);
-        panel.imageUrl = base64;
-        pushImageVersion(panel, base64);
-        saveImageToFileSystem(taskId, panelScore.panelIndex, base64, freshTask.script.title);
+        const persisted = await saveImageToFileSystem(taskId, panelScore.panelIndex, base64, freshTask.script.title);
+        const finalImageUrl = persisted?.url ?? base64;
+        panel.imageUrl = finalImageUrl;
+        pushImageVersion(panel, finalImageUrl);
       } catch {
         pushImageVersion(panel, imageUrl);
       }
