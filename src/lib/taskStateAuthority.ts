@@ -1,31 +1,25 @@
 import type { GenerateTask, GenerateTaskStatus, TaskStateAuthority } from "@/lib/types";
 
-const CLIENT_LOCAL_STATUSES = new Set<GenerateTaskStatus>([
-  "pending",
-  "scripting",
-  "generating",
-]);
+const TASK_STATE_AUTHORITY_BY_STATUS: Record<GenerateTaskStatus, TaskStateAuthority> = {
+  pending: "client_local",
+  scripting: "client_local",
+  generating: "client_local",
+  created: "server_durable",
+  research_running: "server_durable",
+  script_running: "server_durable",
+  script_ready: "server_durable",
+  calibrating: "server_durable",
+  image_queue_running: "server_durable",
+  image_queue_paused: "server_durable",
+  deep_review_running: "server_durable",
+  deep_review_paused: "server_durable",
+  completed: "settled",
+  failed: "settled",
+};
 
 const ZOMBIE_RECOVERY_STATUSES = new Set<GenerateTaskStatus>([
   "scripting",
   "generating",
-]);
-
-const SERVER_DURABLE_STATUSES = new Set<GenerateTaskStatus>([
-  "created",
-  "research_running",
-  "script_running",
-  "script_ready",
-  "calibrating",
-  "image_queue_running",
-  "image_queue_paused",
-  "deep_review_running",
-  "deep_review_paused",
-]);
-
-const SETTLED_STATUSES = new Set<GenerateTaskStatus>([
-  "completed",
-  "failed",
 ]);
 
 const PAGEHIDE_PAUSEABLE_STATUSES = new Set<GenerateTaskStatus>([
@@ -50,13 +44,7 @@ const DEEP_REVIEW_RUNTIME_RESUME_STATUSES = new Set<GenerateTaskStatus>([
 const OFF_PAGE_RECONCILE_STALE_MS = 5 * 60 * 1000;
 
 export function getTaskStateAuthority(status: GenerateTaskStatus): TaskStateAuthority {
-  if (CLIENT_LOCAL_STATUSES.has(status)) {
-    return "client_local";
-  }
-  if (SETTLED_STATUSES.has(status)) {
-    return "settled";
-  }
-  return "server_durable";
+  return TASK_STATE_AUTHORITY_BY_STATUS[status];
 }
 
 export function attachTaskStateAuthority<T extends { status: GenerateTaskStatus }>(

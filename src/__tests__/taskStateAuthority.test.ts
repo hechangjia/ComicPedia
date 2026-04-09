@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { GenerateTask, GenerateTaskStatus, TaskStateAuthority } from "@/lib/types";
 import {
   attachTaskStateAuthority,
   getTaskStateAuthority,
@@ -11,62 +12,128 @@ import {
   shouldResumeImageQueueRuntime,
 } from "@/lib/taskStateAuthority";
 
+const TASK_STATE_AUTHORITY_EXPECTATIONS: Record<GenerateTaskStatus, TaskStateAuthority> = {
+  pending: "client_local",
+  scripting: "client_local",
+  generating: "client_local",
+  created: "server_durable",
+  research_running: "server_durable",
+  script_running: "server_durable",
+  script_ready: "server_durable",
+  calibrating: "server_durable",
+  image_queue_running: "server_durable",
+  image_queue_paused: "server_durable",
+  deep_review_running: "server_durable",
+  deep_review_paused: "server_durable",
+  completed: "settled",
+  failed: "settled",
+};
+
+const ZOMBIE_RECOVERY_STATUSES = new Set<GenerateTaskStatus>([
+  "scripting",
+  "generating",
+]);
+
+const PAGEHIDE_PAUSEABLE_STATUSES = new Set<GenerateTaskStatus>([
+  "image_queue_running",
+  "deep_review_running",
+]);
+
+const OFF_PAGE_RECONCILE_STATUSES = new Set<GenerateTaskStatus>([
+  "image_queue_running",
+  "deep_review_running",
+]);
+
+const IMAGE_RUNTIME_RESUME_STATUSES = new Set<GenerateTaskStatus>([
+  "image_queue_running",
+  "calibrating",
+]);
+
+const DEEP_REVIEW_RUNTIME_RESUME_STATUSES = new Set<GenerateTaskStatus>([
+  "deep_review_running",
+]);
+
+const STALE_UPDATED_AT = "2026-04-09T00:00:00.000Z";
+const STALE_NOW = new Date("2026-04-09T00:06:00.000Z").getTime();
+const FRESH_NOW = new Date("2026-04-09T00:04:00.000Z").getTime();
+
+function createStatusTask(status: GenerateTaskStatus): Pick<GenerateTask, "status"> {
+  return { status };
+}
+
+function createPauseableTask(
+  status: GenerateTaskStatus,
+  leavePagePolicy?: GenerateTask["presetSnapshot"] extends infer T
+    ? T extends { leavePagePolicy?: infer P }
+      ? P
+      : never
+    : never,
+): Pick<GenerateTask, "status" | "presetSnapshot"> {
+  return {
+    status,
+    presetSnapshot: leavePagePolicy ? { presetId: "p1", leavePagePolicy } : { presetId: "p1" },
+  };
+}
+
+function createOffPageTask(
+  status: GenerateTaskStatus,
+  updatedAt: GenerateTask["updatedAt"] | string,
+): Pick<GenerateTask, "status" | "updatedAt"> {
+  return { status, updatedAt };
+}
+
 describe("taskStateAuthority", () => {
-  it("classifies local, server-durable, and settled statuses", () => {
-    expect(getTaskStateAuthority("pending")).toBe("client_local");
-    expect(getTaskStateAuthority("generating")).toBe("client_local");
-    expect(getTaskStateAuthority("script_ready")).toBe("server_durable");
-    expect(getTaskStateAuthority("image_queue_running")).toBe("server_durable");
-    expect(getTaskStateAuthority("completed")).toBe("settled");
-    expect(getTaskStateAuthority("failed")).toBe("settled");
+  it("classifies every GenerateTaskStatus exhaustively", () => {
+    for (const [status, expectedAuthority] of Object.entries(TASK_STATE_AUTHORITY_EXPECTATIONS)) {
+      expect(getTaskStateAuthority(status as GenerateTaskStatus)).toBe(expectedAuthority);
+    }
   });
 
-  it("derives behavior helpers from the same contract", () => {
-    expect(shouldPreferLocalTaskSnapshot({ status: "scripting" } as never)).toBe(true);
-    expect(shouldPreferLocalTaskSnapshot({ status: "image_queue_running" } as never)).toBe(false);
+  it("derives behavior helpers from the exhaustive contract", () => {
+    for (const [status, expectedAuthority] of Object.entries(TASK_STATE_AUTHORITY_EXPECTATIONS)) {
+      const typedStatus = status as GenerateTaskStatus;
+      const task = createStatusTask(typedStatus);
 
-    expect(shouldAttemptZombieRecovery({ status: "generating" } as never)).toBe(true);
-    expect(shouldAttemptZombieRecovery({ status: "script_ready" } as never)).toBe(false);
-
-    expect(shouldPollTaskFromServer({ status: "script_ready" } as never)).toBe(true);
-    expect(shouldPollTaskFromServer({ status: "pending" } as never)).toBe(false);
-    expect(shouldPollTaskFromServer({ status: "completed" } as never)).toBe(false);
+      expect(shouldPreferLocalTaskSnapshot(task)).toBe(expectedAuthority === "client_local");
+      expect(shouldPollTaskFromServer(task)).toBe(expectedAuthority === "server_durable");
+      expect(shouldAttemptZombieRecovery(task)).toBe(ZOMBIE_RECOVERY_STATUSES.has(typedStatus));
+    }
   });
 
-  it("keeps pagehide pause and stale reconcile restricted to durable queue states", () => {
-    expect(shouldPauseTaskOnLeave({
-      status: "image_queue_running",
-      presetSnapshot: { presetId: "p1", leavePagePolicy: "finish_inflight_then_pause" },
-    } as never)).toBe(true);
+  it("restricts pagehide pause to durable running statuses and leave-page policy", () => {
+    for (const status of Object.keys(TASK_STATE_AUTHORITY_EXPECTATIONS) as GenerateTaskStatus[]) {
+      expect(shouldPauseTaskOnLeave(createPauseableTask(status, "finish_inflight_then_pause")))
+        .toBe(PAGEHIDE_PAUSEABLE_STATUSES.has(status));
+      expect(shouldPauseTaskOnLeave(createPauseableTask(status, "continue_in_background"))).toBe(false);
+    }
+  });
 
-    expect(shouldPauseTaskOnLeave({
-      status: "image_queue_running",
-      presetSnapshot: { presetId: "p1", leavePagePolicy: "continue_in_background" },
-    } as never)).toBe(false);
+  it("restricts off-page reconcile to durable running statuses and stale threshold", () => {
+    for (const status of Object.keys(TASK_STATE_AUTHORITY_EXPECTATIONS) as GenerateTaskStatus[]) {
+      expect(shouldAttemptOffPageTaskReconcile(createOffPageTask(status, STALE_UPDATED_AT), STALE_NOW))
+        .toBe(OFF_PAGE_RECONCILE_STATUSES.has(status));
+    }
 
-    expect(shouldAttemptOffPageTaskReconcile({
-      status: "deep_review_running",
-      updatedAt: "2026-04-09T00:00:00.000Z",
-    } as never, new Date("2026-04-09T00:06:00.000Z").getTime())).toBe(true);
-
-    expect(shouldAttemptOffPageTaskReconcile({
-      status: "generating",
-      updatedAt: "2026-04-09T00:00:00.000Z",
-    } as never, new Date("2026-04-09T00:06:00.000Z").getTime())).toBe(false);
+    expect(shouldAttemptOffPageTaskReconcile(
+      createOffPageTask("deep_review_running", STALE_UPDATED_AT),
+      FRESH_NOW,
+    )).toBe(false);
   });
 
   it("tags API payloads with an explicit authority field", () => {
-    expect(attachTaskStateAuthority({ id: "t1", status: "script_ready" } as never)).toMatchObject({
-      id: "t1",
-      status: "script_ready",
-      stateAuthority: "server_durable",
-    });
+    for (const [status, expectedAuthority] of Object.entries(TASK_STATE_AUTHORITY_EXPECTATIONS)) {
+      expect(attachTaskStateAuthority({ id: `t-${status}`, status: status as GenerateTaskStatus })).toMatchObject({
+        id: `t-${status}`,
+        status,
+        stateAuthority: expectedAuthority,
+      });
+    }
   });
 
-  it("keeps runtime resume gates aligned with durable queue states", () => {
-    expect(shouldResumeImageQueueRuntime("calibrating")).toBe(true);
-    expect(shouldResumeImageQueueRuntime("deep_review_running")).toBe(false);
-    expect(shouldResumeDeepReviewRuntime("deep_review_running")).toBe(true);
-    expect(shouldResumeDeepReviewRuntime("image_queue_running")).toBe(false);
+  it("keeps runtime resume gates aligned with durable queue statuses", () => {
+    for (const status of Object.keys(TASK_STATE_AUTHORITY_EXPECTATIONS) as GenerateTaskStatus[]) {
+      expect(shouldResumeImageQueueRuntime(status)).toBe(IMAGE_RUNTIME_RESUME_STATUSES.has(status));
+      expect(shouldResumeDeepReviewRuntime(status)).toBe(DEEP_REVIEW_RUNTIME_RESUME_STATUSES.has(status));
+    }
   });
 });
