@@ -1,4 +1,4 @@
-import type { GenerateTask } from "@/lib/types";
+import type { TaskListItem } from "@/lib/types";
 
 export interface HistoryOverview {
   total: number;
@@ -15,7 +15,7 @@ export type HistoryFilterId =
   | "comfyui_remote_pending";
 
 export function buildHistoryOverview(
-  items: Array<Pick<GenerateTask, "status" | "comfyuiRemotePendingCount">>,
+  items: Array<Pick<TaskListItem, "status" | "comfyuiRemotePendingCount">>,
 ): HistoryOverview {
   return items.reduce<HistoryOverview>((summary, item) => {
     summary.total += 1;
@@ -40,7 +40,7 @@ export function buildHistoryOverview(
 }
 
 export function getHistoryAuxStatusLabels(
-  item: Pick<GenerateTask, "queueSummary" | "comfyuiRemotePendingCount">,
+  item: Pick<TaskListItem, "queueSummary" | "comfyuiRemotePendingCount">,
 ): string[] {
   const labels: string[] = [];
   if ((item.queueSummary?.queued ?? 0) > 0) {
@@ -59,9 +59,9 @@ export function getHistoryAuxStatusLabels(
 }
 
 export function filterHistoryItems(
-  items: GenerateTask[],
+  items: TaskListItem[],
   filter: HistoryFilterId,
-): GenerateTask[] {
+): TaskListItem[] {
   if (filter === "all") {
     return items;
   }

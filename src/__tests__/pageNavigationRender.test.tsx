@@ -1,7 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { GenerateTask } from "@/lib/types";
+import type { GenerateTask, TaskListItem } from "@/lib/types";
 import HistoryPage from "@/app/history/page";
 import ResultPage from "@/app/result/[id]/page";
 
@@ -9,6 +9,7 @@ const {
   navigationState,
   historyCacheState,
   routerReplaceMock,
+  getComicSummariesMock,
   getAllComicsMock,
   useTaskSubscriptionMock,
   useTaskActionsMock,
@@ -20,9 +21,10 @@ const {
     params: { id: "task-result-1" },
   },
   historyCacheState: {
-    items: [] as GenerateTask[],
+    items: [] as TaskListItem[],
   },
   routerReplaceMock: vi.fn(),
+  getComicSummariesMock: vi.fn(),
   getAllComicsMock: vi.fn(),
   useTaskSubscriptionMock: vi.fn(),
   useTaskActionsMock: vi.fn(),
@@ -77,7 +79,9 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/lib/client/db", () => ({
+  getComicSummaries: getComicSummariesMock,
   getAllComics: getAllComicsMock,
+  getTask: vi.fn(),
   deleteComic: vi.fn(),
   clearAllComics: vi.fn(),
   saveTask: vi.fn(),
@@ -85,10 +89,13 @@ vi.mock("@/lib/client/db", () => ({
 
 vi.mock("@/stores/listCache", () => ({
   useListCache: () => ({
-    getTasks: () => ({
+    getTaskSummaries: () => ({
       items: historyCacheState.items,
       total: historyCacheState.items.length,
     }),
+    setTaskSummaries: vi.fn(),
+    invalidateTaskSummaries: vi.fn(),
+    getTasks: vi.fn(),
     setTasks: vi.fn(),
     invalidateTasks: vi.fn(),
   }),
@@ -145,29 +152,22 @@ vi.mock("@/components/Skeleton", () => ({
   ComicGridSkeleton: () => React.createElement("div", null, "ComicGridSkeleton"),
 }));
 
-function makeHistoryTask(overrides: Partial<GenerateTask> = {}): GenerateTask {
+function makeHistoryTask(overrides: Partial<TaskListItem> = {}): TaskListItem {
   return {
     id: "task-history-default",
+    origin: "user",
     status: "script_ready",
     progress: 20,
     createdAt: new Date("2026-04-05T00:00:00.000Z"),
     updatedAt: new Date("2026-04-05T00:00:00.000Z"),
-    script: {
+    scriptSummary: {
       title: "默认漫画",
       topic: "默认主题",
       style: "flat",
-      panels: [
-        {
-          id: 1,
-          scene: "场景一",
-          dialogue: "对白一",
-          imagePrompt: "prompt 1",
-          status: "pending",
-        },
-      ],
+      panelCount: 1,
     },
     ...overrides,
-  } as GenerateTask;
+  } as TaskListItem;
 }
 
 function makeResultTask(overrides: Partial<GenerateTask> = {}): GenerateTask {
@@ -243,7 +243,9 @@ describe("page navigation render", () => {
     navigationState.params = { id: "task-result-1" };
     historyCacheState.items = [];
     routerReplaceMock.mockReset();
+    getComicSummariesMock.mockReset();
     getAllComicsMock.mockReset();
+    getComicSummariesMock.mockResolvedValue({ items: [], total: 0, hasMore: false });
     getAllComicsMock.mockResolvedValue({ items: [], total: 0, hasMore: false });
     useTaskSubscriptionMock.mockReset();
     useTaskSubscriptionMock.mockReturnValue({
@@ -297,38 +299,22 @@ describe("page navigation render", () => {
       makeHistoryTask({
         id: "task-running",
         status: "image_queue_running",
-        script: {
+        scriptSummary: {
           title: "队列中的漫画",
           topic: "队列主题",
           style: "flat",
-          panels: [
-            {
-              id: 1,
-              scene: "队列场景",
-              dialogue: "队列对白",
-              imagePrompt: "queue prompt",
-              status: "pending",
-            },
-          ],
+          panelCount: 1,
         },
       }),
       makeHistoryTask({
         id: "task-completed",
         status: "completed",
-        script: {
+        scriptSummary: {
           title: "已完成漫画",
           topic: "完成主题",
           style: "flat",
-          panels: [
-            {
-              id: 1,
-              scene: "完成场景",
-              dialogue: "完成对白",
-              imagePrompt: "done prompt",
-              status: "completed",
-              imageUrl: "file://done-panel",
-            },
-          ],
+          panelCount: 1,
+          coverImageUrl: "file://done-panel",
         },
       }),
     ];

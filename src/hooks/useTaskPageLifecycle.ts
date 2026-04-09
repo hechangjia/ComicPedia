@@ -25,7 +25,10 @@ export function isTaskPagePauseable(task: GenerateTask | null): task is Generate
   return shouldPauseTaskOnLeave(task);
 }
 
-export function shouldAttemptOffPageReconcile(task: GenerateTask | null, now = Date.now()): task is GenerateTask {
+export function shouldAttemptOffPageReconcile(
+  task: Pick<GenerateTask, "status" | "updatedAt"> | null,
+  now = Date.now(),
+): boolean {
   if (!task) {
     return false;
   }

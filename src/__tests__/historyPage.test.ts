@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { GenerateTask } from "@/lib/types";
+import type { TaskListItem } from "@/lib/types";
 import { buildHistoryOverview, filterHistoryItems, getHistoryAuxStatusLabels } from "@/app/history/historyCardStatus";
 
-function makeTask(overrides: Partial<GenerateTask> = {}): GenerateTask {
+function makeTask(overrides: Partial<TaskListItem> = {}): TaskListItem {
   return {
     id: "task-history",
+    origin: "user",
     status: "script_ready",
     progress: 30,
     createdAt: new Date("2026-04-05T00:00:00.000Z"),

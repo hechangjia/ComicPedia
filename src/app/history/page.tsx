@@ -3,11 +3,11 @@
 import { useEffect, useState, useRef, useCallback, memo, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { getAllComics, deleteComic, clearAllComics, saveTask, deleteComicsByIds } from "@/lib/client/db";
+import { getComicSummaries, getTask, deleteComic, clearAllComics, saveTask, deleteComicsByIds } from "@/lib/client/db";
 import { useListCache } from "@/stores/listCache";
 import { recoverZombieTask } from "@/lib/client/generator";
 import { reconcileTaskLifecycle, shouldAttemptOffPageReconcile } from "@/hooks/useTaskPageLifecycle";
-import { GenerateTask, ComicStyle } from "@/lib/types";
+import { GenerateTask, ComicStyle, TaskListItem } from "@/lib/types";
 import { STYLE_DESCRIPTIONS } from "@/lib/config/styles";
 import { exportTasksAsZip, importDataFromFile } from "@/lib/exportImport";
 import { formatDate } from "@/lib/utils";
@@ -26,7 +26,7 @@ const styleNames: Record<string, string> = Object.fromEntries(
   ])
 );
 
-function getHistoryStatusBadgeClass(status: GenerateTask["status"]): string {
+function getHistoryStatusBadgeClass(status: TaskListItem["status"]): string {
   switch (status) {
     case "completed":
       return "bg-success text-white";
@@ -50,7 +50,7 @@ function getHistoryStatusBadgeClass(status: GenerateTask["status"]): string {
   }
 }
 
-function getHistoryStatusLabel(status: GenerateTask["status"]): string {
+function getHistoryStatusLabel(status: TaskListItem["status"]): string {
   switch (status) {
     case "completed":
       return "已完成";
@@ -83,7 +83,7 @@ function getHistoryStatusLabel(status: GenerateTask["status"]): string {
 }
 
 interface HistoryCardProps {
-  item: GenerateTask;
+  item: TaskListItem;
   activeFilter: HistoryFilterId;
   exportMode: boolean;
   deleteMode: boolean;
@@ -113,7 +113,7 @@ function getHistoryAuxBadgeClass(label: string): string {
   return "bg-muted text-muted-foreground";
 }
 
-function ReviewBadge({ item }: { item: GenerateTask }) {
+function ReviewBadge({ item }: { item: TaskListItem }) {
   if (item.status !== "completed") return null;
   const rs = item.reviewStatus;
   if (!rs || rs === "unreviewed") return null;
@@ -149,11 +149,11 @@ const HistoryCard = memo(function HistoryCard({
     >
       {/* 缩略图 */}
       <div className="aspect-video bg-muted relative">
-        {item.script?.panels[0]?.imageUrl ? (
+        {item.scriptSummary?.coverImageUrl ? (
           <>
             <img
-              src={item.script.panels[0].imageUrl}
-              alt={item.script.title || "漫画缩略图"}
+              src={item.scriptSummary.coverImageUrl}
+              alt={item.scriptSummary?.title || "漫画缩略图"}
               className="w-full h-full object-cover"
               loading="lazy"
             />
@@ -201,7 +201,7 @@ const HistoryCard = memo(function HistoryCard({
           <button
             onClick={(e) => {
               e.preventDefault();
-              if (confirm(`确定删除「${item.script?.title || "无标题"}」？`)) {
+              if (confirm(`确定删除「${item.scriptSummary?.title || "无标题"}」？`)) {
                 onRemove(item.id);
               }
             }}
@@ -216,7 +216,7 @@ const HistoryCard = memo(function HistoryCard({
       {/* 信息区 */}
       {selectMode ? (
         <div className="p-3 space-y-1">
-          <h3 className="font-medium truncate">{item.script?.title || "无标题"}</h3>
+          <h3 className="font-medium truncate">{item.scriptSummary?.title || "无标题"}</h3>
           {auxStatusLabels.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {auxStatusLabels.map((label) => (
@@ -229,10 +229,10 @@ const HistoryCard = memo(function HistoryCard({
               ))}
             </div>
           )}
-          <p className="text-sm text-muted-foreground truncate">{item.script?.topic || "未知主题"}</p>
+          <p className="text-sm text-muted-foreground truncate">{item.scriptSummary?.topic || "未知主题"}</p>
           <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{item.script?.style ? (styleNames[item.script.style] || item.script.style) : "未知风格"}</span>
-            <span>{item.script?.panels?.length || 0} 格</span>
+            <span>{item.scriptSummary?.style ? (styleNames[item.scriptSummary.style] || item.scriptSummary.style) : "未知风格"}</span>
+            <span>{item.scriptSummary?.panelCount ?? 0} 格</span>
           </div>
           <p className="text-xs text-muted-foreground">
             {formatDate(item.createdAt, { style: "datetime" })}
@@ -241,7 +241,7 @@ const HistoryCard = memo(function HistoryCard({
       ) : (
         <Link href={buildResultHref(item.id, activeFilter)} className="block p-3 space-y-1">
           <div className="flex items-center gap-1.5">
-            <h3 className="font-medium truncate flex-1">{item.script?.title || "无标题"}</h3>
+            <h3 className="font-medium truncate flex-1">{item.scriptSummary?.title || "无标题"}</h3>
             <ReviewBadge item={item} />
           </div>
           {auxStatusLabels.length > 0 && (
@@ -256,10 +256,10 @@ const HistoryCard = memo(function HistoryCard({
               ))}
             </div>
           )}
-          <p className="text-sm text-muted-foreground truncate">{item.script?.topic || "未知主题"}</p>
+          <p className="text-sm text-muted-foreground truncate">{item.scriptSummary?.topic || "未知主题"}</p>
           <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{item.script?.style ? (styleNames[item.script.style] || item.script.style) : "未知风格"}</span>
-            <span>{item.script?.panels?.length || 0} 格</span>
+            <span>{item.scriptSummary?.style ? (styleNames[item.scriptSummary.style] || item.scriptSummary.style) : "未知风格"}</span>
+            <span>{item.scriptSummary?.panelCount ?? 0} 格</span>
           </div>
           <p className="text-xs text-muted-foreground">
             {formatDate(item.createdAt, { style: "datetime" })}
@@ -273,8 +273,13 @@ const HistoryCard = memo(function HistoryCard({
 export default function HistoryPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { getTasks, setTasks, invalidateTasks } = useListCache();
-  const [history, setHistory] = useState<GenerateTask[]>(() => getTasks()?.items ?? []);
+  const {
+    getTaskSummaries,
+    setTaskSummaries,
+    invalidateTasks,
+    invalidateTaskSummaries,
+  } = useListCache();
+  const [history, setHistory] = useState<TaskListItem[]>(() => getTaskSummaries()?.items ?? []);
   const [hasMore, setHasMore] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -307,7 +312,7 @@ export default function HistoryPage() {
   const loadHistory = useCallback(async (page: number) => {
     try {
       if (page > 1) setLoadingMore(true);
-      const result = await getAllComics(page, 50);
+      const result = await getComicSummaries(page, 50);
 
       const tasks = result.items;
       const zombieIds = tasks
@@ -322,12 +327,12 @@ export default function HistoryPage() {
           ...zombieIds.map((id) => recoverZombieTask(id)),
           ...stuckServerTaskIds.map((id) => reconcileTaskLifecycle(id)),
         ]);
-        const refreshed = await getAllComics(page, 50);
+        const refreshed = await getComicSummaries(page, 50);
         if (page === 1) {
           // 去重
           const uniqueItems = Array.from(new Map(refreshed.items.map(item => [item.id, item])).values());
           setHistory(uniqueItems);
-          setTasks(uniqueItems, refreshed.total);
+          setTaskSummaries(uniqueItems, refreshed.total);
         } else {
           setHistory((prev) => {
             // 合并并去重
@@ -335,7 +340,7 @@ export default function HistoryPage() {
             const newItems = refreshed.items.filter(item => !existingIds.has(item.id));
             const merged = [...prev, ...newItems];
             // 在 setHistory 回调外调用 setTasks
-            setTimeout(() => setTasks(merged, refreshed.total), 0);
+            setTimeout(() => setTaskSummaries(merged, refreshed.total), 0);
             return merged;
           });
         }
@@ -348,7 +353,7 @@ export default function HistoryPage() {
         // 去重
         const uniqueItems = Array.from(new Map(tasks.map(item => [item.id, item])).values());
         setHistory(uniqueItems);
-        setTasks(uniqueItems, result.total);
+        setTaskSummaries(uniqueItems, result.total);
       } else {
         setHistory((prev) => {
           // 合并并去重
@@ -356,7 +361,7 @@ export default function HistoryPage() {
           const newItems = tasks.filter(item => !existingIds.has(item.id));
           const merged = [...prev, ...newItems];
           // 在 setHistory 回调外调用 setTasks
-          setTimeout(() => setTasks(merged, result.total), 0);
+          setTimeout(() => setTaskSummaries(merged, result.total), 0);
           return merged;
         });
       }
@@ -367,7 +372,7 @@ export default function HistoryPage() {
     } finally {
       setLoadingMore(false);
     }
-  }, [setTasks]);
+  }, [setTaskSummaries]);
 
   useEffect(() => {
     loadHistory(1);
@@ -410,8 +415,9 @@ export default function HistoryPage() {
   const handleRemove = useCallback(async (id: string) => {
     await deleteComic(id);
     invalidateTasks();
+    invalidateTaskSummaries();
     loadHistory(1);
-  }, [invalidateTasks, loadHistory]);
+  }, [invalidateTaskSummaries, invalidateTasks, loadHistory]);
 
   const handleClearAll = useCallback(async () => {
     if (confirmClear) {
@@ -425,6 +431,7 @@ export default function HistoryPage() {
       setCurrentPage(1);
       setConfirmClear(false);
       invalidateTasks();
+      invalidateTaskSummaries();
       return;
     }
 
@@ -436,7 +443,7 @@ export default function HistoryPage() {
       setConfirmClear(false);
       clearConfirmTimeoutRef.current = null;
     }, 3000);
-  }, [confirmClear, invalidateTasks]);
+  }, [confirmClear, invalidateTaskSummaries, invalidateTasks]);
 
   // ── Export ──
 
@@ -490,7 +497,9 @@ export default function HistoryPage() {
     const selected = history.filter((t) => selectedIdsRef.current.has(t.id));
     if (selected.length === 0) return;
     try {
-      await exportTasksAsZip(selected, setExportProgress);
+      const fullTasks = (await Promise.all(selected.map((task) => getTask(task.id))))
+        .filter((task): task is GenerateTask => Boolean(task));
+      await exportTasksAsZip(fullTasks, setExportProgress);
     } catch (err) {
       console.error("Export failed:", err);
       alert("导出失败，请查看控制台日志");
@@ -503,7 +512,9 @@ export default function HistoryPage() {
   const handleExportAll = useCallback(async () => {
     if (history.length === 0) return;
     try {
-      await exportTasksAsZip(history, setExportProgress);
+      const fullTasks = (await Promise.all(history.map((task) => getTask(task.id))))
+        .filter((task): task is GenerateTask => Boolean(task));
+      await exportTasksAsZip(fullTasks, setExportProgress);
     } catch (err) {
       console.error("Export failed:", err);
       alert("导出失败，请查看控制台日志");
@@ -526,6 +537,7 @@ export default function HistoryPage() {
     try {
       await deleteComicsByIds(idsToDelete);
       invalidateTasks();
+      invalidateTaskSummaries();
       // 先更新本地状态
       setHistory(prev => prev.filter(t => !idsToDelete.includes(t.id)));
       // 再退出删除模式
@@ -536,7 +548,7 @@ export default function HistoryPage() {
       console.error("Delete failed:", err);
       alert("删除失败，请查看控制台日志");
     }
-  }, [exitDeleteMode, history, invalidateTasks, loadHistory]);
+  }, [exitDeleteMode, history, invalidateTaskSummaries, invalidateTasks, loadHistory]);
 
   // ── Import ──
 
