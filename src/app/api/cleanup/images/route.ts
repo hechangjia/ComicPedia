@@ -14,6 +14,7 @@ export async function GET() {
     const scan = scanOrphanImages(new Set());
     return NextResponse.json({
       orphanDirs: scan.orphanDirs,
+      legacyOutputDirs: scan.legacyOutputDirs,
       duplicates: scan.duplicates,
       reclaimableBytes: scan.reclaimableBytes,
       reclaimableMB: +(scan.reclaimableBytes / 1024 / 1024).toFixed(2),
@@ -48,6 +49,7 @@ export async function POST(request: NextRequest) {
       ...result,
       freedMB: +(result.freedBytes / 1024 / 1024).toFixed(2),
       orphanDirsRemoved: scan.orphanDirs.length,
+      legacyOutputDirsRemoved: scan.legacyOutputDirs.length,
       duplicatesRemoved: scan.duplicates.length,
     });
   } catch (error) {

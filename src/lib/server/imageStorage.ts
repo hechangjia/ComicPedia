@@ -9,6 +9,7 @@ import { promises as fsp } from "fs";
 
 const IMAGE_BASE = path.join(process.cwd(), "data", "images");
 const TRASH_BASE = path.join(process.cwd(), "data", ".trash");
+const OUTPUT_BASE = path.join(process.cwd(), "public", "output");
 
 /** 从 base64 data URI 提取 MIME 类型和扩展名 */
 function parseDataUri(dataUri: string): { ext: string; buffer: Buffer } | null {
@@ -371,9 +372,10 @@ function removeDirSafe(dir: string, base: string): number {
 }
 
 /** 递归删除单个目录及其内容 */
-function removeDir(dir: string): number {
+function removeDirWithin(rootDir: string, dir: string): number {
   const resolved = path.resolve(dir);
-  if (!resolved.startsWith(path.resolve(IMAGE_BASE))) return 0;
+  const resolvedRoot = path.resolve(rootDir);
+  if (!resolved.startsWith(resolvedRoot + path.sep)) return 0;
   if (!fs.existsSync(resolved)) return 0;
 
   try {
@@ -434,10 +436,47 @@ export function cleanupOutputDir(taskId: string): void {
 export interface OrphanScanResult {
   /** 孤儿目录（旧迁移 _img* 格式，不被任何 task/char 引用） */
   orphanDirs: string[];
+  /** legacy public/output 导出目录（仅兼容旧静态导出路径） */
+  legacyOutputDirs: string[];
   /** 二进制重复文件对（_ref0 和 _ref0_v0 内容相同） */
   duplicates: Array<{ keep: string; remove: string; bytes: number }>;
   /** 总可回收字节数 */
   reclaimableBytes: number;
+}
+
+function scanLegacyOutputDirs(): { dirs: string[]; bytes: number } {
+  if (!fs.existsSync(OUTPUT_BASE)) {
+    return { dirs: [], bytes: 0 };
+  }
+
+  let bytes = 0;
+  const dirs = fs.readdirSync(OUTPUT_BASE, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+    .map((entry) => {
+      const dirPath = path.join(OUTPUT_BASE, entry.name);
+      bytes += getDirSize(dirPath);
+      return entry.name;
+    });
+
+  return { dirs, bytes };
+}
+
+function pruneLegacyOutputMap(): void {
+  const mapFile = path.join(OUTPUT_BASE, ".dirmap.json");
+  if (!fs.existsSync(mapFile)) return;
+
+  try {
+    const map: Record<string, string> = JSON.parse(fs.readFileSync(mapFile, "utf8"));
+    const nextMap = Object.fromEntries(
+      Object.entries(map).filter(([, dirName]) => {
+        const targetDir = path.join(OUTPUT_BASE, dirName);
+        return fs.existsSync(targetDir);
+      }),
+    );
+    fs.writeFileSync(mapFile, JSON.stringify(nextMap, null, 2));
+  } catch {
+    // ignore malformed legacy map during cleanup
+  }
 }
 
 /**
@@ -447,9 +486,14 @@ export interface OrphanScanResult {
 export function scanOrphanImages(knownPrefixes: Set<string>): OrphanScanResult {
   const result: OrphanScanResult = {
     orphanDirs: [],
+    legacyOutputDirs: [],
     duplicates: [],
     reclaimableBytes: 0,
   };
+
+  const legacyOutput = scanLegacyOutputDirs();
+  result.legacyOutputDirs = legacyOutput.dirs;
+  result.reclaimableBytes += legacyOutput.bytes;
 
   if (!fs.existsSync(IMAGE_BASE)) return result;
 
@@ -522,7 +566,15 @@ export function purgeOrphanImages(scan: OrphanScanResult): { deletedFiles: numbe
   for (const dirName of scan.orphanDirs) {
     const dirPath = path.join(IMAGE_BASE, dirName);
     const bytes = getDirSize(dirPath);
-    const count = removeDir(dirPath);
+    const count = removeDirWithin(IMAGE_BASE, dirPath);
+    deletedFiles += count;
+    freedBytes += bytes;
+  }
+
+  for (const dirName of scan.legacyOutputDirs) {
+    const dirPath = path.join(OUTPUT_BASE, dirName);
+    const bytes = getDirSize(dirPath);
+    const count = removeDirWithin(OUTPUT_BASE, dirPath);
     deletedFiles += count;
     freedBytes += bytes;
   }
@@ -543,6 +595,8 @@ export function purgeOrphanImages(scan: OrphanScanResult): { deletedFiles: numbe
       // 静默
     }
   }
+
+  pruneLegacyOutputMap();
 
   return { deletedFiles, freedBytes };
 }
