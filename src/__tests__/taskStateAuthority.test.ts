@@ -12,7 +12,24 @@ import {
   shouldResumeImageQueueRuntime,
 } from "@/lib/taskStateAuthority";
 
-const TASK_STATE_AUTHORITY_EXPECTATIONS: Record<GenerateTaskStatus, TaskStateAuthority> = {
+const ALL_STATUSES = [
+  "pending",
+  "scripting",
+  "generating",
+  "created",
+  "research_running",
+  "script_running",
+  "script_ready",
+  "calibrating",
+  "image_queue_running",
+  "image_queue_paused",
+  "deep_review_running",
+  "deep_review_paused",
+  "completed",
+  "failed",
+] as const satisfies readonly GenerateTaskStatus[];
+
+const TASK_STATE_AUTHORITY_EXPECTATIONS = {
   pending: "client_local",
   scripting: "client_local",
   generating: "client_local",
@@ -27,7 +44,24 @@ const TASK_STATE_AUTHORITY_EXPECTATIONS: Record<GenerateTaskStatus, TaskStateAut
   deep_review_paused: "server_durable",
   completed: "settled",
   failed: "settled",
-};
+} as const satisfies Record<GenerateTaskStatus, TaskStateAuthority>;
+
+const AUTHORITY_CASES = [
+  ["pending", "client_local"],
+  ["scripting", "client_local"],
+  ["generating", "client_local"],
+  ["created", "server_durable"],
+  ["research_running", "server_durable"],
+  ["script_running", "server_durable"],
+  ["script_ready", "server_durable"],
+  ["calibrating", "server_durable"],
+  ["image_queue_running", "server_durable"],
+  ["image_queue_paused", "server_durable"],
+  ["deep_review_running", "server_durable"],
+  ["deep_review_paused", "server_durable"],
+  ["completed", "settled"],
+  ["failed", "settled"],
+] as const satisfies readonly (readonly [GenerateTaskStatus, TaskStateAuthority])[];
 
 const ZOMBIE_RECOVERY_STATUSES = new Set<GenerateTaskStatus>([
   "scripting",
@@ -56,6 +90,7 @@ const DEEP_REVIEW_RUNTIME_RESUME_STATUSES = new Set<GenerateTaskStatus>([
 const STALE_UPDATED_AT = "2026-04-09T00:00:00.000Z";
 const STALE_NOW = new Date("2026-04-09T00:06:00.000Z").getTime();
 const FRESH_NOW = new Date("2026-04-09T00:04:00.000Z").getTime();
+type LeavePagePolicy = NonNullable<GenerateTask["presetSnapshot"]>["leavePagePolicy"];
 
 function createStatusTask(status: GenerateTaskStatus): Pick<GenerateTask, "status"> {
   return { status };
@@ -63,11 +98,7 @@ function createStatusTask(status: GenerateTaskStatus): Pick<GenerateTask, "statu
 
 function createPauseableTask(
   status: GenerateTaskStatus,
-  leavePagePolicy?: GenerateTask["presetSnapshot"] extends infer T
-    ? T extends { leavePagePolicy?: infer P }
-      ? P
-      : never
-    : never,
+  leavePagePolicy?: LeavePagePolicy,
 ): Pick<GenerateTask, "status" | "presetSnapshot"> {
   return {
     status,
@@ -84,24 +115,24 @@ function createOffPageTask(
 
 describe("taskStateAuthority", () => {
   it("classifies every GenerateTaskStatus exhaustively", () => {
-    for (const [status, expectedAuthority] of Object.entries(TASK_STATE_AUTHORITY_EXPECTATIONS)) {
-      expect(getTaskStateAuthority(status as GenerateTaskStatus)).toBe(expectedAuthority);
+    expect(Object.keys(TASK_STATE_AUTHORITY_EXPECTATIONS)).toHaveLength(ALL_STATUSES.length);
+    for (const [status, expectedAuthority] of AUTHORITY_CASES) {
+      expect(getTaskStateAuthority(status)).toBe(expectedAuthority);
     }
   });
 
   it("derives behavior helpers from the exhaustive contract", () => {
-    for (const [status, expectedAuthority] of Object.entries(TASK_STATE_AUTHORITY_EXPECTATIONS)) {
-      const typedStatus = status as GenerateTaskStatus;
-      const task = createStatusTask(typedStatus);
+    for (const [status, expectedAuthority] of AUTHORITY_CASES) {
+      const task = createStatusTask(status);
 
       expect(shouldPreferLocalTaskSnapshot(task)).toBe(expectedAuthority === "client_local");
       expect(shouldPollTaskFromServer(task)).toBe(expectedAuthority === "server_durable");
-      expect(shouldAttemptZombieRecovery(task)).toBe(ZOMBIE_RECOVERY_STATUSES.has(typedStatus));
+      expect(shouldAttemptZombieRecovery(task)).toBe(ZOMBIE_RECOVERY_STATUSES.has(status));
     }
   });
 
   it("restricts pagehide pause to durable running statuses and leave-page policy", () => {
-    for (const status of Object.keys(TASK_STATE_AUTHORITY_EXPECTATIONS) as GenerateTaskStatus[]) {
+    for (const status of ALL_STATUSES) {
       expect(shouldPauseTaskOnLeave(createPauseableTask(status, "finish_inflight_then_pause")))
         .toBe(PAGEHIDE_PAUSEABLE_STATUSES.has(status));
       expect(shouldPauseTaskOnLeave(createPauseableTask(status, "continue_in_background"))).toBe(false);
@@ -109,7 +140,7 @@ describe("taskStateAuthority", () => {
   });
 
   it("restricts off-page reconcile to durable running statuses and stale threshold", () => {
-    for (const status of Object.keys(TASK_STATE_AUTHORITY_EXPECTATIONS) as GenerateTaskStatus[]) {
+    for (const status of ALL_STATUSES) {
       expect(shouldAttemptOffPageTaskReconcile(createOffPageTask(status, STALE_UPDATED_AT), STALE_NOW))
         .toBe(OFF_PAGE_RECONCILE_STATUSES.has(status));
     }
@@ -121,8 +152,8 @@ describe("taskStateAuthority", () => {
   });
 
   it("tags API payloads with an explicit authority field", () => {
-    for (const [status, expectedAuthority] of Object.entries(TASK_STATE_AUTHORITY_EXPECTATIONS)) {
-      expect(attachTaskStateAuthority({ id: `t-${status}`, status: status as GenerateTaskStatus })).toMatchObject({
+    for (const [status, expectedAuthority] of AUTHORITY_CASES) {
+      expect(attachTaskStateAuthority({ id: `t-${status}`, status })).toMatchObject({
         id: `t-${status}`,
         status,
         stateAuthority: expectedAuthority,
@@ -131,7 +162,7 @@ describe("taskStateAuthority", () => {
   });
 
   it("keeps runtime resume gates aligned with durable queue statuses", () => {
-    for (const status of Object.keys(TASK_STATE_AUTHORITY_EXPECTATIONS) as GenerateTaskStatus[]) {
+    for (const status of ALL_STATUSES) {
       expect(shouldResumeImageQueueRuntime(status)).toBe(IMAGE_RUNTIME_RESUME_STATUSES.has(status));
       expect(shouldResumeDeepReviewRuntime(status)).toBe(DEEP_REVIEW_RUNTIME_RESUME_STATUSES.has(status));
     }

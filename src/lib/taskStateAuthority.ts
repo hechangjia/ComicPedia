@@ -44,6 +44,9 @@ const DEEP_REVIEW_RUNTIME_RESUME_STATUSES = new Set<GenerateTaskStatus>([
 const OFF_PAGE_RECONCILE_STALE_MS = 5 * 60 * 1000;
 
 export function getTaskStateAuthority(status: GenerateTaskStatus): TaskStateAuthority {
+  if (!Object.prototype.hasOwnProperty.call(TASK_STATE_AUTHORITY_BY_STATUS, status)) {
+    throw new Error(`Unknown task status authority mapping: ${String(status)}`);
+  }
   return TASK_STATE_AUTHORITY_BY_STATUS[status];
 }
 
