@@ -4,6 +4,7 @@ import { startDeepReview } from "@/lib/server/taskOrchestrator/deepReviewRunner"
 import { approveTaskCalibration, enqueuePanelImageJobs } from "@/lib/server/taskOrchestrator/imageRunner";
 import { pauseTaskJobs, reconcileTaskJobs, resumeTaskJobs } from "@/lib/server/taskOrchestrator/reconcile";
 import { getTaskRuntime } from "@/lib/server/taskOrchestrator/runtime";
+import { shouldResumeDeepReviewRuntime, shouldResumeImageQueueRuntime } from "@/lib/taskStateAuthority";
 import type { PartialImageGenConfig, PartialLLMConfig } from "@/lib/types";
 
 interface RouteParams {
@@ -80,13 +81,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     if (action === "resume") {
       const updatedTask = await resumeTaskJobs(id);
-      if (
-        updatedTask.status === "image_queue_running"
-        || updatedTask.status === "calibrating"
-      ) {
+      if (shouldResumeImageQueueRuntime(updatedTask.status)) {
         getTaskRuntime().enqueueImageQueue(id);
       }
-      if (updatedTask.status === "deep_review_running") {
+      if (shouldResumeDeepReviewRuntime(updatedTask.status)) {
         getTaskRuntime().enqueueDeepReview(id);
       }
       return NextResponse.json({
@@ -98,13 +96,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     if (action === "reconcile") {
       const updatedTask = await reconcileTaskJobs(id);
-      if (
-        updatedTask.status === "image_queue_running"
-        || updatedTask.status === "calibrating"
-      ) {
+      if (shouldResumeImageQueueRuntime(updatedTask.status)) {
         getTaskRuntime().enqueueImageQueue(id);
       }
-      if (updatedTask.status === "deep_review_running") {
+      if (shouldResumeDeepReviewRuntime(updatedTask.status)) {
         getTaskRuntime().enqueueDeepReview(id);
       }
       return NextResponse.json({

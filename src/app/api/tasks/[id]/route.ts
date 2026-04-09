@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTaskById, upsertTask, deleteTask, patchTask } from "@/lib/server/db";
-import { extractTaskImagesAsync, trashTaskImages, restoreFileRefs, fileRefsToUrls } from "@/lib/server/imageExtractor";
+import { extractTaskImagesAsync, trashTaskImages } from "@/lib/server/imageExtractor";
+import { buildTaskDetailResponse } from "@/lib/server/taskClientView";
 import { getTaskRuntime } from "@/lib/server/taskOrchestrator/runtime";
-import { countRecoverableComfyJobs } from "@/lib/server/taskOrchestrator/queueMeta";
-import { listTaskJobsByTaskId, summarizeTaskJobs } from "@/lib/server/taskOrchestrator/store";
-import type { GenerateTask, TaskJobRecord } from "@/lib/types";
+import { listTaskJobsByTaskId } from "@/lib/server/taskOrchestrator/store";
+import type { GenerateTask } from "@/lib/types";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -28,23 +28,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       requestSnapshot?: unknown;
     };
     const taskJobs = await listTaskJobsByTaskId(task.id);
-    const enrichedTask: GenerateTask & {
-      queueJobs: Array<Omit<TaskJobRecord, "payload">>;
-    } = {
-      ...taskForClient,
-      queueSummary: task.queueSummary ?? summarizeTaskJobs(taskJobs),
-      comfyuiRemotePendingCount: task.comfyuiRemotePendingCount ?? countRecoverableComfyJobs(taskJobs),
-      queueJobs: taskJobs.map(({ payload: _payload, ...job }) => job),
-    };
 
     // withImages=base64 时还原为 base64（导出等场景），默认返回 /api/images/ URL
     const withImages = request.nextUrl.searchParams.get("withImages");
-    let result: unknown = enrichedTask;
-    if (withImages === "base64") {
-      result = restoreFileRefs(enrichedTask);
-    } else if (withImages !== "false") {
-      result = fileRefsToUrls(enrichedTask);
-    }
+    const result = buildTaskDetailResponse(taskForClient, taskJobs, withImages);
 
     return NextResponse.json(result);
   } catch (error) {

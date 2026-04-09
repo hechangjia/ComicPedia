@@ -1,25 +1,58 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
-const { getTasksPaginatedMock, listTaskJobsByTaskIdMock, summarizeTaskJobsMock, countRecoverableComfyJobsMock, getTaskRuntimeMock } = vi.hoisted(() => ({
+const {
+  getTasksPaginatedMock,
+  upsertTaskMock,
+  clearAllTasksMock,
+  getAllTaskIdsMock,
+  deleteTasksByIdsMock,
+  extractTaskImagesAsyncMock,
+  fileRefsToUrlsMock,
+  trashTaskImagesMock,
+  listTaskJobsByTaskIdMock,
+  summarizeTaskJobsMock,
+  countRecoverableComfyJobsMock,
+  getTaskRuntimeMock,
+  enqueueScriptMock,
+  buildServerScriptReplayPayloadMock,
+  validateServerReplayPayloadMock,
+  randomUUIDMock,
+} = vi.hoisted(() => ({
   getTasksPaginatedMock: vi.fn(),
+  upsertTaskMock: vi.fn(),
+  clearAllTasksMock: vi.fn(),
+  getAllTaskIdsMock: vi.fn(),
+  deleteTasksByIdsMock: vi.fn(),
+  extractTaskImagesAsyncMock: vi.fn(),
+  fileRefsToUrlsMock: vi.fn((value) => value),
+  trashTaskImagesMock: vi.fn(),
   listTaskJobsByTaskIdMock: vi.fn(),
   summarizeTaskJobsMock: vi.fn(),
   countRecoverableComfyJobsMock: vi.fn(),
   getTaskRuntimeMock: vi.fn(),
+  enqueueScriptMock: vi.fn(),
+  buildServerScriptReplayPayloadMock: vi.fn(),
+  validateServerReplayPayloadMock: vi.fn(),
+  randomUUIDMock: vi.fn(() => "task-created"),
+}));
+
+vi.mock("node:crypto", () => ({
+  randomUUID: randomUUIDMock,
 }));
 
 vi.mock("@/lib/server/db", () => ({
   getTasksPaginated: getTasksPaginatedMock,
-  upsertTask: vi.fn(),
-  clearAllTasks: vi.fn(),
-  getAllTaskIds: vi.fn(),
+  upsertTask: upsertTaskMock,
+  clearAllTasks: clearAllTasksMock,
+  getAllTaskIds: getAllTaskIdsMock,
+  deleteTasksByIds: deleteTasksByIdsMock,
 }));
 
 vi.mock("@/lib/server/imageExtractor", () => ({
-  extractTaskImagesAsync: vi.fn(),
-  fileRefsToUrls: vi.fn((value) => value),
-  trashTaskImages: vi.fn(),
+  extractTaskImagesAsync: extractTaskImagesAsyncMock,
+  fileRefsToUrls: fileRefsToUrlsMock,
+  trashTaskImages: trashTaskImagesMock,
 }));
 
 vi.mock("@/lib/server/taskOrchestrator/store", () => ({
@@ -32,16 +65,42 @@ vi.mock("@/lib/server/taskOrchestrator/queueMeta", () => ({
 }));
 
 vi.mock("@/lib/server/taskOrchestrator/runtime", () => ({
-  getTaskRuntime: getTaskRuntimeMock,
+  getTaskRuntime: vi.fn(() => {
+    getTaskRuntimeMock();
+    return {
+      enqueueScript: enqueueScriptMock,
+    };
+  }),
 }));
 
-describe("/api/tasks GET", () => {
+vi.mock("@/lib/server/taskOrchestrator/replay", () => ({
+  buildServerScriptReplayPayload: buildServerScriptReplayPayloadMock,
+  validateServerReplayPayload: validateServerReplayPayloadMock,
+}));
+
+describe("/api/tasks routes", () => {
   beforeEach(() => {
     getTasksPaginatedMock.mockReset();
+    upsertTaskMock.mockReset();
+    clearAllTasksMock.mockReset();
+    getAllTaskIdsMock.mockReset();
+    deleteTasksByIdsMock.mockReset();
+    extractTaskImagesAsyncMock.mockReset();
+    fileRefsToUrlsMock.mockReset();
+    fileRefsToUrlsMock.mockImplementation((value) => value);
+    trashTaskImagesMock.mockReset();
     listTaskJobsByTaskIdMock.mockReset();
     summarizeTaskJobsMock.mockReset();
     countRecoverableComfyJobsMock.mockReset();
     getTaskRuntimeMock.mockReset();
+    enqueueScriptMock.mockReset();
+    buildServerScriptReplayPayloadMock.mockReset();
+    validateServerReplayPayloadMock.mockReset();
+    randomUUIDMock.mockClear();
+    clearAllTasksMock.mockReturnValue(0);
+    deleteTasksByIdsMock.mockReturnValue(0);
+    getAllTaskIdsMock.mockReturnValue([]);
+    extractTaskImagesAsyncMock.mockImplementation(async (task) => task);
   });
 
   it("keeps persisted review summary fields in list items for history badges", async () => {
@@ -162,5 +221,174 @@ describe("/api/tasks GET", () => {
       completed: 3,
       calibrationPending: 0,
     });
+  });
+
+  it("defaults invalid pagination params before reading paginated tasks", async () => {
+    getTasksPaginatedMock.mockReturnValue({
+      total: 0,
+      tasks: [],
+    });
+
+    const { GET } = await import("@/app/api/tasks/route");
+    const request = new NextRequest("http://localhost:3000/api/tasks?page=wat&pageSize=-10");
+    const response = await GET(request);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(getTasksPaginatedMock).toHaveBeenCalledWith(1, 100);
+    expect(body).toEqual({
+      tasks: [],
+      total: 0,
+      page: 1,
+      pageSize: 100,
+    });
+  });
+
+  it("adds stateAuthority to task list items", async () => {
+    getTasksPaginatedMock.mockReturnValue({
+      total: 1,
+      tasks: [{
+        id: "task-list-state",
+        status: "script_ready",
+        progress: 30,
+        createdAt: new Date("2026-04-09T00:00:00.000Z"),
+        updatedAt: new Date("2026-04-09T00:00:00.000Z"),
+        script: { title: "List Task", topic: "Topic", style: "anime", panels: [] },
+      }],
+    });
+
+    const { GET } = await import("@/app/api/tasks/route");
+    const response = await GET(new NextRequest("http://localhost:3000/api/tasks?page=1&pageSize=10"));
+    const body = await response.json();
+
+    expect(body.tasks[0]).toMatchObject({
+      id: "task-list-state",
+      stateAuthority: "server_durable",
+    });
+  });
+
+  it("creates a server task from a replayable request and enqueues script execution", async () => {
+    buildServerScriptReplayPayloadMock.mockReturnValue({ request: { topic: "Topic" } });
+    validateServerReplayPayloadMock.mockReturnValue(null);
+
+    const { POST } = await import("@/app/api/tasks/route");
+    const request = new NextRequest("http://localhost:3000/api/tasks", {
+      method: "POST",
+      body: JSON.stringify({
+        request: {
+          topic: "Topic",
+          style: "anime",
+          panelCount: 4,
+          presetSnapshot: {
+            presetId: "balanced-auto",
+          },
+        },
+      }),
+    });
+
+    const response = await POST(request);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(buildServerScriptReplayPayloadMock).toHaveBeenCalledWith(expect.objectContaining({
+      topic: "Topic",
+    }));
+    expect(upsertTaskMock).toHaveBeenCalledWith(expect.objectContaining({
+      id: "task-created",
+      status: "created",
+      serverScriptReplay: { request: { topic: "Topic" } },
+    }));
+    expect(enqueueScriptMock).toHaveBeenCalledWith("task-created", expect.objectContaining({
+      topic: "Topic",
+      style: "anime",
+    }));
+    expect(body).toEqual({ success: true, id: "task-created" });
+  });
+
+  it("returns 400 when create request lacks a replayable config", async () => {
+    buildServerScriptReplayPayloadMock.mockReturnValue({ request: { topic: "Topic" } });
+    validateServerReplayPayloadMock.mockReturnValue("缺少可重放的 LLM 配置，请重新选择有效的模型配置后再试");
+
+    const { POST } = await import("@/app/api/tasks/route");
+    const request = new NextRequest("http://localhost:3000/api/tasks", {
+      method: "POST",
+      body: JSON.stringify({
+        request: {
+          topic: "Topic",
+          style: "anime",
+          panelCount: 4,
+        },
+      }),
+    });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "缺少可重放的 LLM 配置，请重新选择有效的模型配置后再试",
+    });
+    expect(upsertTaskMock).not.toHaveBeenCalled();
+    expect(enqueueScriptMock).not.toHaveBeenCalled();
+  });
+
+  it("syncs a task snapshot by extracting images before persisting", async () => {
+    extractTaskImagesAsyncMock.mockResolvedValue({
+      id: "task-sync",
+      status: "completed",
+    });
+
+    const { POST } = await import("@/app/api/tasks/route");
+    const request = new NextRequest("http://localhost:3000/api/tasks", {
+      method: "POST",
+      body: JSON.stringify({
+        task: {
+          id: "task-sync",
+          status: "completed",
+        },
+      }),
+    });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(200);
+    expect(extractTaskImagesAsyncMock).toHaveBeenCalledWith(expect.objectContaining({
+      id: "task-sync",
+    }));
+    expect(upsertTaskMock).toHaveBeenCalledWith({
+      id: "task-sync",
+      status: "completed",
+    });
+  });
+
+  it("does not clear all tasks when delete receives an explicit empty selection", async () => {
+    const { DELETE } = await import("@/app/api/tasks/route");
+    const request = new NextRequest("http://localhost:3000/api/tasks", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: [] }),
+    });
+
+    const response = await DELETE(request);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(clearAllTasksMock).not.toHaveBeenCalled();
+    expect(deleteTasksByIdsMock).not.toHaveBeenCalled();
+    expect(body).toEqual({ success: true, deleted: 0 });
+  });
+
+  it("returns 400 for malformed JSON delete payloads instead of clearing all tasks", async () => {
+    const request = {
+      headers: new Headers({ "content-type": "application/json" }),
+      json: vi.fn().mockRejectedValue(new Error("bad json")),
+    } as unknown as NextRequest;
+
+    const { DELETE } = await import("@/app/api/tasks/route");
+    const response = await DELETE(request);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "删除请求体不是有效 JSON" });
+    expect(clearAllTasksMock).not.toHaveBeenCalled();
+    expect(deleteTasksByIdsMock).not.toHaveBeenCalled();
   });
 });

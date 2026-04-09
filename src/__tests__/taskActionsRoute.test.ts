@@ -282,6 +282,47 @@ describe("/api/tasks/[id]/actions POST", () => {
     }));
   });
 
+  it("does not enqueue the image runtime when resume returns a non-image durable state", async () => {
+    getTaskByIdMock.mockReturnValue({
+      id: "task-actions",
+      status: "image_queue_paused",
+      progress: 60,
+      script: {
+        title: "Task Actions",
+        topic: "Topic",
+        style: "anime",
+        panels: [{ id: 1, scene: "Scene 1", dialogue: "Dialogue 1", imagePrompt: "Prompt 1", status: "completed" }],
+      },
+      createdAt: new Date("2026-04-05T00:00:00.000Z"),
+      updatedAt: new Date("2026-04-05T00:00:00.000Z"),
+    });
+    resumeTaskJobsMock.mockResolvedValue({
+      id: "task-actions",
+      status: "script_ready",
+      progress: 60,
+      queueSummary: {
+        queued: 0,
+        running: 0,
+        paused: 0,
+        failed: 0,
+        attachFailed: 0,
+        completed: 1,
+        calibrationPending: 0,
+      },
+    });
+
+    const { POST } = await import("@/app/api/tasks/[id]/actions/route");
+    const request = new NextRequest("http://localhost:3000/api/tasks/task-actions/actions", {
+      method: "POST",
+      body: JSON.stringify({ action: "resume" }),
+    });
+
+    await POST(request, { params: Promise.resolve({ id: "task-actions" }) });
+
+    expect(enqueueImageQueueMock).not.toHaveBeenCalled();
+    expect(enqueueDeepReviewMock).not.toHaveBeenCalled();
+  });
+
   it("requeues the image runtime when reconcile keeps a ComfyUI job in running state", async () => {
     getTaskByIdMock.mockReturnValue({
       id: "task-actions",
@@ -414,5 +455,50 @@ describe("/api/tasks/[id]/actions POST", () => {
       success: true,
       task: expect.objectContaining({ status: "deep_review_running" }),
     }));
+  });
+
+  it("returns 404 when the task does not exist", async () => {
+    getTaskByIdMock.mockReturnValue(null);
+
+    const { POST } = await import("@/app/api/tasks/[id]/actions/route");
+    const request = new NextRequest("http://localhost:3000/api/tasks/missing/actions", {
+      method: "POST",
+      body: JSON.stringify({ action: "pause" }),
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ id: "missing" }) });
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({ error: "任务不存在" });
+  });
+
+  it("returns 400 when deep review is started without vlmConfig", async () => {
+    getTaskByIdMock.mockReturnValue({
+      id: "task-actions",
+      status: "completed",
+      progress: 100,
+      script: {
+        title: "Task Actions",
+        topic: "Topic",
+        style: "anime",
+        panels: [
+          { id: 1, scene: "Scene 1", dialogue: "Dialogue 1", imagePrompt: "Prompt 1", imageUrl: "file://panel-1", status: "completed" },
+        ],
+      },
+      createdAt: new Date("2026-04-05T00:00:00.000Z"),
+      updatedAt: new Date("2026-04-05T00:00:00.000Z"),
+    });
+
+    const { POST } = await import("@/app/api/tasks/[id]/actions/route");
+    const request = new NextRequest("http://localhost:3000/api/tasks/task-actions/actions", {
+      method: "POST",
+      body: JSON.stringify({ action: "start_deep_review" }),
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ id: "task-actions" }) });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "缺少视觉评审配置" });
+    expect(startDeepReviewMock).not.toHaveBeenCalled();
   });
 });

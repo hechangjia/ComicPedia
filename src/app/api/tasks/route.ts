@@ -1,50 +1,26 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getTasksPaginated, upsertTask, clearAllTasks, getAllTaskIds, deleteTasksByIds } from "@/lib/server/db";
-import { extractTaskImagesAsync, fileRefsToUrls, trashTaskImages } from "@/lib/server/imageExtractor";
-import { countRecoverableComfyJobs } from "@/lib/server/taskOrchestrator/queueMeta";
+import { extractTaskImagesAsync, trashTaskImages } from "@/lib/server/imageExtractor";
+import { buildTaskListItem } from "@/lib/server/taskClientView";
 import { getTaskRuntime } from "@/lib/server/taskOrchestrator/runtime";
 import { buildServerScriptReplayPayload, validateServerReplayPayload } from "@/lib/server/taskOrchestrator/replay";
-import { listTaskJobsByTaskId, summarizeTaskJobs } from "@/lib/server/taskOrchestrator/store";
-import type { GenerateRequest, GenerateTask } from "@/lib/types";
+import { listTaskJobsByTaskId } from "@/lib/server/taskOrchestrator/store";
+import type { GenerateRequest, GenerateTask, TaskJobRecord } from "@/lib/types";
+
+function parsePositiveInt(value: string | null, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 /** 将 task 精简为列表所需的最小字段集，再转换 file:// 引用 */
 async function toListItem(task: GenerateTask) {
   const needsJobFallback = !task.queueSummary || task.comfyuiRemotePendingCount === undefined;
-  const taskJobs = needsJobFallback ? await listTaskJobsByTaskId(task.id) : [];
-  const queueSummary = task.queueSummary ?? summarizeTaskJobs(taskJobs);
-  const stripped = {
-    id: task.id,
-    status: task.status,
-    progress: task.progress,
-    queueSummary,
-    comfyuiRemotePendingCount: task.comfyuiRemotePendingCount ?? countRecoverableComfyJobs(taskJobs),
-    reviewStatus: task.reviewStatus,
-    lastReviewAt: task.lastReviewAt,
-    visualQualityScore: task.visualQualityScore ? {
-      overall: task.visualQualityScore.overall,
-      retryRecommendations: task.visualQualityScore.retryRecommendations,
-    } : undefined,
-    visualRetrySummary: task.visualRetrySummary ? {
-      status: task.visualRetrySummary.status,
-      finalOverallScore: task.visualRetrySummary.finalOverallScore,
-    } : undefined,
-    createdAt: task.createdAt,
-    updatedAt: task.updatedAt,
-    script: task.script ? {
-      title: task.script.title,
-      topic: task.script.topic,
-      style: task.script.style,
-      panels: task.script.panels.map(p => ({
-        id: p.id,
-        status: p.status,
-        imageUrl: p.imageUrl,
-        scene: p.scene,
-        dialogue: p.dialogue,
-      })),
-    } : undefined,
-  };
-  return fileRefsToUrls(stripped);
+  const taskJobs: TaskJobRecord[] = needsJobFallback ? await listTaskJobsByTaskId(task.id) : [];
+  return buildTaskListItem(task, taskJobs);
 }
 
 /** GET /api/tasks — 获取任务列表（支持分页，轻量返回） */
@@ -52,8 +28,8 @@ export async function GET(request: NextRequest) {
   try {
     getTaskRuntime();
     const searchParams = request.nextUrl.searchParams;
-    const page = Math.max(1, parseInt(searchParams.get("page") || "1"));
-    const pageSize = Math.min(Math.max(1, parseInt(searchParams.get("pageSize") || "100")), 200);
+    const page = parsePositiveInt(searchParams.get("page"), 1);
+    const pageSize = Math.min(parsePositiveInt(searchParams.get("pageSize"), 100), 200);
 
     const { tasks, total } = getTasksPaginated(page, pageSize);
     const items = await Promise.all(tasks.map(toListItem));
@@ -131,17 +107,22 @@ export async function DELETE(request: NextRequest) {
   try {
     let deletedCount = 0;
     let taskIds: string[] = [];
+    let requestedExplicitIds = false;
 
     // 检查是否有请求体（批量删除指定任务）
     const contentType = request.headers.get("content-type");
     if (contentType?.includes("application/json")) {
       try {
         const body = await request.json();
-        if (body.ids && Array.isArray(body.ids)) {
+        if (Array.isArray(body.ids)) {
+          requestedExplicitIds = true;
           taskIds = body.ids;
         }
       } catch {
-        // 没有请求体或解析失败，清空所有任务
+        return NextResponse.json(
+          { error: "删除请求体不是有效 JSON" },
+          { status: 400 },
+        );
       }
     }
 
@@ -151,7 +132,7 @@ export async function DELETE(request: NextRequest) {
         trashTaskImages(id);
       }
       deletedCount = deleteTasksByIds(taskIds);
-    } else {
+    } else if (!requestedExplicitIds) {
       // 清空所有任务
       taskIds = getAllTaskIds();
       for (const id of taskIds) {
