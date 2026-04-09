@@ -12,6 +12,7 @@ import { LLMForm } from "@/components/settings/LLMForm";
 import { ImageForm } from "@/components/settings/ImageForm";
 import { AccuracyProviderSection } from "@/components/settings/AccuracyProviderSection";
 import { type AccuracyProviderFormFields } from "@/components/settings/AccuracyProviderForm";
+import { MaintenancePanel } from "@/components/settings/MaintenancePanel";
 import { VLM_PRESETS, getVLMPreset } from "@/lib/config/presets";
 import { BackupManager } from "@/components/settings/BackupManager";
 import { getWatermarkText, setWatermarkText } from "@/lib/downloadUtils";
@@ -737,6 +738,10 @@ export default function SettingsPage() {
       {/* 数据备份 */}
       <div className="p-6 rounded-xl border bg-card">
         <BackupManager />
+      </div>
+
+      <div className="p-6 rounded-xl border bg-card">
+        <MaintenancePanel />
       </div>
 
       {/* 导出署名 */}
