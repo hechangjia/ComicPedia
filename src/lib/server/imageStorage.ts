@@ -391,8 +391,8 @@ function removeDir(dir: string): number {
 }
 
 /**
- * 清理 public/output/ 中与 taskId 关联的导出目录。
- * 通过 .dirmap.json 映射文件查找 taskId 对应的目录名并删除。
+ * 清理 legacy public/output/ 中与 taskId 关联的导出目录。
+ * 仅用于兼容旧导出路径；canonical 存储已迁移到 data/images + images registry。
  */
 export function cleanupOutputDir(taskId: string): void {
   const outputBase = path.join(process.cwd(), "public", "output");
