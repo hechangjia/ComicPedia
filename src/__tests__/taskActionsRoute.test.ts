@@ -317,10 +317,17 @@ describe("/api/tasks/[id]/actions POST", () => {
       body: JSON.stringify({ action: "resume" }),
     });
 
-    await POST(request, { params: Promise.resolve({ id: "task-actions" }) });
+    const response = await POST(request, { params: Promise.resolve({ id: "task-actions" }) });
+    const body = await response.json();
 
+    expect(response.status).toBe(202);
+    expect(resumeTaskJobsMock).toHaveBeenCalledWith("task-actions");
     expect(enqueueImageQueueMock).not.toHaveBeenCalled();
     expect(enqueueDeepReviewMock).not.toHaveBeenCalled();
+    expect(body).toEqual(expect.objectContaining({
+      success: true,
+      task: expect.objectContaining({ status: "script_ready" }),
+    }));
   });
 
   it("requeues the image runtime when reconcile keeps a ComfyUI job in running state", async () => {
@@ -380,6 +387,54 @@ describe("/api/tasks/[id]/actions POST", () => {
     expect(body).toEqual(expect.objectContaining({
       success: true,
       task: expect.objectContaining({ status: "image_queue_running" }),
+    }));
+  });
+
+  it("does not enqueue runtimes when reconcile returns a non-image durable state", async () => {
+    getTaskByIdMock.mockReturnValue({
+      id: "task-actions",
+      status: "image_queue_paused",
+      progress: 60,
+      script: {
+        title: "Task Actions",
+        topic: "Topic",
+        style: "anime",
+        panels: [{ id: 1, scene: "Scene 1", dialogue: "Dialogue 1", imagePrompt: "Prompt 1", status: "completed" }],
+      },
+      createdAt: new Date("2026-04-05T00:00:00.000Z"),
+      updatedAt: new Date("2026-04-05T00:00:00.000Z"),
+    });
+    reconcileTaskJobsMock.mockResolvedValue({
+      id: "task-actions",
+      status: "script_ready",
+      progress: 60,
+      queueSummary: {
+        queued: 0,
+        running: 0,
+        paused: 0,
+        failed: 0,
+        attachFailed: 0,
+        completed: 1,
+        calibrationPending: 0,
+      },
+    });
+
+    const { POST } = await import("@/app/api/tasks/[id]/actions/route");
+    const request = new NextRequest("http://localhost:3000/api/tasks/task-actions/actions", {
+      method: "POST",
+      body: JSON.stringify({ action: "reconcile" }),
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ id: "task-actions" }) });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(reconcileTaskJobsMock).toHaveBeenCalledWith("task-actions");
+    expect(enqueueImageQueueMock).not.toHaveBeenCalled();
+    expect(enqueueDeepReviewMock).not.toHaveBeenCalled();
+    expect(body).toEqual(expect.objectContaining({
+      success: true,
+      task: expect.objectContaining({ status: "script_ready" }),
     }));
   });
 
