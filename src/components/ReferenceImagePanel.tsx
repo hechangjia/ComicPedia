@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ReferenceImageEntry, ReferenceGenMode, Character } from "@/lib/types";
+import { persistClientImage } from "@/lib/client/persistedImage";
 import { ChevronRight, Paperclip, Users, Save } from "lucide-react";
 import { Lightbox } from "./ref/RefShared";
 import { RefImageCard } from "./ref/RefImageCard";
@@ -115,6 +116,40 @@ export function ReferenceImagePanel(props: ReferenceImagePanelProps) {
     ? referenceEntries.map(e => e.label)
     : legacyLabels;
   const hasImages = images.length > 0;
+
+  const getEntrySourceImage = (entry: ReferenceImageEntry) => {
+    const activeIndex = entry.activeVersionIndex ?? (entry.versions.length - 1);
+    const activeVersion = entry.versions[activeIndex];
+    if (activeVersion?.imageUrl?.startsWith("data:image")) {
+      return activeVersion.imageUrl;
+    }
+    return entry.imageUrl;
+  };
+
+  const applyPersistedImageUrls = (persisted: Array<{ index: number; url: string }>) => {
+    if (persisted.length === 0) return;
+
+    const persistedMap = new Map(persisted.map((item) => [item.index, item.url]));
+
+    if (onEntriesChange && referenceEntries) {
+      const updated = referenceEntries.map((entry, index) => {
+        const url = persistedMap.get(index);
+        return url ? { ...entry, imageUrl: url } : entry;
+      });
+      onEntriesChange(updated);
+
+      const allImages = updated.map((entry) => entry.imageUrl);
+      if (onImagesChange) onImagesChange(allImages);
+      if (onLabelsChange) onLabelsChange(updated.map((entry) => entry.label));
+      if (allImages.length > 0) onImageChange(allImages[0]);
+      return;
+    }
+
+    const updatedImages = legacyImages.map((img, index) => persistedMap.get(index) ?? img);
+    if (onImagesChange) onImagesChange(updatedImages);
+    if (onLabelsChange) onLabelsChange(legacyLabels);
+    if (updatedImages.length > 0) onImageChange(updatedImages[0]);
+  };
 
   /** 添加图片（支持多选） - 同时更新 entries 和旧字段 */
   const addImages = (newImages: string[], newLabels?: string[]) => {
@@ -248,7 +283,7 @@ export function ReferenceImagePanel(props: ReferenceImagePanelProps) {
     setImg2imgGenerating(true);
     setAiError("");
     try {
-      await onImg2Img(img2imgIndex, entry.imageUrl, img2imgPrompt, img2imgStrength);
+      await onImg2Img(img2imgIndex, getEntrySourceImage(entry), img2imgPrompt, img2imgStrength);
       setImg2imgIndex(null);
     } catch (err) {
       setAiError(err instanceof Error ? err.message : "图生图失败");
@@ -259,21 +294,18 @@ export function ReferenceImagePanel(props: ReferenceImagePanelProps) {
 
   /** 保存参考图到文件系统 */
   const saveToFileSystem = async (base64: string, index: number) => {
-    if (!base64.startsWith("data:image")) return;
+    if (!base64.startsWith("data:image")) return null;
     try {
-      await fetch("/api/save-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          base64Data: base64,
-          type: "reference",
-          refIndex: index,
-          title: title,
-          taskId: title || "reference",
-        }),
+      return await persistClientImage({
+        base64Data: base64,
+        type: "reference",
+        refIndex: index,
+        title,
+        taskId: title || "reference",
       });
     } catch {
       // 非关键操作，静默失败
+      return null;
     }
   };
 
@@ -374,7 +406,7 @@ export function ReferenceImagePanel(props: ReferenceImagePanelProps) {
             onRegenerate={onRegenerateRef ? () => handleRegenerateRef(editingIndex) : undefined}
             regenerating={regeneratingIndex === editingIndex}
             onStartImg2Img={
-              onImg2Img && referenceEntries[editingIndex].imageUrl.startsWith("data:image")
+              onImg2Img && getEntrySourceImage(referenceEntries[editingIndex]).startsWith("data:image")
                 ? () => {
                     setImg2imgIndex(editingIndex);
                     setImg2imgPrompt(editPrompt);
@@ -390,7 +422,7 @@ export function ReferenceImagePanel(props: ReferenceImagePanelProps) {
         {img2imgIndex !== null && referenceEntries?.[img2imgIndex] && onImg2Img && (
           <RefImg2Img
             label={labels[img2imgIndex] || `参考图 ${img2imgIndex + 1}`}
-            sourceImageUrl={referenceEntries[img2imgIndex].imageUrl}
+            sourceImageUrl={getEntrySourceImage(referenceEntries[img2imgIndex])}
             prompt={img2imgPrompt}
             onPromptChange={setImg2imgPrompt}
             strength={img2imgStrength}
@@ -431,7 +463,15 @@ export function ReferenceImagePanel(props: ReferenceImagePanelProps) {
           {hasImages && (
             <button
               onClick={() => {
-                images.forEach((img, i) => saveToFileSystem(img, i));
+                void (async () => {
+                  const persisted = await Promise.all(images.map(async (img, index) => {
+                    const result = await saveToFileSystem(img, index);
+                    return result?.url ? { index, url: result.url } : null;
+                  }));
+                  applyPersistedImageUrls(
+                    persisted.filter((item): item is { index: number; url: string } => item !== null),
+                  );
+                })();
               }}
               className="px-3 py-1.5 text-xs border border-success/20 text-success rounded-lg hover:bg-success/5 transition-colors min-h-[36px] flex items-center gap-1.5"
             >
