@@ -8,9 +8,43 @@ import { registerImage, deleteImagesByPrefix, getImagePath, addToTrash, getTrash
 // ============================================================
 
 const FILE_REF_PREFIX = "file://";
+const API_IMAGE_PREFIX = "/api/images/";
 
 function isBase64Image(url: string | undefined | null): url is string {
   return !!url && url.startsWith("data:image");
+}
+
+function urlToFileRef(value: string): string {
+  if (value.startsWith(FILE_REF_PREFIX)) return value;
+  if (value.startsWith(API_IMAGE_PREFIX)) {
+    const key = decodeURIComponent(value.slice(API_IMAGE_PREFIX.length));
+    return `${FILE_REF_PREFIX}${key}`;
+  }
+  return value;
+}
+
+export function normalizeImageRefsToFileRefs(obj: unknown): unknown {
+  if (typeof obj === "string") {
+    return urlToFileRef(obj);
+  }
+
+  if (obj instanceof Date) {
+    return obj;
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map(normalizeImageRefsToFileRefs);
+  }
+
+  if (obj && typeof obj === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      result[key] = normalizeImageRefsToFileRefs(value);
+    }
+    return result;
+  }
+
+  return obj;
 }
 
 /** 保存单张图片并注册到数据库 */
@@ -69,15 +103,16 @@ function processRefEntries(entries: ReferenceImageEntry[], keyPrefix: string): R
  * 返回替换引用后的副本（不修改原对象）。
  */
 export function extractTaskImages(task: GenerateTask): GenerateTask {
-  if (!task.script?.panels) return task;
+  const normalizedTask = normalizeImageRefsToFileRefs(task) as GenerateTask;
+  if (!normalizedTask.script?.panels) return normalizedTask;
 
   const processed: GenerateTask = {
-    ...task,
+    ...normalizedTask,
     script: {
-      ...task.script,
-      panels: task.script.panels.map((panel, i) => {
+      ...normalizedTask.script,
+      panels: normalizedTask.script.panels.map((panel, i) => {
         const p: ComicPanel = { ...panel };
-        const panelKey = `${task.id}_panel${i}`;
+        const panelKey = `${normalizedTask.id}_panel${i}`;
 
         // 先保存版本历史（权威副本）
         if (p.imageVersions?.length) {
@@ -118,13 +153,13 @@ export function extractTaskImages(task: GenerateTask): GenerateTask {
   // 脚本级参考图
   if (processed.script) {
     if (isBase64Image(processed.script.referenceImage)) {
-      processed.script.referenceImage = persistImage(`${task.id}_sref`, processed.script.referenceImage);
+      processed.script.referenceImage = persistImage(`${normalizedTask.id}_sref`, processed.script.referenceImage);
     }
 
     if (processed.script.referenceImages?.length) {
       processed.script.referenceImages = processed.script.referenceImages.map((img, i) => {
         if (isBase64Image(img)) {
-          return persistImage(`${task.id}_sref${i}`, img);
+          return persistImage(`${normalizedTask.id}_sref${i}`, img);
         }
         return img;
       });
@@ -133,7 +168,7 @@ export function extractTaskImages(task: GenerateTask): GenerateTask {
     if (processed.script.referenceEntries?.length) {
       processed.script.referenceEntries = processRefEntries(
         processed.script.referenceEntries,
-        task.id,
+        normalizedTask.id,
       );
     }
   }
@@ -250,11 +285,12 @@ async function processRefEntriesAsync(entries: ReferenceImageEntry[], keyPrefix:
  * 使用 fs.promises 写入，不阻塞事件循环。
  */
 export async function extractTaskImagesAsync(task: GenerateTask): Promise<GenerateTask> {
-  if (!task.script?.panels) return task;
+  const normalizedTask = normalizeImageRefsToFileRefs(task) as GenerateTask;
+  if (!normalizedTask.script?.panels) return normalizedTask;
 
-  const processedPanels = await Promise.all(task.script.panels.map(async (panel, i) => {
+  const processedPanels = await Promise.all(normalizedTask.script.panels.map(async (panel, i) => {
     const p: ComicPanel = { ...panel };
-    const panelKey = `${task.id}_panel${i}`;
+    const panelKey = `${normalizedTask.id}_panel${i}`;
 
     if (p.imageVersions?.length) {
       p.imageVersions = await processVersionsAsync(p.imageVersions, panelKey);
@@ -286,19 +322,19 @@ export async function extractTaskImagesAsync(task: GenerateTask): Promise<Genera
   }));
 
   const processed: GenerateTask = {
-    ...task,
-    script: { ...task.script, panels: processedPanels },
+    ...normalizedTask,
+    script: { ...normalizedTask.script, panels: processedPanels },
   };
 
   if (processed.script) {
     if (isBase64Image(processed.script.referenceImage)) {
-      processed.script.referenceImage = await persistImageAsync(`${task.id}_sref`, processed.script.referenceImage);
+      processed.script.referenceImage = await persistImageAsync(`${normalizedTask.id}_sref`, processed.script.referenceImage);
     }
 
     if (processed.script.referenceImages?.length) {
       processed.script.referenceImages = await Promise.all(
         processed.script.referenceImages.map(async (img, i) => {
-          if (isBase64Image(img)) return persistImageAsync(`${task.id}_sref${i}`, img);
+          if (isBase64Image(img)) return persistImageAsync(`${normalizedTask.id}_sref${i}`, img);
           return img;
         })
       );
@@ -307,7 +343,7 @@ export async function extractTaskImagesAsync(task: GenerateTask): Promise<Genera
     if (processed.script.referenceEntries?.length) {
       processed.script.referenceEntries = await processRefEntriesAsync(
         processed.script.referenceEntries,
-        task.id,
+        normalizedTask.id,
       );
     }
   }
