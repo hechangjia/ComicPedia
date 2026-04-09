@@ -419,6 +419,8 @@ export type GenerateTaskStatus =
   | "deep_review_running"
   | "deep_review_paused";
 
+export type TaskStateAuthority = "client_local" | "server_durable" | "settled";
+
 export type TaskJobKind = "panel_image" | "deep_review" | "reconcile";
 
 export type TaskJobStatus =
@@ -493,6 +495,7 @@ export interface PipelineStageTrace {
 export interface GenerateTask {
   id: string;
   status: GenerateTaskStatus;
+  stateAuthority?: TaskStateAuthority;
   progress: number; // 0-100
   script?: ComicScript;
   character?: Character; // Store character info if used
