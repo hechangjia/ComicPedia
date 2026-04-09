@@ -22,10 +22,20 @@
   - `accuracy/providers/test`
   - `accuracy/research`
   - `comfyui`
+  - `trash` / `trash/[id]`
+  - `series` / `series/[id]` / `series/[id]/arc-snapshots`
+  - `backup/export` / `backup/import`
+  - `characters` / `characters/[id]`
+  - `migrate` / `migrate/image`
+  - `image` / `proxy-image`
+  - `health` / `models` / `demo/export` / `demo/seed`
+- legacy 清理链可见化：
+  - `public/output` 历史目录现在会被 `scanOrphanImages()` 和 `/api/cleanup/images` 报告与清理
+  - 兼容清理 helper 的受限目录删除调用已修回，`build` 保持通过
 
 ## 当前状态
 - 当前分支仍是 `dev`。
-- 主工作区代码已验证通过；当前未提交内容只剩本 handoff 文档和本地注入的 `AGENTS.md`。
+- 主工作区代码已验证通过；当前未提交内容只剩本地注入的 `AGENTS.md`。
 - 存储收敛、结果页一致性、route 覆盖这一轮都已形成提交链，可以直接在此基础上继续。
 
 ## 关键决策和约束
@@ -60,19 +70,38 @@
 - `src/__tests__/accuracyProviderTestRoute.test.ts`
 - `src/__tests__/accuracyResearchRoute.test.ts`
 - `src/__tests__/comfyuiRoute.test.ts`
+- `src/__tests__/trashRoute.test.ts`
+- `src/__tests__/trashByIdRoute.test.ts`
+- `src/__tests__/seriesRoute.test.ts`
+- `src/__tests__/seriesByIdRoute.test.ts`
+- `src/__tests__/backupExportRoute.test.ts`
+- `src/__tests__/backupImportRoute.test.ts`
+- `src/__tests__/charactersRoute.test.ts`
+- `src/__tests__/characterByIdRoute.test.ts`
+- `src/__tests__/migrateRoute.test.ts`
+- `src/__tests__/migrateImageRoute.test.ts`
+- `src/__tests__/imageApiRoute.test.ts`
+- `src/__tests__/proxyImageRoute.test.ts`
+- `src/__tests__/healthRoute.test.ts`
+- `src/__tests__/modelsRoute.test.ts`
+- `src/__tests__/demoRoutes.test.ts`
+- `src/__tests__/llmStreamRoute.test.ts`
 - `src/__tests__/taskActionsRoute.test.ts`
 - `src/__tests__/taskByIdRoute.test.ts`
 - `src/__tests__/tasksRoute.test.ts`
 
 ## 当前阻塞和风险
 - 目前无直接阻塞。
-- 仍有历史兼容逻辑分布在 `public/output/` 与 `data/images + file://` 双轨保存路径之间，后续值得继续统一。
-- route 覆盖虽然补了关键分支，但 `accuracy/*` 还有更深一层的 provider fallback / timeout / partial-failure 组合场景未锁死。
+- `public/output` 历史目录虽然已纳入清理扫描和 purge API，但中间件对 `/output/` 仍保留兼容放行，是否彻底退场还需单独决策。
+- route 覆盖已经大幅前推，但 `accuracy/*` 仍有更深一层的 provider fallback / timeout / partial-failure 组合场景未锁死。
+- `llm` 非流式路由目前主要由 `llm.test.ts` 间接覆盖，若继续做 route hardening，可以考虑补单独 route 测试。
 
 ## 下次启动优先执行
-1. 审查 `public/output/` 兼容落盘链路，继续把历史输出路径收敛到 `data/images + file://` 主存储模型。
-2. 继续补 API route 覆盖，优先 `accuracy/*` 剩余分支，再看 `series` / `trash` / `backup`。
-3. 如果开始新功能线，优先结果页和生成链路上层功能；不要再回头改已稳定的存储契约，除非有明确回归。
+1. 决定 `public/output` 是否完全退场：
+   - 如果确认不再对外暴露旧静态目录，可移除 middleware 对 `/output/` 的兼容豁免，并评估是否删除 legacy 目录本身。
+2. 继续补 route 覆盖剩余深水区：
+   - 优先 `accuracy/*` fallback/timeout 组合分支，其次单独为 `/api/llm` 做 route 级测试。
+3. 如果切回产品功能线，优先结果页和生成链路上层功能；不要回头改已经稳定的存储契约，除非有明确回归。
 
 ## 当前验证状态
 - 已验证命令：
@@ -83,14 +112,22 @@
   - `pnpm vitest run src/__tests__/accuracyProviderTestRoute.test.ts -v`
   - `pnpm vitest run src/__tests__/accuracyResearchRoute.test.ts -v`
   - `pnpm vitest run src/__tests__/comfyuiRoute.test.ts -v`
+  - `pnpm vitest run src/__tests__/trashRoute.test.ts src/__tests__/trashByIdRoute.test.ts -v`
+  - `pnpm vitest run src/__tests__/seriesRoute.test.ts src/__tests__/seriesByIdRoute.test.ts -v`
+  - `pnpm vitest run src/__tests__/backupExportRoute.test.ts src/__tests__/backupImportRoute.test.ts -v`
+  - `pnpm vitest run src/__tests__/charactersRoute.test.ts src/__tests__/characterByIdRoute.test.ts -v`
+  - `pnpm vitest run src/__tests__/migrateRoute.test.ts src/__tests__/migrateImageRoute.test.ts -v`
+  - `pnpm vitest run src/__tests__/imageApiRoute.test.ts src/__tests__/proxyImageRoute.test.ts -v`
+  - `pnpm vitest run src/__tests__/healthRoute.test.ts src/__tests__/modelsRoute.test.ts src/__tests__/demoRoutes.test.ts -v`
+  - `pnpm vitest run src/__tests__/llmStreamRoute.test.ts -v`
   - `pnpm test`
   - `pnpm lint`
   - `pnpm build`
 - 覆盖结果：
   - 存储收敛回归：8 个 test files，53 个 tests，全部通过。
   - 结果页 / task action / lifecycle 回归：3 个 test files，35 个 tests，全部通过。
-  - 新增 route 覆盖：5 个 test files，27 个 tests，全部通过。
-  - 当前全量测试：82 个 test files 通过、1 跳过；693 个 tests 通过、1 跳过。
+  - 新增 route 覆盖已扩展到 trash / series / backup / characters / migrate / image proxy / system routes / llm-stream。
+  - 当前全量测试：101 个 test files 通过、1 跳过；764 个 tests 通过、1 跳过。
 - lint/build 状态：
   - `pnpm lint` 退出码 `0`，主工作区无额外 warning。
   - `pnpm build` 退出码 `0`。
