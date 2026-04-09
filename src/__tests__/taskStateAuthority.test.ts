@@ -87,7 +87,7 @@ const DEEP_REVIEW_RUNTIME_RESUME_STATUSES = new Set<GenerateTaskStatus>([
   "deep_review_running",
 ]);
 
-const STALE_UPDATED_AT = "2026-04-09T00:00:00.000Z";
+const STALE_UPDATED_AT = new Date("2026-04-09T00:00:00.000Z");
 const STALE_NOW = new Date("2026-04-09T00:06:00.000Z").getTime();
 const FRESH_NOW = new Date("2026-04-09T00:04:00.000Z").getTime();
 type LeavePagePolicy = NonNullable<GenerateTask["presetSnapshot"]>["leavePagePolicy"];
@@ -108,7 +108,7 @@ function createPauseableTask(
 
 function createOffPageTask(
   status: GenerateTaskStatus,
-  updatedAt: GenerateTask["updatedAt"] | string,
+  updatedAt: GenerateTask["updatedAt"],
 ): Pick<GenerateTask, "status" | "updatedAt"> {
   return { status, updatedAt };
 }
@@ -119,6 +119,13 @@ describe("taskStateAuthority", () => {
     for (const [status, expectedAuthority] of AUTHORITY_CASES) {
       expect(getTaskStateAuthority(status)).toBe(expectedAuthority);
     }
+  });
+
+  it("throws for malformed runtime statuses", () => {
+    const getTaskStateAuthorityFromUnknown = getTaskStateAuthority as unknown as (status: string) => TaskStateAuthority;
+    expect(() => getTaskStateAuthorityFromUnknown("malformed_status")).toThrow(
+      "Unknown task status authority mapping: malformed_status",
+    );
   });
 
   it("derives behavior helpers from the exhaustive contract", () => {
