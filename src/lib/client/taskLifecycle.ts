@@ -23,6 +23,7 @@ const traceEnd = traceEndShared;
 
 type TaskActionBody = {
   action: string;
+  imageConfigId?: string;
   imageConfig?: PartialImageGenConfig;
   forceAll?: boolean;
   llmConfig?: PartialLLMConfig;
@@ -216,6 +217,7 @@ export async function changeStyleAndRegenerate(
   taskId: string,
   newStyle: ComicStyle,
   imageConfig?: PartialImageGenConfig,
+  imageConfigId?: string,
 ): Promise<void> {
   const task = await getTask(taskId);
   if (!task?.script) throw new Error("Task or script not found");
@@ -225,7 +227,7 @@ export async function changeStyleAndRegenerate(
 
   const oldStyle = task.script.style;
   if (oldStyle === newStyle) {
-    await generateAllImages(taskId, imageConfig, true);
+    await generateAllImages(taskId, imageConfig, true, undefined, imageConfigId);
     return;
   }
 
@@ -247,7 +249,7 @@ export async function changeStyleAndRegenerate(
   await saveTask(task);
   notifyListeners(task);
 
-  await generateAllImages(taskId, imageConfig, true);
+  await generateAllImages(taskId, imageConfig, true, undefined, imageConfigId);
 }
 
 // ============================================================
@@ -263,10 +265,12 @@ export async function generateAllImages(
   imageConfig?: PartialImageGenConfig,
   forceAll: boolean = false,
   llmConfig?: PartialLLMConfig,
+  imageConfigId?: string,
 ): Promise<void> {
   try {
     await postTaskAction(taskId, {
       action: "generate_all_images",
+      imageConfigId,
       imageConfig,
       forceAll,
       llmConfig,

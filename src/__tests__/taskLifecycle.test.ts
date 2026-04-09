@@ -470,6 +470,47 @@ describe("taskLifecycle automatic visual review", () => {
     expect(evaluateQualityMock).not.toHaveBeenCalled();
   });
 
+  it("includes imageConfigId when posting generate_all_images task actions", async () => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValue(
+      mockJsonResponse({
+        success: true,
+      }),
+    );
+
+    await generateAllImages("task-server-actions", {
+      extraBody: {
+        negative_prompt: "keep details",
+      },
+    }, false, {
+      provider: "openai-compatible",
+      model: "gpt-4o",
+      apiKey: "test-key",
+    }, "img-remote-1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/tasks/task-server-actions/actions",
+      expect.objectContaining({
+        body: JSON.stringify({
+          action: "generate_all_images",
+          imageConfigId: "img-remote-1",
+          imageConfig: {
+            extraBody: {
+              negative_prompt: "keep details",
+            },
+          },
+          forceAll: false,
+          llmConfig: {
+            provider: "openai-compatible",
+            model: "gpt-4o",
+            apiKey: "test-key",
+          },
+        }),
+      }),
+    );
+  });
+
   it("caches unsupported task actions after a 404 and skips the failing POST on later calls", async () => {
     fetchMock.mockReset();
     vi.stubGlobal("fetch", fetchMock);

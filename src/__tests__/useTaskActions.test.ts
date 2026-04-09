@@ -476,6 +476,34 @@ describe("useTaskActions queue helpers", () => {
     });
   });
 
+  it("passes the selected imageConfigId through the legacy retry helper", async () => {
+    const { hook } = renderTaskActionsHook();
+
+    await hook.handleRetryFailed();
+
+    expect(generateAllImagesMock).toHaveBeenCalledWith(
+      "task-actions-queue",
+      { model: "img-1-model", quality: "fine" },
+      false,
+      { model: "llm-1-model", temperature: 0.2 },
+      "img-1",
+    );
+  });
+
+  it("passes the selected imageConfigId when changing style and regenerating", async () => {
+    getTaskMock.mockResolvedValue(makeTask());
+    const { hook } = renderTaskActionsHook();
+
+    await hook.handleChangeStyle("ink");
+
+    expect(changeStyleAndRegenerateMock).toHaveBeenCalledWith(
+      "task-actions-queue",
+      "ink",
+      { model: "img-1-model", quality: "fine" },
+      "img-1",
+    );
+  });
+
   it("posts start_deep_review with the selected VLM config and syncs the returned task snapshot", async () => {
     const returnedTask = makeQueueTask("deep_review_running");
     fetchMock.mockResolvedValueOnce(makeActionResponse({ success: true, task: returnedTask }));

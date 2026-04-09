@@ -452,14 +452,14 @@ export function useTaskActions(
       const imageConfig = getSelectedImageConfig();
       const llmConfig = getSelectedLLMConfig();
       // forceAll=false 只会生成 status !== "completed" 的面板
-      await generateAllImages(taskId, imageConfig, false, llmConfig);
+      await generateAllImages(taskId, imageConfig, false, llmConfig, selectedImageId || undefined);
     } catch (err) {
       console.error("Retry failed panels failed:", err);
       showError(`重试失败: ${err instanceof Error ? err.message : "未知错误"}`);
     } finally {
       setGeneratingAll(false);
     }
-  }, [taskId, showError, getSelectedImageConfig, getSelectedLLMConfig]);
+  }, [taskId, showError, getSelectedImageConfig, getSelectedLLMConfig, selectedImageId]);
 
   const handleQueuePanel = useCallback(async (panelIndex: number) => {
     setGeneratingAll(true);
@@ -657,14 +657,14 @@ export function useTaskActions(
     try {
       await persistDiagnosisInvalidation();
       const imageConfig = getSelectedImageConfig();
-      await changeStyleAndRegenerate(taskId, newStyle, imageConfig);
+      await changeStyleAndRegenerate(taskId, newStyle, imageConfig, selectedImageId || undefined);
     } catch (err) {
       console.error("Style change failed:", err);
       showError(`风格切换失败: ${err instanceof Error ? err.message : "未知错误"}`);
     } finally {
       setGeneratingAll(false);
     }
-  }, [taskId, showError, getSelectedImageConfig, persistDiagnosisInvalidation]);
+  }, [taskId, showError, getSelectedImageConfig, persistDiagnosisInvalidation, selectedImageId]);
 
   // VLM 一键修复：根据 VLM 评分结果重新生成低分面板
   const handleVlmRetry = useCallback(
