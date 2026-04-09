@@ -1,66 +1,96 @@
 # Handoff
 
 ## 当前目标
-- 完成 AI 导演助手 (AI Director Assistant) MVP 功能的设计与实施
-- 提供叙事分析、节奏分析、分镜建议、导演侧边栏等核心功能
+主线基础设施收敛已经完成到“可继续往上做产品功能”的阶段。当前优先级从结果页/存储一致性收尾，转到继续补 API route 覆盖和后续 accuracy / queue 相关高风险边界。
 
-## 今天已完成内容
-- AI 导演助手设计文档：`docs/superpowers/specs/2026-04-05-ai-director-assistant-design.md`
-- AI 导演助手 MVP 实施计划：`docs/superpowers/plans/2026-04-05-ai-director-assistant-mvp.md`
-- 核心模块实现：
-  - `src/lib/directorAgent/types.ts` - 类型定义
-  - `src/lib/directorAgent/analyzer/narrativeAnalyzer.ts` - 叙事分析
-  - `src/lib/directorAgent/analyzer/rhythmAnalyzer.ts` - 节奏分析
-  - `src/lib/directorAgent/analyzer/shotAnalyzer.ts` - 分镜建议
-  - `src/lib/directorAgent/suggestionGenerator.ts` - 建议聚合
-  - `src/lib/directorAgent/visualization.ts` - 可视化数据
-  - `src/lib/directorAgent/index.ts` - 统一导出
-- 前端组件：
-  - `src/components/director/RhythmVisualizer.tsx` - 节奏可视化器
-  - `src/components/result/DirectorSidebar.tsx` - 导演侧边栏
-- 集成：结果页添加「AI 导演」标签页
-- 测试覆盖：5 个测试文件，18 个测试用例，全部通过
-- 提交：`feat(director-agent): add AI director assistant MVP`
+## 本轮已完成内容
+- 完成图片存储路径收敛切片：
+  - `/api/save-image` 改为 canonical `data/images + file://` 契约
+  - `/api/images/...` 在服务端持久化前会规范化回 `file://...`
+  - 客户端图片生成 / VLM retry / 单面板重绘 / 参考图上传统一消费 canonical 返回值
+- 收口结果页与 durable queue 一致性问题：
+  - `selectedImageId -> imageConfigId -> /api/tasks/[id]/actions` 透传链路补齐
+  - Result 页 `viewMode` 抽成纯派生规则，删除 effect 同步 `setState`
+  - 单面板重绘和 client phase 出图都保证“图片先落盘，再持久化任务快照”
+- 修复严格模式下的构建阻塞：
+  - `/api/tasks` DELETE 请求体校验里的 `ids.every(...)` 参数显式标注 `unknown`
+- 清理 lint 噪音：
+  - `eslint.config.mjs` 已忽略 `.worktrees/`，`pnpm lint` 现在只反映主工作区问题
+- 补齐高价值 API route 覆盖：
+  - `relations` / `relations/[id]`
+  - `wikipedia`
+  - `accuracy/providers/test`
+  - `accuracy/research`
+  - `comfyui`
 
-## 当前进行中的内容
-- AI 导演助手 MVP 已完成实施并提交
-- 无进行中的代码工作
-
-## 剩余工作
-- 第 2 期：角色一致性检查（CharacterAnalyzer + CharacterConsistencyPanel）
-- 第 3 期：完整导演工作台（DirectorWorkbench）、伏笔回收、智能续写
-- 可考虑安装 Recharts 替换当前 CSS 简单可视化
-- 可进一步优化叙事分析算法（引入 LLM 增强建议质量）
+## 当前状态
+- 当前分支仍是 `dev`。
+- 主工作区代码已验证通过；当前未提交内容只剩本 handoff 文档和本地注入的 `AGENTS.md`。
+- 存储收敛、结果页一致性、route 覆盖这一轮都已形成提交链，可以直接在此基础上继续。
 
 ## 关键决策和约束
-- 采用被动分析模式，不打断用户创作流，按需触发
-- 模块化架构，各 analyzer 独立实现
-- 分期实现策略，MVP 先行，第 2/3 期后续补充
-- 复用现有 director.ts、qualityScore.ts 等模块
-- 前端集成采用 DetailTabs 标签页方式，不破坏现有布局
-- 可视化采用 CSS 简单实现，避免引入额外依赖（Recharts 可选）
+- durable queue 的远端图片模型动作必须保留 `imageConfigId`，不能只依赖含 secret 的内联 `imageConfig`。
+- `useTaskSubscription` 遇到一次临时空读必须继续轮询，只有确认进入不可恢复失败时才能停。
+- 本地单面板重绘与 client phase 自动出图至少要保证“最终图片状态先落盘，再完成任务快照”，否则 Result 页面刷新会出现状态回退。
+- Result 页的阅读/编辑/播放模式切换要用纯派生规则收敛，不能再靠 effect 同步改 state，否则很容易重新引入 `react-hooks/set-state-in-effect`。
+- 运行时图片持久化的 canonical 模型现在是 `data/images + file://`；`/api/images/...` 仅作为客户端可渲染 URL，不应作为服务端持久化主格式。
+- 继续沿用小步修正，只修真实问题，不顺手重构无关代码。
 
 ## 重要文件路径
-- 设计文档：`docs/superpowers/specs/2026-04-05-ai-director-assistant-design.md`
-- 实施计划：`docs/superpowers/plans/2026-04-05-ai-director-assistant-mvp.md`
-- 核心模块：`src/lib/directorAgent/`
-- 前端组件：`src/components/director/RhythmVisualizer.tsx`
-- 前端组件：`src/components/result/DirectorSidebar.tsx`
-- 集成点：`src/app/result/[id]/page.tsx`
-- 测试文件：`src/__tests__/directorAgent/`
+- `src/app/api/save-image/route.ts`
+- `src/app/api/images/[key]/route.ts`
+- `src/lib/server/imageExtractor.ts`
+- `src/lib/client/persistedImage.ts`
+- `src/app/api/tasks/route.ts`
+- `src/app/result/[id]/page.tsx`
+- `src/app/result/viewMode.ts`
+- `src/hooks/useTaskActions.ts`
+- `src/hooks/useTaskSubscription.ts`
+- `src/lib/client/panelManager.ts`
+- `src/lib/client/phases/imageGen.ts`
+- `src/lib/client/phases/vlm.ts`
+- `src/__tests__/panelManager.test.ts`
+- `src/__tests__/phasePersistence.test.ts`
+- `src/__tests__/resultViewMode.test.ts`
+- `src/__tests__/saveImageRoute.test.ts`
+- `src/__tests__/imageRefNormalization.test.ts`
+- `src/__tests__/relationsRoute.test.ts`
+- `src/__tests__/relationByIdRoute.test.ts`
+- `src/__tests__/wikipediaRoute.test.ts`
+- `src/__tests__/accuracyProviderTestRoute.test.ts`
+- `src/__tests__/accuracyResearchRoute.test.ts`
+- `src/__tests__/comfyuiRoute.test.ts`
+- `src/__tests__/taskActionsRoute.test.ts`
+- `src/__tests__/taskByIdRoute.test.ts`
+- `src/__tests__/tasksRoute.test.ts`
 
 ## 当前阻塞和风险
-- 无硬阻塞
-- 叙事分析和节奏分析当前基于启发式规则，建议质量有提升空间
-- 如需更专业建议，可考虑引入 LLM 调用（但会增加 token 成本）
+- 目前无直接阻塞。
+- 仍有历史兼容逻辑分布在 `public/output/` 与 `data/images + file://` 双轨保存路径之间，后续值得继续统一。
+- route 覆盖虽然补了关键分支，但 `accuracy/*` 还有更深一层的 provider fallback / timeout / partial-failure 组合场景未锁死。
 
-## 下次启动后优先执行的 3 个步骤
-1. 本地验证：启动 `pnpm dev`，在结果页测试「AI 导演」功能
-2. 如需要，安装 Recharts 优化节奏可视化器
-3. 规划第 2 期：角色一致性检查功能
+## 下次启动优先执行
+1. 审查 `public/output/` 兼容落盘链路，继续把历史输出路径收敛到 `data/images + file://` 主存储模型。
+2. 继续补 API route 覆盖，优先 `accuracy/*` 剩余分支，再看 `series` / `trash` / `backup`。
+3. 如果开始新功能线，优先结果页和生成链路上层功能；不要再回头改已稳定的存储契约，除非有明确回归。
 
 ## 当前验证状态
-- 已运行：`pnpm test src/__tests__/directorAgent/ -v` - 18 个测试全部通过
-- 已运行：`pnpm tsc --noEmit` - directorAgent 相关类型通过，其他测试文件有无关类型错误
-- 已提交：所有代码已提交到 dev 分支
-- 等待：本地页面级验证
+- 已验证命令：
+  - `pnpm vitest run src/__tests__/saveImageRoute.test.ts src/__tests__/imageRefNormalization.test.ts src/__tests__/phasePersistence.test.ts src/__tests__/panelManager.test.ts src/__tests__/tasksRoute.test.ts src/__tests__/taskByIdRoute.test.ts src/__tests__/taskActionsRoute.test.ts src/__tests__/exportImport.test.ts -v`
+  - `pnpm vitest run src/__tests__/taskLifecycle.test.ts src/__tests__/useTaskActions.test.ts src/__tests__/resultViewMode.test.ts -v`
+  - `pnpm vitest run src/__tests__/relationsRoute.test.ts src/__tests__/relationByIdRoute.test.ts -v`
+  - `pnpm vitest run src/__tests__/wikipediaRoute.test.ts -v`
+  - `pnpm vitest run src/__tests__/accuracyProviderTestRoute.test.ts -v`
+  - `pnpm vitest run src/__tests__/accuracyResearchRoute.test.ts -v`
+  - `pnpm vitest run src/__tests__/comfyuiRoute.test.ts -v`
+  - `pnpm test`
+  - `pnpm lint`
+  - `pnpm build`
+- 覆盖结果：
+  - 存储收敛回归：8 个 test files，53 个 tests，全部通过。
+  - 结果页 / task action / lifecycle 回归：3 个 test files，35 个 tests，全部通过。
+  - 新增 route 覆盖：5 个 test files，27 个 tests，全部通过。
+  - 当前全量测试：82 个 test files 通过、1 跳过；693 个 tests 通过、1 跳过。
+- lint/build 状态：
+  - `pnpm lint` 退出码 `0`，主工作区无额外 warning。
+  - `pnpm build` 退出码 `0`。
