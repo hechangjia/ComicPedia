@@ -134,10 +134,12 @@ async function maybeEnrichResearchFromWikipedia(
 
 async function runResearchPhase(task: GenerateTask, request: GenerateRequest): Promise<string> {
   let enhancedTopic = request.topic;
+  const qualityLevel = request.quality || "standard";
 
-  const shouldResearch =
+  const canUseTopicResearch =
     (!request.contentType || request.contentType === "science" || request.contentType === "xiaohongshu")
     && !request.wikipediaContent;
+  const shouldResearch = qualityLevel === "fine" && canUseTopicResearch;
 
   if (shouldResearch) {
     try {
@@ -159,7 +161,9 @@ async function runResearchPhase(task: GenerateTask, request: GenerateRequest): P
     }
   }
 
-  const shouldRunAccuracyResearch = request.contentType === "science" || request.contentType === "wikipedia";
+  const shouldRunAccuracyResearch =
+    qualityLevel !== "fast"
+    && (request.contentType === "science" || request.contentType === "wikipedia");
   if (shouldRunAccuracyResearch) {
     try {
       const config = getConfig();
@@ -181,8 +185,7 @@ async function runResearchPhase(task: GenerateTask, request: GenerateRequest): P
     }
   }
 
-  const qualityLevel = request.quality || "standard";
-  if (qualityLevel === "fine" || qualityLevel === "standard") {
+  if (qualityLevel === "fine") {
     traceStart(task, "director");
     try {
       const outline = await generateNarrativeOutline(

@@ -491,7 +491,7 @@ export default function ResultPage() {
         {/* 阅读/编辑模式切换 - 仅在高级模式显示 */}
         {!isSimpleMode && (isCompleted || isScriptReady || isImageQueuePaused || isDeepReviewPaused) && task.script?.panels && (
           <div className="flex justify-center gap-1 p-1 rounded-lg bg-muted/50 w-fit mx-auto no-print">
-            {isScriptReady && (
+            {(isScriptReady || isCompleted) && (
               <button
                 onClick={() => setViewMode("edit")}
                 className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
@@ -732,7 +732,7 @@ export default function ResultPage() {
       {/* 漫画面板 */}
       {task.script?.panels && resolvedViewMode === "play" ? (
         <DynamicPlayer panels={task.script.panels} title={task.script.title} />
-      ) : task.script?.panels && isScriptReady && resolvedViewMode === "edit" ? (
+      ) : task.script?.panels && (isScriptReady || isCompleted) && resolvedViewMode === "edit" ? (
         <ScriptEditor script={task.script} onSave={handleScriptEditorSave} />
       ) : task.script?.panels && (
         <PanelGrid

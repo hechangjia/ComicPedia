@@ -59,6 +59,23 @@ const FLAT_EXPLANATION_PATTERNS = [
 ];
 const HOOK_DIALOGUE_PATTERNS = ["为什么", "怎么会", "竟然", "突然", "却", "?", "？"];
 const EXPLANATION_IMAGE_PATTERNS = ["teacher explaining", "explaining at", "lecturer", "podium", "blackboard"];
+const SCENE_MOTIF_FAMILIES: Array<{ key: string; label: string; keywords: string[] }> = [
+  {
+    key: "battle",
+    label: "战场/交战",
+    keywords: ["战场", "交战", "厮杀", "冲锋", "军阵", "两军", "兵戈", "刀兵", "warfare", "battlefield", "armies", "clashing", "soldiers charging"],
+  },
+  {
+    key: "lecture",
+    label: "讲解/说理",
+    keywords: ["讲解", "解释", "介绍", "课堂", "老师", "黑板", "explaining", "lecture", "classroom", "blackboard"],
+  },
+  {
+    key: "diagram",
+    label: "图示/机制",
+    keywords: ["示意图", "流程", "机制", "图解", "diagram", "process", "flowchart", "schematic", "mechanism"],
+  },
+];
 
 /**
  * 校验脚本质量，返回结构化校验结果。
@@ -444,6 +461,39 @@ function checkNarrativeRepetition(script: ComicScript, warnings: ScriptWarning[]
       }
     }
   }
+
+  const motifHits = panels
+    .map((panel, index) => ({
+      index,
+      family: detectSceneMotifFamily(`${panel.scene} ${panel.dialogue} ${panel.imagePrompt}`),
+    }))
+    .filter((item): item is { index: number; family: { key: string; label: string; keywords: string[] } } => item.family !== null);
+
+  const families = new Map<string, { label: string; indices: number[] }>();
+  for (const hit of motifHits) {
+    const existing = families.get(hit.family.key);
+    if (existing) {
+      existing.indices.push(hit.index);
+    } else {
+      families.set(hit.family.key, {
+        label: hit.family.label,
+        indices: [hit.index],
+      });
+    }
+  }
+
+  for (const family of families.values()) {
+    if (family.indices.length >= Math.ceil(panels.length * 0.6) && panels.length >= 4) {
+      warnings.push({
+        severity: "warning",
+        dimension: "narrative",
+        panelIndices: family.indices,
+        message: `场景语义重复，超过半数面板停留在同一类场景（${family.label}）`,
+        suggestion: "把相邻面板拆成不同功能场景，例如铺垫、谋划、特写、转折、余波，而不是只换镜头继续停留在同一空间里",
+      });
+      break;
+    }
+  }
 }
 
 /**
@@ -470,6 +520,16 @@ function getBigrams(text: string): Set<string> {
     s.add(normalized.slice(i, i + 2));
   }
   return s;
+}
+
+function detectSceneMotifFamily(text: string): { key: string; label: string; keywords: string[] } | null {
+  const normalized = text.toLowerCase();
+  for (const family of SCENE_MOTIF_FAMILIES) {
+    if (family.keywords.some((keyword) => normalized.includes(keyword.toLowerCase()))) {
+      return family;
+    }
+  }
+  return null;
 }
 
 /**

@@ -17,11 +17,13 @@ export interface ResearchResult {
  */
 export async function runResearchPhase(task: GenerateTask, request: GenerateRequest): Promise<ResearchResult> {
   let enhancedTopic = request.topic;
+  const qualityLevel = request.quality || "standard";
 
   // ── Phase 0: Topic Research ──
-  const shouldResearch =
+  const canUseTopicResearch =
     (!request.contentType || request.contentType === "science" || request.contentType === "xiaohongshu")
     && !request.wikipediaContent;
+  const shouldResearch = qualityLevel === "fine" && canUseTopicResearch;
 
   if (shouldResearch) {
     try {
@@ -88,8 +90,9 @@ export async function runResearchPhase(task: GenerateTask, request: GenerateRequ
   }
 
   // ── Phase 0.5: Accuracy Research ──
-  const qualityLevel = request.quality || "standard";
-  const shouldRunAccuracyResearch = request.contentType === "science" || request.contentType === "wikipedia";
+  const shouldRunAccuracyResearch =
+    qualityLevel !== "fast"
+    && (request.contentType === "science" || request.contentType === "wikipedia");
 
   if (shouldRunAccuracyResearch) {
     try {
@@ -117,7 +120,7 @@ export async function runResearchPhase(task: GenerateTask, request: GenerateRequ
   }
 
   // ── Phase 0.7: Director Outline ──
-  if (qualityLevel === "fine" || qualityLevel === "standard") {
+  if (qualityLevel === "fine") {
     traceStart(task, "director");
     try {
       task.streamText = "正在规划叙事大纲...";

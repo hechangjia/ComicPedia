@@ -875,7 +875,7 @@ describe("page navigation render", () => {
     expect(html).not.toContain("参考图（可选，支持多张）");
   });
 
-  it("does not expose edit mode toggle after completion", () => {
+  it("keeps edit mode toggle available after completion", () => {
     useTaskSubscriptionMock.mockReturnValue({
       task: makeHistoryTask({
         status: "completed",
@@ -901,7 +901,7 @@ describe("page navigation render", () => {
 
     const html = renderToStaticMarkup(React.createElement(ResultPage));
 
-    expect(html).not.toContain("编辑模式");
+    expect(html).toContain("编辑模式");
     expect(html).toContain("阅读模式");
     expect(html).toContain("播放模式");
   });
@@ -971,5 +971,36 @@ describe("page navigation render", () => {
 
     expect(html).toContain("阅读模式</button>");
     expect(html).toContain("bg-background shadow-sm text-foreground\">阅读模式");
+  });
+
+  it("keeps edit mode available for completed tasks so finished comics can still be revised", () => {
+    useTaskSubscriptionMock.mockReturnValue({
+      task: makeHistoryTask({
+        status: "completed",
+        script: {
+          title: "已完成漫画",
+          topic: "完成主题",
+          style: "flat",
+          panels: [
+            {
+              id: 1,
+              scene: "完成场景一",
+              dialogue: "完成对白一",
+              imagePrompt: "done prompt 1",
+              status: "completed",
+              imageUrl: "file://done-panel-1",
+            },
+          ],
+        },
+      }),
+      setTask: vi.fn(),
+      error: "",
+    });
+
+    const html = renderToStaticMarkup(React.createElement(ResultPage));
+
+    expect(html).toContain("编辑模式");
+    expect(html).toContain("阅读模式");
+    expect(html).toContain("播放模式");
   });
 });

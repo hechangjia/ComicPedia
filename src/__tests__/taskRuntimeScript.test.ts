@@ -325,7 +325,7 @@ describe("runResearchAndScriptTask", () => {
     getWikipediaSummaryMock.mockReset();
   });
 
-  it("runs research and script generation to script_ready for a durable task", async () => {
+  it("runs the full research pipeline only for fine quality durable tasks", async () => {
     let persistedTask: GenerateTask = {
       id: "task-runtime-1",
       status: "created",
@@ -333,7 +333,7 @@ describe("runResearchAndScriptTask", () => {
       createdAt: new Date("2026-04-01T00:00:00.000Z"),
       updatedAt: new Date("2026-04-01T00:00:00.000Z"),
     };
-    const requestPayload = makeRequest();
+    const requestPayload = makeRequest({ quality: "fine" });
 
     getTaskByIdMock.mockImplementation((id: string) => (id === persistedTask.id ? persistedTask : null));
     upsertTaskMock.mockImplementation((task: GenerateTask) => {
@@ -470,8 +470,102 @@ describe("runResearchAndScriptTask", () => {
     expect(persistedTask.generationConfig).toMatchObject({
       llmModel: "gpt-4o",
       llmProvider: "openai-compatible",
-      quality: "standard",
+      quality: "fine",
       characterIds: ["char-1"],
+    });
+  });
+
+  it("skips topic research and director outline for standard quality while keeping accuracy research for science tasks", async () => {
+    let persistedTask: GenerateTask = {
+      id: "task-runtime-2",
+      status: "created",
+      progress: 0,
+      createdAt: new Date("2026-04-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-04-01T00:00:00.000Z"),
+    };
+    const requestPayload = makeRequest({ quality: "standard" });
+
+    getTaskByIdMock.mockImplementation((id: string) => (id === persistedTask.id ? persistedTask : null));
+    upsertTaskMock.mockImplementation((task: GenerateTask) => {
+      persistedTask = task;
+    });
+    getCharacterByIdMock.mockReturnValue(makeCharacter());
+    getAllRelationsMock.mockReturnValue([]);
+    getSeriesByIdMock.mockReturnValue(null);
+    getEpisodeArcSnapshotsMock.mockReturnValue([]);
+    getConfigMock.mockReturnValue({
+      accuracyConfig: {
+        providers: [],
+        whitelistDomains: [],
+      },
+    });
+    runAccuracyResearchMock.mockResolvedValue({
+      factPack: {
+        topic: requestPayload.topic,
+        queryPlan: {
+          hardFactQueries: [requestPayload.topic],
+          softFactQueries: [`${requestPayload.topic} overview`],
+          fallbackUsed: false,
+        },
+        hardFacts: [],
+        softFacts: [],
+        sourceEntries: [],
+        coverageGaps: [],
+        confidenceSummary: {
+          hardFactCoverage: 0,
+          softFactCoverage: 0,
+          overallRisk: "low",
+        },
+        recommendedNarrativeAngles: [],
+      },
+      researchBrief: {
+        verifiedHardFactCount: 0,
+        sourceTiersUsed: [],
+        majorRisks: [],
+        safeToGenerate: true,
+      },
+    });
+    generateScriptStreamMock.mockResolvedValue(makeGeneratedScript());
+    generateScriptMock.mockResolvedValue(makeGeneratedScript());
+    validateScriptMock.mockReturnValue({
+      passed: true,
+      characterConsistency: true,
+      compositionVariety: true,
+      styleAlignment: true,
+      languagePurity: true,
+      warnings: [],
+    });
+    reviewPanelClaimsMock.mockReturnValue({
+      status: "passed",
+      blockingIssueCount: 0,
+      repairableIssueCount: 0,
+      panelClaims: [],
+      panels: [],
+      sourceCoverage: { anchor: true, whitelist: false, open_web: false },
+    });
+    repairScriptMock.mockResolvedValue(null);
+    repairAccuracyIssuesMock.mockResolvedValue(null);
+    searchWikipediaMock.mockResolvedValue([]);
+    getWikipediaSummaryMock.mockResolvedValue(null);
+    applyCanonicalCharacterDescMock.mockImplementation(() => {});
+
+    const { runResearchAndScriptTask } = await import("@/lib/server/taskOrchestrator/scriptRunner");
+    await runResearchAndScriptTask(persistedTask.id, requestPayload);
+
+    expect(generateTopicResearchMock).not.toHaveBeenCalled();
+    expect(generateNarrativeOutlineMock).not.toHaveBeenCalled();
+    expect(runAccuracyResearchMock).toHaveBeenCalledWith({
+      topic: requestPayload.topic,
+      contentType: requestPayload.contentType,
+      wikipediaContent: requestPayload.wikipediaContent,
+      accuracyConfig: {
+        providers: [],
+        whitelistDomains: [],
+      },
+    });
+    expect(persistedTask.status).toBe("script_ready");
+    expect(persistedTask.generationConfig).toMatchObject({
+      quality: "standard",
     });
   });
 });

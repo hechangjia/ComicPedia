@@ -12,10 +12,10 @@ describe("result view mode", () => {
     expect(getDefaultResultViewMode("completed")).toBe("read");
   });
 
-  it("coerces edit mode back to read for non-editable task states", () => {
+  it("coerces edit mode back to read only for paused task states", () => {
     expect(resolveResultViewMode("edit", "image_queue_paused")).toBe("read");
     expect(resolveResultViewMode("edit", "deep_review_paused")).toBe("read");
-    expect(resolveResultViewMode("edit", "completed")).toBe("read");
+    expect(resolveResultViewMode("edit", "completed")).toBe("edit");
   });
 
   it("preserves play mode for paused and completed tasks", () => {

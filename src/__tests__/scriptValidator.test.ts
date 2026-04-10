@@ -152,6 +152,19 @@ describe("validateScript", () => {
     expect(narWarning).toBeDefined();
   });
 
+  it("warns when too many panels collapse into the same battle-scene family", () => {
+    const result = validateScript(makeScript({
+      panels: [
+        { id: 1, scene: "两军在战场上列阵对峙", dialogue: "涿鹿大战即将开始。", imagePrompt: "wide shot battlefield armies facing off", status: "completed" },
+        { id: 2, scene: "黄帝军与蚩尤军在战场上正面厮杀", dialogue: "双方在战场中央激烈交战。", imagePrompt: "dynamic angle battlefield warriors charging", status: "completed" },
+        { id: 3, scene: "战场烟尘四起，士兵继续冲锋", dialogue: "战场局势陷入胶着。", imagePrompt: "close-up battlefield dust and soldiers clashing", status: "completed" },
+        { id: 4, scene: "战场上风云突变，黄帝观察局势", dialogue: "黄帝需要新的策略。", imagePrompt: "medium shot battlefield commander reviewing chaos", status: "completed" },
+      ],
+    }));
+
+    expect(result.warnings.some((w) => w.dimension === "narrative" && w.message.includes("场景语义重复"))).toBe(true);
+  });
+
   it("detects character inconsistency", () => {
     const result = validateScript(makeScript({
       characterDescription: "A young girl",
