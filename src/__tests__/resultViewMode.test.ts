@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   getDefaultResultViewMode,
+  getResultContentSurface,
   resolveResultViewMode,
 } from "@/app/result/viewMode";
 
@@ -22,5 +23,13 @@ describe("result view mode", () => {
     expect(resolveResultViewMode("play", "image_queue_paused")).toBe("play");
     expect(resolveResultViewMode("play", "deep_review_paused")).toBe("play");
     expect(resolveResultViewMode("play", "completed")).toBe("play");
+  });
+
+  it("routes completed edit mode to panel quick edit while script_ready keeps script editor", () => {
+    expect(getResultContentSurface("edit", "completed")).toBe("panel-grid");
+    expect(getResultContentSurface("edit", "script_ready")).toBe("script-editor");
+    expect(getResultContentSurface("read", "completed")).toBe("panel-grid");
+    expect(getResultContentSurface("play", "completed")).toBe("play");
+    expect(getResultContentSurface("edit", "image_queue_paused")).toBe("panel-grid");
   });
 });

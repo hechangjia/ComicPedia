@@ -15,6 +15,7 @@ interface EditablePanelProps {
   index: number;
   taskId: string;
   taskStatus: GenerateTask["status"];
+  defaultEditing?: boolean;
   /** 全局风格（风格混搭用） */
   globalStyle?: ComicStyle;
   /** 完整脚本（AI 编辑助手需要上下文） */
@@ -32,6 +33,7 @@ function arePropsEqual(prev: EditablePanelProps, next: EditablePanelProps): bool
   if (prev.index !== next.index) return false;
   if (prev.taskId !== next.taskId) return false;
   if (prev.taskStatus !== next.taskStatus) return false;
+  if (prev.defaultEditing !== next.defaultEditing) return false;
   // Compare panel fields that actually affect rendering
   const pp = prev.panel;
   const np = next.panel;
@@ -54,6 +56,7 @@ export const EditablePanel = memo(function EditablePanel({
   index,
   taskId,
   taskStatus,
+  defaultEditing = false,
   globalStyle,
   script,
   llmConfig,
@@ -62,7 +65,7 @@ export const EditablePanel = memo(function EditablePanel({
   onCancel,
   onVersionChange,
 }: EditablePanelProps) {
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(defaultEditing);
 
   // Undo/Redo 支持的编辑状态
   const {
@@ -123,7 +126,8 @@ export const EditablePanel = memo(function EditablePanel({
   };
 
   const isScriptReady = taskStatus === "script_ready";
-  const canEdit = isScriptReady;
+  const isCompleted = taskStatus === "completed";
+  const canEdit = isScriptReady || isCompleted;
   const isRegenerating = panel.status === "generating";
   const hasImage = panel.status === "completed" && panel.imageUrl && !panel.imageUrl.startsWith("data:text/plain");
 

@@ -1,6 +1,7 @@
 import type { GenerateTaskStatus } from "@/lib/types";
 
 export type ResultViewMode = "edit" | "read" | "play";
+export type ResultContentSurface = "play" | "script-editor" | "panel-grid";
 
 const DEFAULT_READ_RESULT_STATUSES = new Set<GenerateTaskStatus>([
   "completed",
@@ -30,4 +31,19 @@ export function resolveResultViewMode(
   }
 
   return "edit";
+}
+
+export function getResultContentSurface(
+  viewMode: ResultViewMode,
+  status: GenerateTaskStatus | undefined,
+): ResultContentSurface {
+  if (viewMode === "play") {
+    return "play";
+  }
+
+  if (viewMode === "edit" && status === "script_ready") {
+    return "script-editor";
+  }
+
+  return "panel-grid";
 }

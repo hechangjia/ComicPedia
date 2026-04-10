@@ -971,6 +971,7 @@ describe("page navigation render", () => {
 
     expect(html).toContain("阅读模式</button>");
     expect(html).toContain("bg-background shadow-sm text-foreground\">阅读模式");
+    expect(html).not.toContain("确认修改");
   });
 
   it("keeps edit mode available for completed tasks so finished comics can still be revised", () => {

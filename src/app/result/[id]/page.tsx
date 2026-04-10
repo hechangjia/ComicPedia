@@ -29,7 +29,7 @@ import { DetailTabs } from "@/components/result/DetailTabs";
 import { StickyActionBar } from "@/components/result/StickyActionBar";
 import { ScriptEditor } from "@/components/editor/ScriptEditor";
 import { DirectorSidebar } from "@/components/result/DirectorSidebar";
-import { getDefaultResultViewMode, resolveResultViewMode } from "@/app/result/viewMode";
+import { getDefaultResultViewMode, getResultContentSurface, resolveResultViewMode } from "@/app/result/viewMode";
 import "@/app/result/print.css";
 import { resolveResultBackHref } from "@/app/history/historyNavigation";
 import { AlertTriangle, ChevronLeft, RefreshCw, X, Settings, Sparkles } from "lucide-react";
@@ -124,6 +124,7 @@ export default function ResultPage() {
   const [selectedPanelIds, setSelectedPanelIds] = useState<number[]>([]);
   const taskPanels = task?.script?.panels;
   const resolvedViewMode = resolveResultViewMode(viewMode, task?.status);
+  const resultContentSurface = getResultContentSurface(resolvedViewMode, task?.status);
 
   const handleResumePausedTask = useCallback(async () => {
     if (task?.status === "image_queue_paused" || task?.status === "deep_review_paused") {
@@ -730,9 +731,9 @@ export default function ResultPage() {
       )}
 
       {/* 漫画面板 */}
-      {task.script?.panels && resolvedViewMode === "play" ? (
+      {task.script?.panels && resultContentSurface === "play" ? (
         <DynamicPlayer panels={task.script.panels} title={task.script.title} />
-      ) : task.script?.panels && (isScriptReady || isCompleted) && resolvedViewMode === "edit" ? (
+      ) : task.script?.panels && resultContentSurface === "script-editor" ? (
         <ScriptEditor script={task.script} onSave={handleScriptEditorSave} />
       ) : task.script?.panels && (
         <PanelGrid
@@ -741,6 +742,7 @@ export default function ResultPage() {
           taskId={taskId}
           taskStatus={task.status}
           viewMode={resolvedViewMode === "read" ? "read" : "edit"}
+          defaultEditing={isCompleted && resolvedViewMode === "edit"}
           globalStyle={task.script.style}
           script={task.script}
           llmConfig={selectedLLMConfig}

@@ -26,6 +26,7 @@ interface PanelGridProps {
   taskId: string;
   taskStatus: GenerateTask["status"];
   viewMode: "edit" | "read";
+  defaultEditing?: boolean;
   globalStyle?: ComicStyle;
   script?: ComicScript;
   llmConfig?: PartialLLMConfig;
@@ -85,6 +86,7 @@ export function PanelGrid({
   taskId,
   taskStatus,
   viewMode,
+  defaultEditing = false,
   globalStyle,
   script,
   llmConfig,
@@ -244,6 +246,7 @@ export function PanelGrid({
                   index={index}
                   taskId={taskId}
                   taskStatus={taskStatus}
+                  defaultEditing={defaultEditing}
                   globalStyle={globalStyle}
                   script={script}
                   llmConfig={llmConfig}
