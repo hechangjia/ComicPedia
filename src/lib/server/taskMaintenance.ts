@@ -60,8 +60,14 @@ function classifyTask(task: GenerateTask): { bucket: "autoDelete" | "manualRevie
     return { bucket: "autoDelete", reason: "completed task has no script payload" };
   }
 
-  if (/^Episode \d+$/i.test(title) && topic === "Test") {
-    return { bucket: "autoDelete", reason: "Episode/Test fixture record" };
+  // Episode N (with or without suffix) + topic is "Test" or empty
+  if (/^Episode \d+/i.test(title) && (!topic || /^test$/i.test(topic))) {
+    return { bucket: "autoDelete", reason: "Episode fixture record" };
+  }
+
+  // Bare "Test" title or topic-only "Test"
+  if (/^test$/i.test(title) || (/^test$/i.test(topic) && !title)) {
+    return { bucket: "autoDelete", reason: "Test fixture record" };
   }
 
   if (!title && task.status === "completed") {

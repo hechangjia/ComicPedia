@@ -175,7 +175,13 @@ const TASK_ORIGIN_SQL = `
   CASE
     WHEN json_extract(metadata, '$.origin') IS NOT NULL THEN json_extract(metadata, '$.origin')
     WHEN id LIKE 'arc_test_%' THEN 'test'
-    WHEN json_extract(script, '$.topic') = 'Test' AND json_extract(script, '$.title') LIKE 'Episode %' THEN 'test'
+    WHEN json_extract(script, '$.title') LIKE 'Episode %'
+      AND (json_extract(script, '$.topic') IS NULL OR json_extract(script, '$.topic') = '' OR LOWER(json_extract(script, '$.topic')) = 'test')
+      THEN 'test'
+    WHEN LOWER(json_extract(script, '$.title')) = 'test' THEN 'test'
+    WHEN LOWER(json_extract(script, '$.topic')) = 'test'
+      AND (json_extract(script, '$.title') IS NULL OR json_extract(script, '$.title') = '')
+      THEN 'test'
     ELSE 'user'
   END
 `;

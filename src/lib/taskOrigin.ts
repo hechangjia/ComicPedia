@@ -33,8 +33,20 @@ export function inferTaskOrigin(task: {
     return "test";
   }
 
-  if (/^Episode \d+$/i.test(title) && topic === "Test") {
+  // Episode N / Episode N - xxx with topic "Test" or empty topic
+  if (/^Episode \d+/i.test(title) && (!topic || /^test$/i.test(topic))) {
     return "test";
+  }
+
+  // Bare "Test" title or topic
+  if (/^test$/i.test(title) || (/^test$/i.test(topic) && !title)) {
+    return "test";
+  }
+
+  // Tasks with no script at all (zombie / fixture leftovers)
+  if (!task.script?.title && !task.script?.topic) {
+    // Only flag as test if id looks auto-generated (UUID-like but not user-created)
+    // Leave genuinely empty user tasks alone
   }
 
   return DEFAULT_TASK_ORIGIN;
