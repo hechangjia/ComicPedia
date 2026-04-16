@@ -9,8 +9,8 @@ function makeTask(id: string, origin?: GenerateTask["origin"]): GenerateTask {
     status: "completed",
     progress: 100,
     script: {
-      title: "Origin Task",
-      topic: "Topic",
+      title: "Legacy Task",
+      topic: "Some Topic",
       style: "flat",
       panels: [],
     },
@@ -21,7 +21,7 @@ function makeTask(id: string, origin?: GenerateTask["origin"]): GenerateTask {
 
 describe("task origin persistence", () => {
   it("defaults legacy tasks to user origin when origin is omitted", () => {
-    const id = `origin-default-${Date.now()}`;
+    const id = `legacy-task-${Date.now()}`;
     upsertTask(makeTask(id));
 
     const task = getTaskById(id);
@@ -30,7 +30,7 @@ describe("task origin persistence", () => {
   });
 
   it("round-trips explicit test origin through metadata", () => {
-    const id = `origin-explicit-${Date.now()}`;
+    const id = `test-origin-${Date.now()}`;
     upsertTask(makeTask(id, "test"));
 
     const task = getTaskById(id);

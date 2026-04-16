@@ -56,11 +56,16 @@ function classifyTask(task: GenerateTask): { bucket: "autoDelete" | "manualRevie
     return { bucket: "autoDelete", reason: "id matches arc_test_* fixture" };
   }
 
+  // origin-explicit-* / origin-default-* fixture IDs
+  if (/^origin-(explicit|default)-/i.test(task.id)) {
+    return { bucket: "autoDelete", reason: "id matches origin-* fixture" };
+  }
+
   if (task.status === "completed" && !task.script) {
     return { bucket: "autoDelete", reason: "completed task has no script payload" };
   }
 
-  // Episode N (with or without suffix) + topic is "Test" or empty
+  // Episode N (any suffix) + topic is "Test" or empty
   if (/^Episode \d+/i.test(title) && (!topic || /^test$/i.test(topic))) {
     return { bucket: "autoDelete", reason: "Episode fixture record" };
   }
@@ -68,6 +73,11 @@ function classifyTask(task: GenerateTask): { bucket: "autoDelete" | "manualRevie
   // Bare "Test" title or topic-only "Test"
   if (/^test$/i.test(title) || (/^test$/i.test(topic) && !title)) {
     return { bucket: "autoDelete", reason: "Test fixture record" };
+  }
+
+  // "Origin Task" fixture records
+  if (/^Origin Task$/i.test(title)) {
+    return { bucket: "autoDelete", reason: "Origin Task fixture record" };
   }
 
   if (!title && task.status === "completed") {
