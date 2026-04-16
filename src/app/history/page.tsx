@@ -1,178 +1,37 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback, memo } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import Link from "next/link";
-import { getAllComics, deleteComic, clearAllComics, saveTask } from "@/lib/client/db";
+import { useRouter, useSearchParams } from "next/navigation";
+import { getComicSummaries, getTask, deleteComic, clearAllComics, saveTask, deleteComicsByIds } from "@/lib/client/db";
 import { useListCache } from "@/stores/listCache";
 import { recoverZombieTask } from "@/lib/client/generator";
-import { GenerateTask, ComicStyle } from "@/lib/types";
-import { STYLE_DESCRIPTIONS } from "@/lib/config/styles";
+import { reconcileTaskLifecycle, shouldAttemptOffPageReconcile } from "@/hooks/useTaskPageLifecycle";
+import { GenerateTask, TaskListItem } from "@/lib/types";
 import { exportTasksAsZip, importDataFromFile } from "@/lib/exportImport";
-import { formatDate } from "@/lib/utils";
 import type { ExportProgress } from "@/lib/exportImport";
 import { StorageIndicator } from "@/components/StorageIndicator";
 import { Spinner } from "@/components/ui/Spinner";
+import { HistoryCard } from "@/components/history/HistoryCard";
+import { TrashPanel } from "@/components/history/TrashPanel";
+import { buildHistoryOverview, filterHistoryItems, type HistoryFilterId } from "./historyCardStatus";
+import { parseHistoryFilter } from "./historyNavigation";
+import { ChevronLeft, Clock, Download, Trash2, Upload } from "lucide-react";
 
-/** 从 STYLE_DESCRIPTIONS 提取简短中文名称 */
-const styleNames: Record<string, string> = Object.fromEntries(
-  (Object.keys(STYLE_DESCRIPTIONS) as ComicStyle[]).map((key) => [
-    key,
-    STYLE_DESCRIPTIONS[key].split("，")[0].replace(/风格$/, ""),
-  ])
-);
-
-interface HistoryCardProps {
-  item: GenerateTask;
-  exportMode: boolean;
-  isSelected: boolean;
-  onToggleSelect: (id: string) => void;
-  onRemove: (id: string) => void;
-}
-
-const REVIEW_BADGE_STYLES: Record<string, string> = {
-  reviewed: "bg-emerald-100/90 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400",
-  needs_repair: "bg-amber-100/90 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400",
-};
-
-function ReviewBadge({ item }: { item: GenerateTask }) {
-  if (item.status !== "completed") return null;
-  const rs = item.reviewStatus;
-  if (!rs || rs === "unreviewed") return null;
-  const score = item.visualQualityScore?.overall;
-  const repairCount = item.visualQualityScore?.retryRecommendations?.length ?? 0;
-  const label = rs === "reviewed"
-    ? `已评审${score ? ` ${Math.round(score * 10) / 10}` : ""}`
-    : `待修复${repairCount > 0 ? ` (${repairCount})` : ""}`;
-  return (
-    <span className={`px-1.5 py-0.5 text-[10px] rounded-full ${REVIEW_BADGE_STYLES[rs]}`}>
-      {label}
-    </span>
-  );
-}
-
-const HistoryCard = memo(function HistoryCard({
-  item,
-  exportMode,
-  isSelected,
-  onToggleSelect,
-  onRemove,
-}: HistoryCardProps) {
-  return (
-    <div
-      className={`rounded-xl border overflow-hidden bg-card transition-shadow group ${
-        exportMode ? "cursor-pointer" : "hover:shadow-lg"
-      } ${exportMode && isSelected ? "ring-2 ring-primary" : ""}`}
-      onClick={exportMode ? () => onToggleSelect(item.id) : undefined}
-    >
-      {/* 缩略图 */}
-      <div className="aspect-video bg-muted relative">
-        {item.script?.panels[0]?.imageUrl ? (
-          <>
-            <img
-              src={item.script.panels[0].imageUrl}
-              alt={item.script.title || "漫画缩略图"}
-              className="w-full h-full object-cover"
-              loading="lazy"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
-          </>
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
-            <svg className="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-          </div>
-        )}
-        {/* 选中复选框 */}
-        {exportMode && (
-          <div className="absolute top-2 left-2">
-            <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
-              isSelected
-                ? "bg-primary border-primary text-primary-foreground"
-                : "border-white/80 bg-black/30"
-            }`}>
-              {isSelected && (
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
-              )}
-            </div>
-          </div>
-        )}
-        {/* 状态标签 */}
-        <div
-          className={`absolute top-2 right-2 px-2 py-0.5 text-xs rounded-full ${
-            item.status === "completed"
-              ? "bg-green-500/90 text-white"
-              : item.status === "script_ready"
-              ? "bg-blue-500/90 text-white"
-              : item.status === "generating" || item.status === "scripting" || item.status === "pending"
-              ? "bg-yellow-500/90 text-white"
-              : "bg-red-500/90 text-white"
-          }`}
-        >
-          {item.status === "completed" ? "已完成"
-            : item.status === "script_ready" ? "待生成"
-            : item.status === "generating" ? "生成中"
-            : item.status === "scripting" ? "脚本生成中"
-            : item.status === "pending" ? "等待中"
-            : "失败"}
-        </div>
-        {/* 删除按钮 - 导出模式下隐藏 */}
-        {!exportMode && (
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              if (confirm(`确定删除「${item.script?.title || "无标题"}」？`)) {
-                onRemove(item.id);
-              }
-            }}
-            className="absolute top-2 left-2 w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center sm:opacity-0 sm:group-hover:opacity-100 transition-opacity hover:bg-black/70"
-            title="删除"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        )}
-      </div>
-
-      {/* 信息区 */}
-      {exportMode ? (
-        <div className="p-3 space-y-1">
-          <h3 className="font-medium truncate">{item.script?.title || "无标题"}</h3>
-          <p className="text-sm text-muted-foreground truncate">{item.script?.topic || "未知主题"}</p>
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{item.script?.style ? (styleNames[item.script.style] || item.script.style) : "未知风格"}</span>
-            <span>{item.script?.panels?.length || 0} 格</span>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {formatDate(item.createdAt, { style: "datetime" })}
-          </p>
-        </div>
-      ) : (
-        <Link href={`/result/${item.id}`} className="block p-3 space-y-1">
-          <div className="flex items-center gap-1.5">
-            <h3 className="font-medium truncate flex-1">{item.script?.title || "无标题"}</h3>
-            <ReviewBadge item={item} />
-          </div>
-          <p className="text-sm text-muted-foreground truncate">{item.script?.topic || "未知主题"}</p>
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{item.script?.style ? (styleNames[item.script.style] || item.script.style) : "未知风格"}</span>
-            <span>{item.script?.panels?.length || 0} 格</span>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {formatDate(item.createdAt, { style: "datetime" })}
-          </p>
-        </Link>
-      )}
-    </div>
-  );
-});
 
 export default function HistoryPage() {
-  const { getTasks, setTasks, invalidateTasks } = useListCache();
-  const [history, setHistory] = useState<GenerateTask[]>(() => getTasks()?.items ?? []);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState<"history" | "trash">(() =>
+    searchParams.get("tab") === "trash" ? "trash" : "history"
+  );
+  const {
+    getTaskSummaries,
+    setTaskSummaries,
+    invalidateTasks,
+    invalidateTaskSummaries,
+  } = useListCache();
+  const [history, setHistory] = useState<TaskListItem[]>(() => getTaskSummaries()?.items ?? []);
   const [hasMore, setHasMore] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -180,31 +39,60 @@ export default function HistoryPage() {
   const importFileRef = useRef<HTMLInputElement>(null);
   const clearConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Selective export state
+  // Selective export/delete state
   const [exportMode, setExportMode] = useState(false);
+  const [deleteMode, setDeleteMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const selectedIdsRef = useRef<Set<string>>(new Set());
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
+  const urlFilter = useMemo(() => parseHistoryFilter(searchParams.get("filter")), [searchParams]);
+  const [activeFilter, setActiveFilter] = useState<HistoryFilterId>(urlFilter);
+  const historyOverview = buildHistoryOverview(history);
+  const visibleHistory = useMemo(() => {
+    const filtered = filterHistoryItems(history, activeFilter);
+    // 确保没有重复的 key
+    return Array.from(new Map(filtered.map(item => [item.id, item])).values());
+  }, [activeFilter, history]);
+
+  const selectionMode = exportMode || deleteMode;
+
+  // 同步 selectedIds 到 ref
+  useEffect(() => {
+    selectedIdsRef.current = selectedIds;
+  }, [selectedIds]);
 
   const loadHistory = useCallback(async (page: number) => {
     try {
       if (page > 1) setLoadingMore(true);
-      const result = await getAllComics(page, 50);
+      const result = await getComicSummaries(page, 50);
 
       const tasks = result.items;
-      // 恢复僵尸状态的任务（generating/scripting 但实际已中断）
       const zombieIds = tasks
         .filter((t) => t.status === "generating" || t.status === "scripting")
         .map((t) => t.id);
-      if (zombieIds.length > 0) {
-        await Promise.all(zombieIds.map((id) => recoverZombieTask(id)));
-        const refreshed = await getAllComics(page, 50);
+      const stuckServerTaskIds = tasks
+        .filter((t) => shouldAttemptOffPageReconcile(t))
+        .map((t) => t.id);
+
+      if (zombieIds.length > 0 || stuckServerTaskIds.length > 0) {
+        await Promise.allSettled([
+          ...zombieIds.map((id) => recoverZombieTask(id)),
+          ...stuckServerTaskIds.map((id) => reconcileTaskLifecycle(id)),
+        ]);
+        const refreshed = await getComicSummaries(page, 50);
         if (page === 1) {
-          setHistory(refreshed.items);
-          setTasks(refreshed.items, refreshed.total);
+          // 去重
+          const uniqueItems = Array.from(new Map(refreshed.items.map(item => [item.id, item])).values());
+          setHistory(uniqueItems);
+          setTaskSummaries(uniqueItems, refreshed.total);
         } else {
           setHistory((prev) => {
-            const merged = [...prev, ...refreshed.items];
-            setTasks(merged, refreshed.total);
+            // 合并并去重
+            const existingIds = new Set(prev.map(item => item.id));
+            const newItems = refreshed.items.filter(item => !existingIds.has(item.id));
+            const merged = [...prev, ...newItems];
+            // 在 setHistory 回调外调用 setTasks
+            setTimeout(() => setTaskSummaries(merged, refreshed.total), 0);
             return merged;
           });
         }
@@ -214,12 +102,18 @@ export default function HistoryPage() {
       }
 
       if (page === 1) {
-        setHistory(tasks);
-        setTasks(tasks, result.total);
+        // 去重
+        const uniqueItems = Array.from(new Map(tasks.map(item => [item.id, item])).values());
+        setHistory(uniqueItems);
+        setTaskSummaries(uniqueItems, result.total);
       } else {
         setHistory((prev) => {
-          const merged = [...prev, ...tasks];
-          setTasks(merged, result.total);
+          // 合并并去重
+          const existingIds = new Set(prev.map(item => item.id));
+          const newItems = tasks.filter(item => !existingIds.has(item.id));
+          const merged = [...prev, ...newItems];
+          // 在 setHistory 回调外调用 setTasks
+          setTimeout(() => setTaskSummaries(merged, result.total), 0);
           return merged;
         });
       }
@@ -230,11 +124,31 @@ export default function HistoryPage() {
     } finally {
       setLoadingMore(false);
     }
-  }, [setTasks]);
+  }, [setTaskSummaries]);
 
   useEffect(() => {
     loadHistory(1);
   }, [loadHistory]);
+
+  useEffect(() => {
+    setActiveFilter(urlFilter);
+  }, [urlFilter]);
+
+  useEffect(() => {
+    if (activeFilter === urlFilter) {
+      return;
+    }
+
+    const params = new URLSearchParams(searchParams.toString());
+    if (activeFilter === "all") {
+      params.delete("filter");
+    } else {
+      params.set("filter", activeFilter);
+    }
+
+    const query = params.toString();
+    router.replace(query ? `/history?${query}` : "/history", { scroll: false });
+  }, [activeFilter, router, searchParams, urlFilter]);
 
   useEffect(() => {
     return () => {
@@ -253,8 +167,9 @@ export default function HistoryPage() {
   const handleRemove = useCallback(async (id: string) => {
     await deleteComic(id);
     invalidateTasks();
+    invalidateTaskSummaries();
     loadHistory(1);
-  }, [invalidateTasks, loadHistory]);
+  }, [invalidateTaskSummaries, invalidateTasks, loadHistory]);
 
   const handleClearAll = useCallback(async () => {
     if (confirmClear) {
@@ -268,6 +183,7 @@ export default function HistoryPage() {
       setCurrentPage(1);
       setConfirmClear(false);
       invalidateTasks();
+      invalidateTaskSummaries();
       return;
     }
 
@@ -279,17 +195,35 @@ export default function HistoryPage() {
       setConfirmClear(false);
       clearConfirmTimeoutRef.current = null;
     }, 3000);
-  }, [confirmClear, invalidateTasks]);
+  }, [confirmClear, invalidateTaskSummaries, invalidateTasks]);
 
   // ── Export ──
 
   const enterExportMode = useCallback(() => {
     setExportMode(true);
+    setDeleteMode(false);
     setSelectedIds(new Set());
   }, []);
 
   const exitExportMode = useCallback(() => {
     setExportMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  const enterDeleteMode = useCallback(() => {
+    setDeleteMode(true);
+    setExportMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  const exitDeleteMode = useCallback(() => {
+    setDeleteMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  const exitSelectionMode = useCallback(() => {
+    setExportMode(false);
+    setDeleteMode(false);
     setSelectedIds(new Set());
   }, []);
 
@@ -303,14 +237,21 @@ export default function HistoryPage() {
   }, []);
 
   const selectAll = useCallback(() => {
-    setSelectedIds(new Set(history.map((t) => t.id)));
-  }, [history]);
+    setSelectedIds(new Set(visibleHistory.map((t) => t.id)));
+  }, [visibleHistory]);
+
+  const handleFilterChange = useCallback((filter: HistoryFilterId) => {
+    setActiveFilter(filter);
+    setSelectedIds(new Set());
+  }, []);
 
   const handleExportSelected = useCallback(async () => {
-    const selected = history.filter((t) => selectedIds.has(t.id));
+    const selected = history.filter((t) => selectedIdsRef.current.has(t.id));
     if (selected.length === 0) return;
     try {
-      await exportTasksAsZip(selected, setExportProgress);
+      const fullTasks = (await Promise.all(selected.map((task) => getTask(task.id))))
+        .filter((task): task is GenerateTask => Boolean(task));
+      await exportTasksAsZip(fullTasks, setExportProgress);
     } catch (err) {
       console.error("Export failed:", err);
       alert("导出失败，请查看控制台日志");
@@ -318,12 +259,14 @@ export default function HistoryPage() {
       setExportProgress(null);
     }
     exitExportMode();
-  }, [exitExportMode, history, selectedIds]);
+  }, [exitExportMode, history]);
 
   const handleExportAll = useCallback(async () => {
     if (history.length === 0) return;
     try {
-      await exportTasksAsZip(history, setExportProgress);
+      const fullTasks = (await Promise.all(history.map((task) => getTask(task.id))))
+        .filter((task): task is GenerateTask => Boolean(task));
+      await exportTasksAsZip(fullTasks, setExportProgress);
     } catch (err) {
       console.error("Export failed:", err);
       alert("导出失败，请查看控制台日志");
@@ -331,6 +274,33 @@ export default function HistoryPage() {
       setExportProgress(null);
     }
   }, [history]);
+
+  const handleDeleteSelected = useCallback(async () => {
+    // 使用 ref 来获取最新的 selectedIds
+    const idsToDelete = Array.from(selectedIdsRef.current);
+    const selected = history.filter((t) => selectedIdsRef.current.has(t.id));
+
+    if (selected.length === 0) return;
+
+    if (!confirm(`确定删除选中的 ${selected.length} 个漫画？此操作不可恢复。`)) {
+      return;
+    }
+
+    try {
+      await deleteComicsByIds(idsToDelete);
+      invalidateTasks();
+      invalidateTaskSummaries();
+      // 先更新本地状态
+      setHistory(prev => prev.filter(t => !idsToDelete.includes(t.id)));
+      // 再退出删除模式
+      exitDeleteMode();
+      // 异步刷新确保与服务端同步
+      setTimeout(() => loadHistory(1), 0);
+    } catch (err) {
+      console.error("Delete failed:", err);
+      alert("删除失败，请查看控制台日志");
+    }
+  }, [exitDeleteMode, history, invalidateTaskSummaries, invalidateTasks, loadHistory]);
 
   // ── Import ──
 
@@ -376,42 +346,82 @@ export default function HistoryPage() {
             href="/"
             className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
+            <ChevronLeft className="w-4 h-4" />
             返回
           </Link>
-          <h1 className="text-2xl font-bold">历史记录</h1>
+          {/* Tab 切换: 历史 / 回收站 */}
+          <div className="flex gap-1 p-1 rounded-lg bg-muted/50">
+            <button
+              onClick={() => setActiveTab("history")}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                activeTab === "history"
+                  ? "bg-background shadow-sm text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              历史记录
+            </button>
+            <button
+              onClick={() => setActiveTab("trash")}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-1.5 ${
+                activeTab === "trash"
+                  ? "bg-background shadow-sm text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              回收站
+            </button>
+          </div>
         </div>
 
-        {history.length > 0 && exportMode ? (
-          /* ── Export selection toolbar ── */
+        {history.length > 0 && selectionMode ? (
+          /* ── Selection toolbar (export or delete) ── */
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">
-              已选 {selectedIds.size} / {history.length}
+              已选 {selectedIds.size} / {visibleHistory.length}
             </span>
             <button
-              onClick={selectedIds.size === history.length ? () => setSelectedIds(new Set()) : selectAll}
+              onClick={selectedIds.size === visibleHistory.length ? () => setSelectedIds(new Set()) : selectAll}
               className="px-3 py-2 text-sm rounded-lg border hover:bg-accent transition-colors"
             >
-              {selectedIds.size === history.length ? "取消全选" : "全选"}
+              {selectedIds.size === visibleHistory.length ? "取消全选" : "全选"}
             </button>
-            <button
-              onClick={handleExportSelected}
-              disabled={selectedIds.size === 0}
-              className="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center gap-1.5"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              导出 {selectedIds.size} 个
-            </button>
-            <button
-              onClick={exitExportMode}
-              className="px-3 py-2 text-sm rounded-lg border hover:bg-accent transition-colors"
-            >
-              取消
-            </button>
+            {exportMode ? (
+              <>
+                <button
+                  onClick={handleExportSelected}
+                  disabled={selectedIds.size === 0}
+                  className="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center gap-1.5"
+                >
+                  <Download className="w-4 h-4" />
+                  导出 {selectedIds.size} 个
+                </button>
+                <button
+                  onClick={exitExportMode}
+                  className="px-3 py-2 text-sm rounded-lg border hover:bg-accent transition-colors"
+                >
+                  取消
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={handleDeleteSelected}
+                  disabled={selectedIds.size === 0}
+                  className="px-4 py-2 text-sm rounded-lg bg-error text-white hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  删除 {selectedIds.size} 个
+                </button>
+                <button
+                  onClick={exitDeleteMode}
+                  className="px-3 py-2 text-sm rounded-lg border hover:bg-accent transition-colors"
+                >
+                  取消
+                </button>
+              </>
+            )}
           </div>
         ) : history.length > 0 ? (
           /* ── Normal toolbar ── */
@@ -422,10 +432,17 @@ export default function HistoryPage() {
               className="px-3 py-2 text-sm rounded-lg border hover:bg-accent transition-colors flex items-center gap-1.5"
               title="选择并导出"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
+              <Download className="w-4 h-4" />
               <span className="hidden sm:inline">导出</span>
+            </button>
+            {/* 选择删除 */}
+            <button
+              onClick={enterDeleteMode}
+              className="px-3 py-2 text-sm rounded-lg border hover:bg-accent transition-colors flex items-center gap-1.5"
+              title="选择并删除"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span className="hidden sm:inline">批量删除</span>
             </button>
             {/* 全部导出 */}
             <button
@@ -443,9 +460,7 @@ export default function HistoryPage() {
               className="px-3 py-2 text-sm rounded-lg border hover:bg-accent transition-colors flex items-center gap-1.5"
               title="导入漫画数据（支持 ZIP 和 JSON）"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m4-8l-4-4m0 0L16 8m4-4v12" />
-              </svg>
+              <Upload className="w-4 h-4" />
               <span className="hidden sm:inline">导入</span>
             </button>
             {/* 清空 */}
@@ -453,34 +468,82 @@ export default function HistoryPage() {
               onClick={handleClearAll}
               className={`px-4 py-2 text-sm rounded-lg transition-colors ${
                 confirmClear
-                  ? "bg-red-600 text-white hover:bg-red-700"
+                  ? "bg-error text-white hover:bg-error/90"
                   : "border hover:bg-accent"
               }`}
             >
               {confirmClear ? "确认清空？" : "清空全部"}
             </button>
-            {/* 回收站 */}
-            <Link
-              href="/trash"
-              className="px-3 py-2 text-sm rounded-lg border hover:bg-accent transition-colors flex items-center gap-1.5"
-              title="回收站"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-              <span className="hidden sm:inline">回收站</span>
-            </Link>
           </div>
         ) : null}
       </div>
+
+      {/* ── 回收站 Tab ── */}
+      {activeTab === "trash" && (
+        <TrashPanel />
+      )}
+
+      {/* ── 历史记录 Tab ── */}
+      {activeTab === "history" && (
+      <>
+      {history.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <span className="px-2.5 py-1 text-xs rounded-full bg-muted text-muted-foreground">
+            总任务 {historyOverview.total}
+          </span>
+          <span className="px-2.5 py-1 text-xs rounded-full bg-success/10 text-success">
+            已完成 {historyOverview.completed}
+          </span>
+          {historyOverview.imageQueueRunning > 0 && (
+            <span className="px-2.5 py-1 text-xs rounded-full bg-warning text-white">
+              图片队列中 {historyOverview.imageQueueRunning}
+            </span>
+          )}
+          {historyOverview.imageQueuePaused > 0 && (
+            <span className="px-2.5 py-1 text-xs rounded-full bg-secondary text-secondary-foreground">
+              队列已暂停 {historyOverview.imageQueuePaused}
+            </span>
+          )}
+          {historyOverview.comfyuiRemotePending > 0 && (
+            <span className="px-2.5 py-1 text-xs rounded-full bg-primary/10 text-primary">
+              ComfyUI 回收 {historyOverview.comfyuiRemotePending}
+            </span>
+          )}
+        </div>
+      )}
+
+      {history.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {[
+            { id: "all" as const, label: "全部", count: historyOverview.total },
+            { id: "image_queue_running" as const, label: "图片队列中", count: historyOverview.imageQueueRunning },
+            { id: "image_queue_paused" as const, label: "队列已暂停", count: historyOverview.imageQueuePaused },
+            { id: "comfyui_remote_pending" as const, label: "ComfyUI 回收中", count: historyOverview.comfyuiRemotePending },
+          ].filter((item) => item.id === "all" || item.count > 0 || activeFilter === item.id).map((item) => {
+            const isActive = activeFilter === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleFilterChange(item.id)}
+                className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${
+                  isActive
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background hover:bg-accent"
+                }`}
+              >
+                {item.label} {item.count}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* 空状态 */}
       {history.length === 0 && (
         <div className="text-center py-16 space-y-4">
           <div className="w-16 h-16 mx-auto rounded-full bg-muted flex items-center justify-center">
-            <svg className="w-8 h-8 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+            <Clock className="w-8 h-8 text-muted-foreground" />
           </div>
           <p className="text-muted-foreground">暂无历史记录</p>
           <div className="flex items-center justify-center gap-3">
@@ -496,9 +559,7 @@ export default function HistoryPage() {
               onClick={() => importFileRef.current?.click()}
               className="px-4 py-2 text-sm rounded-lg border hover:bg-accent transition-colors flex items-center gap-1.5"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m4-8l-4-4m0 0L16 8m4-4v12" />
-              </svg>
+              <Upload className="w-4 h-4" />
               导入
             </button>
           </div>
@@ -506,13 +567,28 @@ export default function HistoryPage() {
       )}
 
       {/* 历史卡片网格 */}
-      {history.length > 0 && (
+      {history.length > 0 && visibleHistory.length === 0 && (
+        <div className="rounded-xl border bg-card p-8 text-center space-y-3">
+          <p className="text-sm text-muted-foreground">当前筛选下暂无任务</p>
+          <button
+            type="button"
+            onClick={() => handleFilterChange("all")}
+            className="px-4 py-2 text-sm rounded-lg border hover:bg-accent transition-colors"
+          >
+            查看全部
+          </button>
+        </div>
+      )}
+
+      {visibleHistory.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {history.map((item) => (
+          {visibleHistory.map((item) => (
             <HistoryCard
               key={item.id}
               item={item}
+              activeFilter={activeFilter}
               exportMode={exportMode}
+              deleteMode={deleteMode}
               isSelected={selectedIds.has(item.id)}
               onToggleSelect={toggleSelect}
               onRemove={handleRemove}
@@ -538,6 +614,8 @@ export default function HistoryPage() {
       <div className="flex justify-center pt-4">
         <StorageIndicator />
       </div>
+      </>
+      )}
 
       {/* Export/Import progress overlay */}
       {exportProgress && exportProgress.phase !== "done" && (

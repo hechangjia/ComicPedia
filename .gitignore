@@ -12,6 +12,7 @@ next-env.d.ts
 .env
 .env.*
 !.env.docker.example
+!.env.example
 
 # Database (runtime data)
 *.db
@@ -76,3 +77,4 @@ openspec/
 .superpowers/
 docs/superpowers/
 .worktrees/
+.gstack/

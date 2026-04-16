@@ -40,6 +40,7 @@
 - [Quick Start](#quick-start)
   - [Prerequisites](#prerequisites)
   - [Local Development](#local-development)
+  - [Quick Recovery After Going Offline](#quick-recovery-after-going-offline)
   - [Docker Deployment](#docker-deployment)
   - [Configuration](#configuration)
 - [Project Structure](#project-structure)
@@ -271,6 +272,77 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 >
 > Also clear the site's IndexedDB in your browser (DevTools → Application → IndexedDB → delete `comicpedia`) to prevent stale data from syncing back to the server.
 
+### Quick Recovery After Going Offline
+
+When you come back later, do this first:
+
+```bash
+pnpm install
+pnpm dev
+```
+
+Then verify the app in this order:
+
+1. Open `http://localhost:3000/settings`
+2. Check that `Accuracy Research Providers` are still present
+3. Confirm the default image model is still the working one
+4. Open home, history, and one result page
+
+Known-good state after the April 9 promotion-readiness cleanup:
+
+- SQLite currently has `33` tasks left after cleanup
+- Maintenance log contains:
+  - `436 auto-delete task(s) removed`
+  - `20 origin fixture task(s) removed`
+- The missing comic `Shennong Tastes the Hundred Herbs` still exists:
+  - `http://localhost:3000/result/264c7dde-27af-48b0-b3ad-3c7f9d49d404`
+- Settings now includes a `Maintenance & Repair` panel for:
+  - `Scan Task Health -> Execute Auto Delete`
+  - `Work Recovery Search`
+
+If history starts showing blank `Episode` / `Test` junk again:
+
+1. Go to `Settings -> Maintenance & Repair`
+2. Click `Scan Task Health`
+3. Review the `auto delete` candidates
+4. Click `Execute Auto Delete`
+
+If you want to verify that Accuracy providers are actually used at runtime:
+
+1. Generate a `science` or `wikipedia` task
+2. Open the result page
+3. Expand `Accuracy Summary`
+4. Check `Execution Trace`
+
+That section shows which `primary/fallback Search` and `primary/fallback Fetch` providers were actually used in the run.
+
+If an image config says it returned HTML instead of JSON:
+
+- The `API URL` is pointing at a website page, not the API root
+- For `aiapi.exe.xyz`, the real API root is:
+  - `https://aiapi.exe.xyz/v1`
+- The `google/nano-banana-2` config now uses the correct `/v1` root
+- But the upstream provider still returns `insufficient_user_quota`
+
+Keep the working image model as default until that provider has enough quota.
+
+### Quality Checks and Shipping
+
+```bash
+# Local quality gates
+pnpm lint
+pnpm test
+pnpm build
+
+# One-shot pre-ship check
+pnpm ship:check
+```
+
+- `pnpm ship:check` runs `lint -> test -> build` in order and blocks shipping directly from the default base branch
+- GitHub Actions CI runs the same checks on every push and pull request
+- Recommended flow: work on a feature branch or `dev` -> run `pnpm ship:check` -> push -> open a PR to `master` -> do a quick smoke test on the key pages before merge
+- See `docs/ai/ship.md` for the repo-specific checklist
+
 ### Docker Deployment
 
 ```bash
@@ -290,7 +362,7 @@ curl http://localhost:61323/api/health
 **Docker details:**
 - Default port: `61323`
 - Data volume: `comicpedia-data` mounted to `/app/data` (SQLite + images)
-- Memory limit: 1 GB
+- Memory limit: 2 GB (with a 512 MB reservation)
 - Multi-stage build with standalone output
 
 ### Configuration

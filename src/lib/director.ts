@@ -8,9 +8,43 @@
  * - 大纲可展示给用户审查，在脚本生成前即可调整方向
  */
 
-import { NarrativeOutline, PartialLLMConfig, ComicStyle, ContentType } from "./types";
+import {
+  NarrativeOutline,
+  NarrativeTemplateType,
+  NarrativeBeatRole,
+  NarrativeShotIntent,
+  PartialLLMConfig,
+  ComicStyle,
+  ContentType,
+} from "./types";
 import { callLLM } from "./llm";
 import { STYLE_META } from "./config/styles";
+
+const VALID_TEMPLATE_TYPES = new Set<NarrativeTemplateType>(["mechanism", "mythic", "historical", "discovery"]);
+const VALID_BEAT_ROLES = new Set<NarrativeBeatRole>(["hook", "conflict", "reveal", "progression", "closure"]);
+const VALID_SHOT_INTENTS = new Set<NarrativeShotIntent>(["establish", "hook-closeup", "contrast", "process", "reveal", "aftermath"]);
+
+function inferNarrativeTemplate(
+  contentType?: ContentType,
+  topic?: string,
+  researchContext?: string,
+): NarrativeTemplateType {
+  const haystack = `${topic ?? ""}\n${researchContext ?? ""}`.toLowerCase();
+
+  if (contentType === "wikipedia" || /盘古|女娲|神话|创世|传说/.test(haystack)) {
+    if (/盘古|女娲|神话|创世|传说/.test(haystack)) return "mythic";
+  }
+
+  if (/牛顿|达尔文|张衡|爱因斯坦|科学家|发明者|发现|研究者/.test(haystack)) {
+    return "discovery";
+  }
+
+  if (/战争|发明|登月|印刷术|火药|事件|文明|革命|历史/.test(haystack)) {
+    return "historical";
+  }
+
+  return "mechanism";
+}
 
 /**
  * 构建导演大纲生成 prompt。
@@ -28,6 +62,7 @@ function buildDirectorPrompt(
   const targetPanels = panelCount && panelCount > 0 ? panelCount : 8;
 
   const contentTypeHint = getContentTypeHint(contentType);
+  const inferredTemplate = inferNarrativeTemplate(contentType, topic, researchContext);
 
   return `You are an expert comic director / storyboard planner. Create a narrative outline (blueprint) for a ${targetPanels}-panel comic.
 
@@ -47,18 +82,34 @@ Design a structured narrative outline. This outline will guide a script writer t
 ## Panel Count
 Target: ${targetPanels} panels (${panelCount ? "user specified" : "auto, may adjust ±2"})
 
+## Target Narrative Template
+Use "${inferredTemplate}" as the default template unless the topic clearly demands a better fit.
+
+Available internal templates:
+- mechanism
+- mythic
+- historical
+- discovery
+
 ## Rules
 1. Each panel must have a clear narrative function (opening/setup/development/climax/resolution/epilogue)
-2. Information density should follow a curve: low → medium → high → medium → low (like a well-paced lecture)
-3. Camera compositions must vary — never repeat the same type consecutively
-4. If characters are needed, list them with their narrative role and first appearance panel
-5. narrativeArc: describe the overall story arc in one sentence
-6. infoDistribution: describe how knowledge/information is spread across panels
+2. Each panel must also define a beatRole: hook / conflict / reveal / progression / closure
+3. Each panel must define a shotIntent: establish / hook-closeup / contrast / process / reveal / aftermath
+4. Information density should follow a curve: low → medium → high → medium → low (like a well-paced lecture)
+5. Camera compositions must vary — never repeat the same type consecutively
+6. The comic must contain at least one strong hook-closeup or contrast panel
+7. The final panel should usually end on reveal or aftermath rather than another flat explanation shot
+8. If characters are needed, list them with their narrative role and first appearance panel
+9. narrativeArc: describe the overall story arc in one sentence
+10. infoDistribution: describe how knowledge/information is spread across panels
+11. For 4 panels, compress middle progression. For 6-8 panels, expand progression and aftermath rather than adding more opening exposition.
 
 ## Output
 Return ONLY this JSON structure, no other text:
 {
   "totalPanels": ${targetPanels},
+  "templateType": "${inferredTemplate}",
+  "source": "beat-plan",
   "narrativeArc": "one sentence describing the story arc",
   "infoDistribution": "e.g. progressive, front-loaded, spiral, sandwich",
   "characterList": [
@@ -67,10 +118,15 @@ Return ONLY this JSON structure, no other text:
   "panels": [
     {
       "narrativeFunction": "opening",
+      "beatRole": "hook",
       "suggestedComposition": "wide shot / close-up / medium shot / bird's-eye / low angle / over-shoulder / dynamic",
+      "shotIntent": "hook-closeup",
       "characters": ["Character Name"],
       "keyInfo": "what knowledge/story point this panel should convey (1 sentence, Chinese)",
-      "infoDensity": "low"
+      "knowledgeGoal": "what the reader should understand after this panel (Chinese)",
+      "infoDensity": "low",
+      "intensity": "high",
+      "carryForward": "what question or suspense this panel pushes into the next panel (Chinese)"
     }
   ]
 }
@@ -131,17 +187,31 @@ function parseOutlineResponse(
 
     const validFunctions = new Set(["opening", "setup", "development", "climax", "resolution", "epilogue"]);
     const validDensities = new Set(["low", "medium", "high"]);
+    const templateType = VALID_TEMPLATE_TYPES.has(parsed.templateType as NarrativeTemplateType)
+      ? parsed.templateType as NarrativeTemplateType
+      : inferNarrativeTemplate(undefined, undefined, undefined);
 
     const panels = parsed.panels.map((p: Record<string, unknown>) => ({
       narrativeFunction: validFunctions.has(p.narrativeFunction as string)
         ? p.narrativeFunction as string
         : "development",
+      beatRole: VALID_BEAT_ROLES.has(p.beatRole as NarrativeBeatRole)
+        ? p.beatRole as NarrativeBeatRole
+        : "progression",
       suggestedComposition: String(p.suggestedComposition || "medium shot"),
+      shotIntent: VALID_SHOT_INTENTS.has(p.shotIntent as NarrativeShotIntent)
+        ? p.shotIntent as NarrativeShotIntent
+        : "process",
       characters: Array.isArray(p.characters) ? p.characters.map(String) : [],
       keyInfo: String(p.keyInfo || ""),
+      knowledgeGoal: String(p.knowledgeGoal || p.keyInfo || ""),
       infoDensity: validDensities.has(p.infoDensity as string)
         ? p.infoDensity as string
         : "medium",
+      intensity: validDensities.has(p.intensity as string)
+        ? p.intensity as "low" | "medium" | "high"
+        : "medium",
+      carryForward: String(p.carryForward || ""),
     }));
 
     const characterList = Array.isArray(parsed.characterList)
@@ -154,6 +224,8 @@ function parseOutlineResponse(
 
     return {
       totalPanels: Number(parsed.totalPanels) || fallbackPanelCount || panels.length,
+      templateType,
+      source: parsed.source === "legacy" ? "legacy" : "beat-plan",
       panels,
       characterList,
       infoDistribution: String(parsed.infoDistribution || "progressive"),
@@ -171,7 +243,7 @@ function parseOutlineResponse(
  */
 export function buildOutlineGuidance(outline: NarrativeOutline): string {
   const panelGuide = outline.panels.map((p, i) =>
-    `Panel ${i + 1} [${p.narrativeFunction}]: ${p.keyInfo} (构图: ${p.suggestedComposition}, 信息密度: ${p.infoDensity}${p.characters.length > 0 ? `, 角色: ${p.characters.join("+")}` : ""})`
+    `Panel ${i + 1} [${p.narrativeFunction} / ${p.beatRole}]: ${p.keyInfo} (knowledgeGoal: ${p.knowledgeGoal}, shotIntent: ${p.shotIntent}, 构图: ${p.suggestedComposition}, 信息密度: ${p.infoDensity}, intensity: ${p.intensity}, carryForward: ${p.carryForward}${p.characters.length > 0 ? `, 角色: ${p.characters.join("+")}` : ""})`
   ).join("\n");
 
   const charGuide = outline.characterList.length > 0
@@ -179,6 +251,7 @@ export function buildOutlineGuidance(outline: NarrativeOutline): string {
     : "";
 
   return `\n\n[Director Outline — 请严格遵循此叙事蓝图]
+模板类型: ${outline.templateType}
 叙事弧线: ${outline.narrativeArc}
 信息分布: ${outline.infoDistribution}
 ${charGuide}

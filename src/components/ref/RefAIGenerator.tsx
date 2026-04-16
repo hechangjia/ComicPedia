@@ -1,5 +1,7 @@
 "use client";
 
+import { Zap } from "lucide-react";
+
 /** 解析角色名输入（支持逗号、顿号、分号分隔） */
 export function parseCharacterNames(input: string): string[] {
   return input
@@ -40,7 +42,7 @@ export function RefAIGenerator({
         <p className="text-xs text-muted-foreground">
           将为 {names.length} 个角色分别生成独立肖像：
           {names.map((n, i) => (
-            <span key={i} className="inline-block ml-1 px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded text-xs">
+            <span key={i} className="inline-block ml-1 px-1.5 py-0.5 bg-[#e8f4f2] dark:bg-[#3d8b84]/15 text-[#2d7069] dark:text-[#5cb8ae] rounded text-xs">
               {n}
             </span>
           ))}
@@ -66,7 +68,7 @@ export function RefAIGenerateButton({
     <button
       onClick={onGenerate}
       disabled={aiGenerating}
-      className="px-3 py-1.5 text-xs border border-purple-200 text-purple-600 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors disabled:opacity-50 min-h-[36px] flex items-center gap-1.5"
+      className="px-3 py-1.5 text-xs border border-[#3d8b84]/30 text-[#3d8b84] rounded-lg hover:bg-[#e8f4f2] dark:hover:bg-[#3d8b84]/10 transition-colors disabled:opacity-50 min-h-[36px] flex items-center gap-1.5"
     >
       {aiGenerating ? (
         <>
@@ -78,9 +80,7 @@ export function RefAIGenerateButton({
         </>
       ) : (
         <>
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-          </svg>
+          <Zap className="w-3 h-3" />
           {names.length > 0 ? `AI 生成 ${names.length} 张` : "AI 生成"}
         </>
       )}

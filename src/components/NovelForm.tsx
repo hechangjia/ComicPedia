@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { NovelGenre, PoetryGenre } from "@/lib/types";
 import { useContentForm } from "@/hooks/useContentForm";
 import { StyleSelector } from "./StyleSelector";
@@ -11,6 +12,8 @@ import { CharacterPicker } from "./CharacterPicker";
 import { ErrorAlert } from "./ErrorAlert";
 import { Spinner } from "./ui/Spinner";
 import { QualitySelector } from "./QualitySelector";
+import { GenerationPresetSelector } from "./GenerationPresetSelector";
+import { AdvancedGenerationSettings } from "./AdvancedGenerationSettings";
 
 const GENRES: { value: NovelGenre; label: string; desc: string }[] = [
   { value: "wuxia", label: "武侠", desc: "刀光剑影，江湖恩怨" },
@@ -72,6 +75,7 @@ export function NovelForm({ initialContent = "" }: { initialContent?: string }) 
     useCallback(() => content, [content]),
   );
   const getDraftInputText = form.getDraftInputText;
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // 恢复草稿文本
   useEffect(() => {
@@ -141,7 +145,7 @@ export function NovelForm({ initialContent = "" }: { initialContent?: string }) 
           </div>
         </div>
 
-        <p className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-400 p-2 rounded">
+        <p className="text-xs text-warning bg-warning/5 p-2 rounded">
           提示：填写作品信息可帮助 AI 更准确地还原人物形象和时代背景
         </p>
 
@@ -181,6 +185,18 @@ export function NovelForm({ initialContent = "" }: { initialContent?: string }) 
 
         <ModelSelector type="llm" value={form.selectedLLMId} onChange={form.setSelectedLLMId} disabled={form.isLoading} />
         <ModelSelector type="image" value={form.selectedImageId} onChange={form.setSelectedImageId} disabled={form.isLoading} />
+
+        <GenerationPresetSelector
+          value={form.selectedPresetId}
+          onChange={form.setSelectedPresetId}
+          disabled={form.isLoading}
+        />
+
+        <AdvancedGenerationSettings
+          value={form.advancedSettings}
+          onChange={form.setAdvancedSettings}
+          disabled={form.isLoading}
+        />
 
         <StyleSelector value={form.style} onChange={form.setStyle} disabled={form.isLoading} recommendFor={"novel" as PoetryGenre} />
 

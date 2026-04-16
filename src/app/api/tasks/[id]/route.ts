@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTaskById, upsertTask, deleteTask } from "@/lib/server/db";
-import { extractTaskImagesAsync, trashTaskImages, restoreFileRefs, fileRefsToUrls } from "@/lib/server/imageExtractor";
+import { getTaskById, upsertTask, deleteTask, patchTask } from "@/lib/server/db";
+import { extractTaskImagesAsync, trashTaskImages } from "@/lib/server/imageExtractor";
+import { buildTaskDetailResponse } from "@/lib/server/taskClientView";
+import { getTaskRuntime } from "@/lib/server/taskOrchestrator/runtime";
+import { listTaskJobsByTaskId } from "@/lib/server/taskOrchestrator/store";
 import type { GenerateTask } from "@/lib/types";
 
 interface RouteParams {
@@ -10,20 +13,25 @@ interface RouteParams {
 /** GET /api/tasks/[id] — 获取单个任务 */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    getTaskRuntime();
     const { id } = await params;
     const task = getTaskById(id);
     if (!task) {
       return NextResponse.json({ error: "任务不存在" }, { status: 404 });
     }
+    const {
+      serverScriptReplay: _serverScriptReplay,
+      requestSnapshot: _requestSnapshot,
+      ...taskForClient
+    } = task as GenerateTask & {
+      serverScriptReplay?: unknown;
+      requestSnapshot?: unknown;
+    };
+    const taskJobs = await listTaskJobsByTaskId(task.id);
 
     // withImages=base64 时还原为 base64（导出等场景），默认返回 /api/images/ URL
     const withImages = request.nextUrl.searchParams.get("withImages");
-    let result: unknown = task;
-    if (withImages === "base64") {
-      result = restoreFileRefs(task);
-    } else if (withImages !== "false") {
-      result = fileRefsToUrls(task);
-    }
+    const result = buildTaskDetailResponse(taskForClient, taskJobs, withImages);
 
     return NextResponse.json(result);
   } catch (error) {
@@ -59,6 +67,36 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       { error: "更新任务失败" },
       { status: 500 },
     );
+  }
+}
+
+/** PATCH /api/tasks/[id] — 部分更新任务（tags, favorited） */
+export async function PATCH(request: NextRequest, { params }: RouteParams) {
+  try {
+    const { id } = await params;
+    const body = await request.json();
+    const patch: { tags?: string[]; favorited?: boolean } = {};
+
+    if (Array.isArray(body.tags)) {
+      patch.tags = body.tags.filter((t: unknown) => typeof t === "string");
+    }
+    if (typeof body.favorited === "boolean") {
+      patch.favorited = body.favorited;
+    }
+
+    if (Object.keys(patch).length === 0) {
+      return NextResponse.json({ error: "无有效更新字段" }, { status: 400 });
+    }
+
+    const updated = patchTask(id, patch);
+    if (!updated) {
+      return NextResponse.json({ error: "任务不存在" }, { status: 404 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("[API /tasks/[id] PATCH]", error);
+    return NextResponse.json({ error: "更新任务失败" }, { status: 500 });
   }
 }
 

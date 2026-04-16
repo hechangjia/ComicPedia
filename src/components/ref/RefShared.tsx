@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
+import { X } from "lucide-react";
+
 
 /** 图片灯箱组件 — 全屏预览 */
 export function Lightbox({
@@ -29,9 +31,7 @@ export function Lightbox({
         onClick={onClose}
         className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/20 text-white flex items-center justify-center hover:bg-white/30 transition-colors"
       >
-        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-        </svg>
+        <X className="w-6 h-6" />
       </button>
       <div className="flex flex-col items-center gap-3" onClick={(e) => e.stopPropagation()}>
         <img

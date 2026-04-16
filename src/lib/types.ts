@@ -34,6 +34,75 @@ export interface VisualQualityScore {
   evaluatedAt: string;
 }
 
+/** Diagnosis lifecycle state for the second-pass VLM audit */
+export type VisualDiagnosisState = "idle" | "running" | "succeeded" | "failed" | "skipped";
+
+/** Diagnosis confidence / trust labels */
+export type VisualDiagnosisConfidence = "low" | "medium" | "high";
+export type VisualDiagnosisSeverity = "low" | "medium" | "high";
+export type VisualDiagnosisEvidenceStrength = "weak" | "medium" | "strong";
+export type VisualDiagnosisActionability = "apply_directly" | "confirm_first" | "manual_only";
+export type VisualRepairMode = "patch" | "rewrite" | "manual";
+export type VisualRepairExecutionMode = "patch" | "rewrite" | "batch_patch";
+export type VisualRepairExecutionStatus = "running" | "completed" | "failed";
+export type VisualRepairExecutionOutcome = "improved" | "unchanged" | "regressed";
+
+/** Detailed diagnosis issue for a suspicious panel */
+export interface VisualDiagnosisIssue {
+  issueType: string;
+  severity: VisualDiagnosisSeverity;
+  affectedDimensions: Array<"textImageAlignment" | "styleAdherence" | "artifactScore" | "compositionQuality" | "crossPanelConsistency">;
+  evidence: string;
+  confidence: VisualDiagnosisConfidence;
+  evidenceStrength: VisualDiagnosisEvidenceStrength;
+  falsePositiveRisk: VisualDiagnosisConfidence;
+  actionability: VisualDiagnosisActionability;
+}
+
+/** Recommended repair payload for a diagnosed panel */
+export interface VisualRepairSuggestion {
+  recommendedMode: VisualRepairMode;
+  rationale: string;
+  suggestedPrompt?: string;
+  suggestedNegativePrompt?: string;
+  patchPositive?: string[];
+  patchNegative?: string[];
+  expectedImprovement: string[];
+}
+
+/** Per-panel structured diagnosis card */
+export interface VisualDiagnosisPanel {
+  panelIndex: number;
+  imageUrl: string;
+  promptSnapshot: string;
+  status: "clean" | "issues_found" | "uncertain";
+  topIssueType: string;
+  severity: VisualDiagnosisSeverity;
+  issues: VisualDiagnosisIssue[];
+  repair: VisualRepairSuggestion;
+}
+
+/** Task-level summary used by the diagnosis workbench */
+export interface VisualDiagnosisSummary {
+  problemPanelCount: number;
+  highSeverityCount: number;
+  actionableCount: number;
+  crossPanelIssueCount: number;
+}
+
+/** Persisted result of the VLM diagnosis pass */
+export interface VisualDiagnosisReport {
+  schemaVersion: number;
+  generatedAt: string;
+  sourceEvaluatedAt: string;
+  model: {
+    provider?: string;
+    model?: string;
+  };
+  summary: VisualDiagnosisSummary;
+  panels: VisualDiagnosisPanel[];
+}
+
 /** Review 终态（任务/角色共用） */
 export type ReviewStatus = "unreviewed" | "reviewed" | "needs_repair";
 
@@ -85,17 +154,29 @@ export interface VisualRetrySummary {
 }
 
 /** 叙事大纲 — 面板级蓝图 (Director Agent) */
+export type NarrativeTemplateType = "mechanism" | "mythic" | "historical" | "discovery";
+export type NarrativeBeatRole = "hook" | "conflict" | "reveal" | "progression" | "closure";
+export type NarrativeShotIntent = "establish" | "hook-closeup" | "contrast" | "process" | "reveal" | "aftermath";
+export type NarrativeIntensity = "low" | "medium" | "high";
+
 export interface PanelBlueprint {
   narrativeFunction: "opening" | "setup" | "development" | "climax" | "resolution" | "epilogue";
+  beatRole: NarrativeBeatRole;
   suggestedComposition: string;
+  shotIntent: NarrativeShotIntent;
   characters: string[];
   keyInfo: string;
+  knowledgeGoal: string;
   infoDensity: "low" | "medium" | "high";
+  intensity: NarrativeIntensity;
+  carryForward: string;
 }
 
 /** Director Agent 生成的叙事大纲 */
 export interface NarrativeOutline {
   totalPanels: number;
+  templateType: NarrativeTemplateType;
+  source?: "legacy" | "beat-plan";
   panels: PanelBlueprint[];
   characterList: Array<{ name: string; role: string; firstAppearance: number }>;
   infoDistribution: string;
@@ -159,6 +240,8 @@ export interface ComicPanel {
     enhanced: string;
     layers: { name: string; action: string }[];
   };
+  /** 本面板中出场的角色名称列表（自动推断） */
+  appearingCharacters?: string[];
 }
 
 /** 单张参考图的完整记录 */
@@ -282,6 +365,12 @@ export interface GenerateRequest {
   style: ComicStyle;
   panelCount?: number | null; // 可选，null/未填表示由模型自动决定
   characterId?: string; // Optional character ID for consistency
+  /** Stable selected LLM config id for secret-safe server replay */
+  llmConfigId?: string;
+  /** Stable selected image config id for secret-safe server replay */
+  imageConfigId?: string;
+  /** Stable selected VLM config id when a request depends on it */
+  vlmConfigId?: string;
   llmConfig?: PartialLLMConfig;
   imageConfig?: PartialImageGenConfig;
   contentType?: ContentType; // 内容类型：科普或诗词
@@ -307,12 +396,135 @@ export interface GenerateRequest {
   difficulty?: DifficultyLevel;
   /** Whether the model may add a generic guide/narrator/explorer character */
   allowGuideCharacter?: boolean;
+  /** Series ID for continuity context (arc snapshots + episode numbering) */
+  seriesId?: string;
+  /** Frozen preset/override snapshot for durable orchestration persistence */
+  presetSnapshot?: GenerationPresetSnapshot;
 }
 
 /** 生成任务状态 */
+export type GenerateTaskStatus =
+  | "pending"
+  | "scripting"
+  | "script_ready"
+  | "generating"
+  | "completed"
+  | "failed"
+  | "created"
+  | "research_running"
+  | "script_running"
+  | "calibrating"
+  | "image_queue_running"
+  | "image_queue_paused"
+  | "deep_review_running"
+  | "deep_review_paused";
+
+export type TaskStateAuthority = "client_local" | "server_durable" | "settled";
+export type TaskOrigin = "user" | "demo" | "test" | "imported" | "system";
+
+export type TaskJobKind = "panel_image" | "deep_review" | "reconcile";
+
+export type TaskJobStatus =
+  | "queued"
+  | "calibrating"
+  | "generating"
+  | "persisting"
+  | "light_check"
+  | "paused"
+  | "attach_failed"
+  | "failed"
+  | "completed";
+
+export interface TaskQueueSummary {
+  queued: number;
+  running: number;
+  paused: number;
+  failed: number;
+  attachFailed: number;
+  completed: number;
+  calibrationPending: number;
+}
+
+export interface TaskScriptSummary {
+  title?: string;
+  topic?: string;
+  style?: ComicStyle;
+  panelCount: number;
+  coverImageUrl?: string;
+}
+
+export interface TaskListItem {
+  id: string;
+  origin: TaskOrigin;
+  status: GenerateTaskStatus;
+  stateAuthority?: TaskStateAuthority;
+  progress: number;
+  reviewStatus?: ReviewStatus;
+  lastReviewAt?: string;
+  visualQualityScore?: Pick<VisualQualityScore, "overall" | "retryRecommendations">;
+  visualRetrySummary?: Pick<VisualRetrySummary, "status" | "finalOverallScore">;
+  queueSummary?: TaskQueueSummary;
+  comfyuiRemotePendingCount?: number;
+  tags?: string[];
+  favorited?: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  scriptSummary?: TaskScriptSummary;
+}
+
+export interface TaskJobRecord {
+  id: string;
+  taskId: string;
+  kind: TaskJobKind;
+  status: TaskJobStatus;
+  panelIndex?: number;
+  provider?: string;
+  model?: string;
+  promptSnapshot?: string;
+  outputFileKey?: string;
+  lastError?: string;
+  attemptCount: number;
+  payload: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GenerationPresetSnapshot {
+  presetId: string;
+  pauseAfterScript?: boolean;
+  calibrationMode?: "required" | "disabled";
+  imageConcurrency?: number;
+  lightCheckMode?: "auto" | "off";
+  deepReviewMode?: "manual" | "off";
+  leavePagePolicy?: "finish_inflight_then_pause" | "continue_in_background";
+  research?: Record<string, unknown>;
+  script?: Record<string, unknown>;
+  imageQueue?: Record<string, unknown>;
+  lightweightCheck?: Record<string, unknown>;
+  deepReview?: Record<string, unknown>;
+  imageProvider?: string;
+  imageModel?: string;
+  calibrationRequired?: boolean;
+  calibrationApproved?: boolean;
+  concurrencyPolicy?: string;
+}
+
+/** Pipeline stage trace entry for observability */
+export interface PipelineStageTrace {
+  stage: "research" | "director" | "script" | "validate" | "repair" | "accuracy" | "images" | "vlm" | "quality";
+  status: "pending" | "running" | "completed" | "failed" | "skipped";
+  startedAt?: number;
+  completedAt?: number;
+  tokenUsage?: { prompt: number; completion: number };
+  retryCount: number;
+  error?: string;
+}
+
 export interface GenerateTask {
   id: string;
-  status: "pending" | "scripting" | "script_ready" | "generating" | "completed" | "failed";
+  origin?: TaskOrigin;
+  status: GenerateTaskStatus;
+  stateAuthority?: TaskStateAuthority;
   progress: number; // 0-100
   script?: ComicScript;
   character?: Character; // Store character info if used
@@ -337,6 +549,10 @@ export interface GenerateTask {
       related: string[];
     };
   };
+  factPack?: FactPack;
+  researchBrief?: ResearchBrief;
+  accuracyReview?: AccuracyReviewResult;
+  accuracyErrorSummary?: AccuracyErrorSummary;
   /** Narrative outline from Director Agent (guides script generation) */
   narrativeOutline?: NarrativeOutline;
   /** Script quality validation (auto-run after scripting, before script_ready) */
@@ -375,6 +591,14 @@ export interface GenerateTask {
   visualRetrySummary?: VisualRetrySummary;
   /** Latest time task visual review state was updated */
   lastReviewAt?: string;
+  /** Structured diagnosis report for suspicious panels */
+  visualDiagnosisReport?: VisualDiagnosisReport;
+  /** Diagnosis-pass lifecycle state */
+  visualDiagnosisState?: VisualDiagnosisState;
+  /** Whether the stored diagnosis report is stale relative to current content */
+  visualDiagnosisStale?: boolean;
+  /** Latest time diagnosis state was updated */
+  lastDiagnosisAt?: string;
   /** Generation config snapshot — records which models were used */
   generationConfig?: {
     llmModel?: string;
@@ -384,7 +608,31 @@ export interface GenerateTask {
     quality?: string;
     allowGuideCharacter?: boolean;
     generatedAt?: string;
+    seriesId?: string;
+    characterIds?: string[];
   };
+  visualRepairExecution?: {
+    status: VisualRepairExecutionStatus;
+    panelIndices: number[];
+    mode: VisualRepairExecutionMode;
+    scoreBefore?: number;
+    scoreAfter?: number;
+    outcome?: VisualRepairExecutionOutcome;
+    startedAt: string;
+    finishedAt?: string;
+  };
+  /** Pipeline stage trace for observability */
+  pipelineTrace?: PipelineStageTrace[];
+  /** Durable queue-state projection for orchestration list rendering */
+  queueSummary?: TaskQueueSummary;
+  /** Count of local ComfyUI jobs already submitted upstream and still recoverable */
+  comfyuiRemotePendingCount?: number;
+  /** Frozen generation preset and override snapshot for explainability */
+  presetSnapshot?: GenerationPresetSnapshot;
+  /** User-assigned tags for organization */
+  tags?: string[];
+  /** Whether the user has favorited this task */
+  favorited?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -435,8 +683,61 @@ export interface Character {
   lastReviewAt?: string;
   /** Custom display order (lower = earlier). Characters without this sort by updatedAt. */
   sortOrder?: number;
+  /** Character personality profile */
+  personality?: CharacterPersonality;
   createdAt: string;
   updatedAt: string;
+}
+
+// --- Character Relations ---
+export type RelationType = "friend" | "rival" | "mentor" | "lover" | "family" | "ally" | "enemy";
+
+export interface CharacterRelation {
+  id: string;
+  fromId: string;
+  toId: string;
+  type: RelationType;
+  label: string;
+  strength: number; // 0-1
+  bidirectional: boolean;
+  evolution: RelationEvent[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface RelationEvent {
+  episodeNumber: number;
+  change: string;
+  newStrength: number;
+  newType?: RelationType;
+}
+
+// --- Character Personality ---
+export interface PersonalityTrait {
+  dimension: string;
+  value: number; // -1 to 1
+  label: string;
+}
+
+export interface EmotionalState {
+  primary: string;
+  intensity: number; // 0-1
+  trigger?: string;
+}
+
+export interface CharacterArc {
+  seriesId: string;
+  startState: string;
+  endState?: string;
+  currentState?: string;
+  turningPoints: { episodeNumber: number; event: string; stateAfter: string }[];
+}
+
+export interface CharacterPersonality {
+  traits: PersonalityTrait[];
+  speechStyle: string;
+  emotionalState: EmotionalState;
+  arc?: CharacterArc;
 }
 
 /** 文生图适配器接口 */
@@ -490,6 +791,171 @@ export interface PartialImageGenConfig {
 /** API 提供商 */
 export type APIProvider = "deepseek" | "openai" | "claude" | "gemini" | "nano-banana" | "z-image" | "ollama" | "comfyui" | "custom";
 
+export type AccuracyProviderKind = "search" | "fetch";
+export type AccuracyProviderVendor = "firecrawl" | "tavily" | "custom";
+export type AccuracyProviderHealthStatus = "idle" | "success" | "error";
+export type AccuracySourceTier = "anchor" | "whitelist" | "open_web";
+
+export interface AccuracyProviderConfig {
+  id: string;
+  name: string;
+  kind: AccuracyProviderKind;
+  vendor: AccuracyProviderVendor;
+  baseUrl: string;
+  apiKey?: string;
+  hasApiKey?: boolean;
+  maskedApiKey?: string;
+  capabilities: string[];
+  enabled: boolean;
+  priority: number;
+  healthStatus?: AccuracyProviderHealthStatus;
+  lastCheckedAt?: string;
+  lastError?: string;
+}
+
+export interface AccuracyProviderSlots {
+  primarySearch: string | null;
+  fallbackSearch: string | null;
+  primaryFetch: string | null;
+  fallbackFetch: string | null;
+}
+
+export interface AccuracySettings {
+  providers: AccuracyProviderConfig[];
+  slots: AccuracyProviderSlots;
+  whitelistDomains: string[];
+}
+
+export interface AccuracyHardFact {
+  id: string;
+  claimType: "person" | "date" | "number" | "term" | "place" | "event";
+  subject: string;
+  predicate: string;
+  object: string;
+  normalizedValue: string;
+  sourceIds: string[];
+  confidence: number;
+  mustPreserve: boolean;
+}
+
+export interface AccuracySoftFact {
+  id: string;
+  summary: string;
+  evidenceLevel: "strong" | "medium" | "weak";
+  sourceIds: string[];
+  rewriteFlexibility: "low" | "medium" | "high";
+}
+
+export interface AccuracySourceEntry {
+  id: string;
+  url: string;
+  domain: string;
+  title: string;
+  sourceTier: AccuracySourceTier;
+  retrievalMethod: "wikipedia" | "search" | "fetch";
+  providerId?: string;
+  excerpt: string;
+  retrievedAt: string;
+  trustScore: number;
+}
+
+export interface AccuracyCoverageGap {
+  question: string;
+  missingType: "hard_fact" | "soft_context" | "source" | "budget";
+  severity: "info" | "warning" | "critical";
+  reason: string;
+}
+
+export interface AccuracyConfidenceSummary {
+  hardFactCoverage: number;
+  softFactCoverage: number;
+  overallRisk: "low" | "medium" | "high";
+}
+
+export interface AccuracyQueryExecution {
+  phase: "whitelist_search" | "whitelist_fetch" | "open_web_search" | "open_web_fetch";
+  kind: "search" | "fetch";
+  providerId?: string;
+  providerName?: string;
+  slot?: keyof AccuracyProviderSlots | null;
+  query?: string;
+  url?: string;
+  resultCount?: number;
+  outcome: "success" | "empty" | "skipped" | "error";
+  detail?: string;
+}
+
+export interface AccuracyQueryPlan {
+  hardFactQueries: string[];
+  softFactQueries: string[];
+  fallbackUsed: boolean;
+  providerExecutions?: AccuracyQueryExecution[];
+}
+
+export interface FactPack {
+  topic: string;
+  queryPlan: AccuracyQueryPlan;
+  hardFacts: AccuracyHardFact[];
+  softFacts: AccuracySoftFact[];
+  sourceEntries: AccuracySourceEntry[];
+  coverageGaps: AccuracyCoverageGap[];
+  confidenceSummary: AccuracyConfidenceSummary;
+  recommendedNarrativeAngles: string[];
+}
+
+export interface ResearchBrief {
+  verifiedHardFactCount: number;
+  sourceTiersUsed: AccuracySourceTier[];
+  majorRisks: string[];
+  safeToGenerate: boolean;
+}
+
+export interface AccuracyPanelClaim {
+  claimType: "person" | "date" | "number" | "term" | "place" | "event";
+  rawText: string;
+  normalizedValue: string;
+  matchedFactId?: string;
+  matchStatus: "matched" | "conflicting" | "missing" | "ambiguous";
+}
+
+export interface PanelClaimSet {
+  panelIndex: number;
+  hardClaims: AccuracyPanelClaim[];
+  unsupportedClaims: AccuracyPanelClaim[];
+  riskLevel: "low" | "medium" | "high";
+}
+
+export interface AccuracyIssuePanel {
+  panelIndex: number;
+  claimType: AccuracyPanelClaim["claimType"];
+  rawText: string;
+  reason: string;
+  matchedFactId?: string;
+}
+
+export interface AccuracySourceCoverage {
+  anchor: boolean;
+  whitelist: boolean;
+  open_web: boolean;
+}
+
+export interface AccuracyReviewResult {
+  status: "passed" | "repair_required" | "blocked";
+  blockingIssueCount: number;
+  repairableIssueCount: number;
+  panelClaims: PanelClaimSet[];
+  panels: AccuracyIssuePanel[];
+  sourceCoverage: AccuracySourceCoverage;
+}
+
+export interface AccuracyErrorSummary {
+  status: "blocked";
+  blockingIssueCount: number;
+  panels: AccuracyIssuePanel[];
+  generatedAt: string;
+  sourceCoverage: AccuracySourceCoverage;
+}
+
 /** 用户 LLM 配置 */
 export interface UserLLMConfig {
   id: string;
@@ -529,6 +995,8 @@ export interface UserAPIConfigV2 {
   imageConfigs: UserImageConfig[];
   /** VLM（视觉语言模型）配置，复用 LLM 配置格式 */
   vlmConfigs?: UserLLMConfig[];
+  /** Accuracy research provider registry and retrieval settings */
+  accuracyConfig: AccuracySettings;
   activeLLMId: string | null;
   activeImageId: string | null;
   activeVLMId?: string | null;

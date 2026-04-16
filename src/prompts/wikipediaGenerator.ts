@@ -1,6 +1,7 @@
-import { ComicScript, ComicStyle, WikipediaContent } from "../lib/types";
+import { ComicScript, ComicStyle, FactPack, NarrativeOutline, WikipediaContent } from "../lib/types";
 import { getStyleGuidanceForLLM } from "../lib/config/styles";
 import { parseScriptResponse } from "./scriptGenerator";
+import { buildOutlineGuidance } from "../lib/director";
 
 /** 信息图类风格（适合图示化、布局化表达） */
 const INFOGRAPHIC_STYLES = new Set<ComicStyle>(["flat", "infographic", "banana"]);
@@ -42,6 +43,28 @@ function getImagePromptGuidance(style: ComicStyle): string {
 "[Professor Chen: middle-aged Chinese scientist in his 40s, wearing white lab coat with glasses, friendly expression] standing in modern AI research lab, pointing at holographic neural network visualization floating in air, glowing blue nodes connected by light beams, multiple computer screens in background showing data, medium shot, warm overhead laboratory lighting, ${style} style, text-free image, no watermark"`;
 }
 
+function buildFactPackSection(factPack?: FactPack): string {
+  if (!factPack) return "";
+
+  return `
+## Fact Pack（必须遵守）
+- Hard facts:
+${factPack.hardFacts.map((fact) => `- [${fact.claimType}] ${fact.subject} / ${fact.predicate} / ${fact.object}`).join("\n") || "- none"}
+- Soft facts:
+${factPack.softFacts.map((fact) => `- ${fact.summary}`).join("\n") || "- none"}
+- Coverage gaps:
+${factPack.coverageGaps.map((gap) => `- ${gap.reason}`).join("\n") || "- none"}
+
+规则：
+- hard facts 是必须保真的事实锚点
+- soft facts 可以用于解释，但不能偏离 hard facts
+- coverage gaps 标记了 unsupported hard detail 的边界，不要越界补写
+- 尤其不要额外写出未出现在 Hard facts 中的年份/日期
+- 如果某个人名、地点、归因关系或硬细节不在 Hard facts 中，不要补写成确定事实
+- term/机制类表达优先贴近 Hard facts 原句；证据不足时宁可写短、写保守，也不要自由扩写成长解释
+`;
+}
+
 /**
  * Wikipedia 百科漫画 Prompt 生成器
  * 基于 Wikipedia 结构化内容，生成信息准确、教育性强的科普漫画分镜脚本。
@@ -51,6 +74,8 @@ export function buildWikipediaPrompt(
   style: ComicStyle,
   panelCount?: number,
   allowGuideCharacter: boolean = true,
+  narrativeOutline?: NarrativeOutline,
+  factPack?: FactPack,
 ): string {
   const panelGuidance = panelCount && panelCount > 0
     ? `规划${panelCount}格分镜，如需微调可在±2格范围内调整。`
@@ -62,6 +87,19 @@ export function buildWikipediaPrompt(
 
   const imageGuidance = getImagePromptGuidance(style);
   const isInfoStyle = INFOGRAPHIC_STYLES.has(style);
+  const factPackSection = buildFactPackSection(factPack);
+  const narrativeBeatPlanSection = narrativeOutline
+    ? `
+## Narrative Beat Plan（必须遵守）
+${buildOutlineGuidance(narrativeOutline)}
+
+额外要求：
+- 必须遵守 templateType、beatRole、knowledgeGoal、shotIntent、intensity、carryForward
+- 开场应体现钩子，而不是直接退回词条式定义
+- 至少保留一次 hook-closeup 或 contrast 作为强镜头变化
+- 最后一格优先做 reveal 或 aftermath，避免平铺式收尾
+`
+    : "";
 
   return `你是一位专业的百科科普漫画编剧，擅长将 Wikipedia 百科知识转化为生动有趣的漫画分镜。
 
@@ -78,6 +116,8 @@ ${getStyleGuidanceForLLM(style)}
 
 ## 分镜数量
 ${panelGuidance}
+${narrativeBeatPlanSection}
+${factPackSection}
 
 ## ⚠️ 语言限制（必须严格遵守）
 
@@ -114,6 +154,8 @@ ${panelGuidance}
 - 将抽象概念转化为具象的视觉场景
 - 善用类比、拟人、图示等手段
 - 复杂流程用多格拆解，每格一步
+- 不要把超过一半的面板困在同一类场景里，尤其不要因为主题有战争、仪式、课堂、实验室，就让每格都只是同一空间的重复镜头
+- 至少主动拉开 3 种不同功能场景：铺垫、观察、机制揭示、转折、结果/余波
 ${isInfoStyle ? "- 信息图风格：多用图标、箭头、分区布局表达知识结构" : "- 叙事风格：通过角色动作和场景变化推进知识讲解"}
 
 ### 4. 角色设计

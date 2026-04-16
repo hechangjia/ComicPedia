@@ -4,6 +4,8 @@ import { useState, useCallback } from "react";
 import { ComicScript, DifficultyLevel, QuizQuestion, PartialLLMConfig } from "@/lib/types";
 import { generateQuiz } from "@/lib/quizGenerator";
 import { Spinner } from "@/components/ui/Spinner";
+import { ClipboardList } from "lucide-react";
+
 
 interface QuizPanelProps {
   script: ComicScript;
@@ -39,8 +41,8 @@ function QuizCard({
           const isCorrect = i === question.correctIndex;
           let optionClass = "border hover:border-primary/50";
           if (revealed) {
-            if (isCorrect) optionClass = "border-green-500 bg-green-50 dark:bg-green-900/20";
-            else if (isSelected) optionClass = "border-red-500 bg-red-50 dark:bg-red-900/20";
+            if (isCorrect) optionClass = "border-success bg-success/10";
+            else if (isSelected) optionClass = "border-error bg-error/10";
             else optionClass = "border opacity-60";
           } else if (isSelected) {
             optionClass = "border-primary bg-primary/10 ring-2 ring-primary/30";
@@ -57,8 +59,8 @@ function QuizCard({
                 {String.fromCharCode(65 + i)}
               </span>
               <span className="flex-1">{option}</span>
-              {revealed && isCorrect && <span className="text-green-600 shrink-0">✓</span>}
-              {revealed && isSelected && !isCorrect && <span className="text-red-600 shrink-0">✗</span>}
+              {revealed && isCorrect && <span className="text-success shrink-0">✓</span>}
+              {revealed && isSelected && !isCorrect && <span className="text-error shrink-0">✗</span>}
             </button>
           );
         })}
@@ -120,9 +122,7 @@ export function QuizPanel({ script, difficulty = "medium", llmConfig, onQuizGene
     <div className="p-4 rounded-xl border bg-card space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-medium flex items-center gap-2">
-          <svg className="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-          </svg>
+          <ClipboardList className="w-4 h-4 text-primary" />
           知识测验
         </h3>
         <button
@@ -135,7 +135,7 @@ export function QuizPanel({ script, difficulty = "medium", llmConfig, onQuizGene
       </div>
 
       {error && (
-        <p className="text-sm text-red-500">{error}</p>
+        <p className="text-sm text-error">{error}</p>
       )}
 
       {questions && (
@@ -157,8 +157,8 @@ export function QuizPanel({ script, difficulty = "medium", llmConfig, onQuizGene
       {allRevealed && questions && (
         <div className={`p-3 rounded-lg text-center text-sm font-medium ${
           correctCount === questions.length
-            ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300"
-            : "bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300"
+            ? "bg-success/10 text-success"
+            : "bg-info/10 text-info"
         }`}>
           {correctCount === questions.length
             ? `🎉 ${correctCount}/${questions.length} 全对！`

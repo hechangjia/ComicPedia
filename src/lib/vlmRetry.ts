@@ -162,7 +162,11 @@ export function applyPromptPatch(originalPrompt: string, patch: PromptPatch): st
 
   if (newTerms.length === 0) return originalPrompt;
 
-  return `${originalPrompt.replace(/,?\s*$/, "")}, ${newTerms.join(", ")}`;
+  const base = originalPrompt.replace(/,?\s*$/, "");
+  if (!base.trim()) {
+    return newTerms.join(", ");
+  }
+  return `${base}, ${newTerms.join(", ")}`;
 }
 
 /**

@@ -1,5 +1,39 @@
-import { Character, ComicScript, ComicStyle } from "../lib/types";
+import { Character, ComicScript, ComicStyle, FactPack, NarrativeOutline } from "../lib/types";
 import { getStyleGuidanceForLLM } from "../lib/config/styles";
+import { buildOutlineGuidance } from "../lib/director";
+
+function buildFactPackSection(factPack?: FactPack): string {
+  if (!factPack) return "";
+
+  const hardFacts = factPack.hardFacts
+    .map((fact) => `- [${fact.claimType}] ${fact.subject} / ${fact.predicate} / ${fact.object}`)
+    .join("\n");
+  const softFacts = factPack.softFacts
+    .map((fact) => `- ${fact.summary}`)
+    .join("\n");
+  const coverageGaps = factPack.coverageGaps
+    .map((gap) => `- ${gap.reason}`)
+    .join("\n");
+
+  return `
+## Fact Pack（必须遵守）
+- Hard facts:
+${hardFacts || "- none"}
+- Soft facts:
+${softFacts || "- none"}
+- Coverage gaps:
+${coverageGaps || "- none"}
+
+规则：
+- hard facts 是强约束，必须保持一致
+- soft facts 可用于解释和叙事组织，但不能与 hard facts 冲突
+- coverage gaps 表示证据不足的边界，遇到这些空白时不要编造 unsupported hard detail
+- 如果细节不被 Fact Pack 支持，宁可省略，也不要为了戏剧性额外发明
+- 尤其不要额外写出未出现在 Hard facts 中的年份/日期
+- 如果某个人名、地点、归因关系或硬细节不在 Hard facts 中，不要补写成确定事实
+- term/机制类表达优先贴近 Hard facts 原句；证据不足时宁可写短、写保守，也不要自由扩写成长解释
+`;
+}
 
 /** 分镜脚本生成 Prompt 模板 */
 export function buildScriptPrompt(
@@ -8,6 +42,8 @@ export function buildScriptPrompt(
   panelCount?: number,
   character?: Character,
   allowGuideCharacter: boolean = true,
+  narrativeOutline?: NarrativeOutline,
+  factPack?: FactPack,
 ): string {
   const panelGuidance = panelCount && panelCount > 0
     ? `优先规划${panelCount}格，如为保证知识讲清可在±2格范围内微调。`
@@ -59,6 +95,20 @@ export function buildScriptPrompt(
 - characterDescription 不能为空时，也只能描述题材原生人物或概念拟人角色，不能凭空新增 explorer / narrator / guide
 `;
 
+  const narrativeBeatPlanSection = narrativeOutline
+    ? `
+## Narrative Beat Plan（必须遵守）
+${buildOutlineGuidance(narrativeOutline)}
+
+额外要求：
+- 必须遵守上述 templateType、beatRole、knowledgeGoal、shotIntent、intensity、carryForward
+- 开头两格不能重新退化成平铺直叙讲解
+- 至少保留一次 hook-closeup 或 contrast 作为强镜头变化
+- 最后一格优先做 reveal 或 aftermath，不要再次做主持式解释
+    `
+    : "";
+  const factPackSection = buildFactPackSection(factPack);
+
   return `你是一位专业的科普漫画编剧，擅长把复杂概念拆解为可视化的分镜叙事。请根据以下科普主题创作分镜脚本。
 
 ## 主题
@@ -82,9 +132,19 @@ ${panelGuidance}
    - ✅ "Query 就像你心中的问题，Key 就像每道菜的标签，两者越匹配，注意力分数越高"
 4. **关键机制必讲**：如果主题涉及核心公式或流程（如 Q/K/V、softmax），必须用至少2-3格**逐步图示化**讲清楚，不能一笔带过
 5. **逻辑递进**：分镜之间必须有清晰的知识递进关系
+6. **禁止场景同质化**：不要把超过一半的面板都放在同一种场景里，尤其不要因为主题里有“大战/战争/冲突”就把每一格都画成同一片战场
+7. **至少拉开 3 种场景功能**：同一主题中至少包含三种不同功能的面板，例如：
+   - 铺垫/背景建立
+   - 人物决策或局部特写
+   - 核心事件或冲突爆发
+   - 结果/余波/影响
+   - 地图/器物/机制图示
+8. **镜头变化不等于场景变化**：即使用了 wide shot、close-up、low angle，如果空间语义仍是同一片战场，也算重复，必须主动切出不同空间或不同叙事功能
 
 ${characterConstraint}
 ${guideCharacterPolicy}
+${narrativeBeatPlanSection}
+${factPackSection}
 
 ## 叙事策略选择（根据主题自动判断）
 

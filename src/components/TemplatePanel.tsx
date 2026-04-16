@@ -2,6 +2,8 @@
 
 import { useState, useRef } from "react";
 import type { ContentType } from "@/lib/types";
+import { X, ChevronDown } from "lucide-react";
+
 import {
   ComicTemplate,
   getTemplatesByType,
@@ -78,14 +80,9 @@ export function TemplatePanel({ contentType, onSelect }: TemplatePanelProps) {
         aria-controls="template-grid"
         className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors w-full justify-center"
       >
-        <svg
+        <ChevronDown
           className={`w-3 h-3 transition-transform ${expanded ? "rotate-180" : ""}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
+        />
         从模板开始
         <span className="text-xs bg-muted px-1.5 py-0.5 rounded-full">{templates.length}</span>
       </button>
@@ -106,7 +103,7 @@ export function TemplatePanel({ contentType, onSelect }: TemplatePanelProps) {
                   <div className="flex items-center gap-1.5">
                     <span className="font-medium text-sm">{tpl.name}</span>
                     {!tpl.isBuiltIn && (
-                      <span className="text-[10px] px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300">
+                      <span className="text-[10px] px-1 py-0.5 rounded bg-info/10 text-info">
                         自定义
                       </span>
                     )}
@@ -136,12 +133,10 @@ export function TemplatePanel({ contentType, onSelect }: TemplatePanelProps) {
                       e.stopPropagation();
                       handleDelete(tpl.id);
                     }}
-                    className="absolute top-2 right-2 w-5 h-5 rounded-full bg-red-500 text-white items-center justify-center text-xs hidden group-hover:flex"
+                    className="absolute top-2 right-2 w-5 h-5 rounded-full bg-error/50 text-white items-center justify-center text-xs hidden group-hover:flex"
                     title="删除模板"
                   >
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
+                    <X className="w-3 h-3" />
                   </button>
                 )}
               </div>
@@ -174,7 +169,7 @@ export function TemplatePanel({ contentType, onSelect }: TemplatePanelProps) {
           </div>
 
           {importError && (
-            <p className={`text-xs text-center ${importError.startsWith("已导入") ? "text-green-600" : "text-red-500"}`}>
+            <p className={`text-xs text-center ${importError.startsWith("已导入") ? "text-success" : "text-error"}`}>
               {importError}
             </p>
           )}

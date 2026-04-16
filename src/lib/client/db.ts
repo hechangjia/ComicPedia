@@ -1,6 +1,7 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
-import { GenerateTask, Character } from '@/lib/types';
+import { GenerateTask, Character, TaskListItem } from '@/lib/types';
 import { Series } from '@/lib/series';
+import { shouldPreferLocalTaskSnapshot } from "@/lib/taskStateAuthority";
 import { cleanupTaskState } from './eventBus';
 
 // ============================================================
@@ -95,9 +96,6 @@ async function apiCall<T>(url: string, options?: RequestInit): Promise<T> {
 /** 终态集合：仅这些状态会触发 API 同步 */
 const SYNC_STATUSES = new Set(['completed', 'failed', 'script_ready']);
 
-/** 活跃状态集合：L3 为权威源，禁止 L1 回写覆盖 */
-const ACTIVE_STATUSES = new Set(['generating', 'scripting']);
-
 // ── 缓存操作（带错误日志）────────────────────────────────────
 
 async function cacheGet<T>(store: 'comics', key: string): Promise<T | undefined>;
@@ -187,7 +185,7 @@ export async function getTask(id: string): Promise<GenerateTask | undefined> {
   // 先检查 L3，如果处于活跃状态则直接返回，跳过 L1 读取和 L2 回写。
   const { useTaskStore } = await import("@/stores/taskStore");
   const storeTask = useTaskStore.getState().tasks[id];
-  if (storeTask && ACTIVE_STATUSES.has(storeTask.status)) {
+  if (storeTask && shouldPreferLocalTaskSnapshot(storeTask)) {
     return storeTask;
   }
 
@@ -197,7 +195,7 @@ export async function getTask(id: string): Promise<GenerateTask | undefined> {
 
     // 二次检查：在 await 期间 L3 可能已更新为活跃状态
     const freshStoreTask = useTaskStore.getState().tasks[id];
-    if (freshStoreTask && ACTIVE_STATUSES.has(freshStoreTask.status)) {
+    if (freshStoreTask && shouldPreferLocalTaskSnapshot(freshStoreTask)) {
       return freshStoreTask;
     }
 
@@ -218,10 +216,23 @@ export interface PaginatedResult<T> {
   hasMore: boolean;
 }
 
+export async function getComicSummaries(page = 1, pageSize = 100): Promise<PaginatedResult<TaskListItem>> {
+  const data = await apiCall<{ tasks: TaskListItem[]; total: number; page: number; pageSize: number }>(
+    `/api/tasks?page=${page}&pageSize=${pageSize}`
+  );
+  return {
+    items: data.tasks,
+    total: data.total,
+    page: data.page,
+    pageSize: data.pageSize,
+    hasMore: data.page * data.pageSize < data.total,
+  };
+}
+
 export async function getAllComics(page = 1, pageSize = 100): Promise<PaginatedResult<GenerateTask>> {
   try {
     const data = await apiCall<{ tasks: GenerateTask[]; total: number; page: number; pageSize: number }>(
-      `/api/tasks?page=${page}&pageSize=${pageSize}`
+      `/api/tasks?page=${page}&pageSize=${pageSize}&view=full&origin=user`
     );
     // Parallel cache update — use allSettled to not lose all if one fails
     await Promise.allSettled(data.tasks.map(t => cachePut('comics', t)));
@@ -247,6 +258,24 @@ export async function deleteComic(id: string) {
   }
   await cacheDelete('comics', id);
   cleanupTaskState(id);
+}
+
+export async function deleteComicsByIds(ids: string[]) {
+  if (ids.length === 0) return;
+  try {
+    await apiCall('/api/tasks', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+  } catch (err) {
+    console.warn('[DB] deleteComicsByIds API failed:', err);
+  }
+  // 逐个清理本地缓存和状态
+  for (const id of ids) {
+    await cacheDelete('comics', id);
+    cleanupTaskState(id);
+  }
 }
 
 export async function clearAllComics() {

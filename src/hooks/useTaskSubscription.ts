@@ -2,14 +2,30 @@ import { useEffect, useState, useRef } from "react";
 import { GenerateTask } from "@/lib/types";
 import { getTask } from "@/lib/client/db";
 import { recoverZombieTask } from "@/lib/client/generator";
+import { getTaskStateAuthority, shouldAttemptZombieRecovery, shouldPollTaskFromServer } from "@/lib/taskStateAuthority";
+import { reconcileTaskLifecycle, shouldAttemptOffPageReconcile } from "@/hooks/useTaskPageLifecycle";
 import { useTaskStore } from "@/stores/taskStore";
 
 /** Terminal states that no longer need polling */
 const TERMINAL_STATUSES = new Set<GenerateTask["status"]>(["completed", "failed"]);
 
-/** Active states where real-time updates come via notifyListeners → Zustand store.
- *  Polling from server would return stale data and cause UI flickering. */
-const REALTIME_STATUSES = new Set<GenerateTask["status"]>(["generating", "scripting", "pending"]);
+export function isRecoverableLocalStatus(status: GenerateTask["status"]): boolean {
+  return shouldAttemptZombieRecovery({ status });
+}
+
+export function isServerPollingStatus(status: GenerateTask["status"]): boolean {
+  return getTaskStateAuthority(status) === "server_durable";
+}
+
+export function shouldContinuePollingAfterRead(task: GenerateTask | null | undefined): boolean {
+  if (!task) {
+    return true;
+  }
+  if (shouldPollTaskFromServer(task)) {
+    return true;
+  }
+  return task.status === "failed" && !!task.script;
+}
 
 /**
  * Subscribe to task state changes.
@@ -49,15 +65,48 @@ export function useTaskSubscription(taskId: string) {
   useEffect(() => {
     if (!taskId) return;
 
-    recoverZombieTask(taskId).then(() => {
-      useTaskStore.getState().loadTask(taskId).then((t) => {
-        if (t) {
-          setTask(t);
-        } else {
-          setError("Task not found");
+    let cancelled = false;
+
+    async function hydrateTask() {
+      try {
+        let loadedTask = await useTaskStore.getState().loadTask(taskId);
+        if (!loadedTask) {
+          if (!cancelled) {
+            setError("Task not found");
+          }
+          return;
         }
-      });
-    });
+
+        if (shouldAttemptOffPageReconcile(loadedTask)) {
+          const reconciledTask = await reconcileTaskLifecycle(taskId).catch(() => undefined);
+          if (cancelled) return;
+          if (reconciledTask) {
+            useTaskStore.getState().updateTask(reconciledTask);
+            loadedTask = reconciledTask;
+          }
+        }
+
+        if (isRecoverableLocalStatus(loadedTask.status)) {
+          await recoverZombieTask(taskId);
+          loadedTask = await getTask(taskId) ?? loadedTask;
+          useTaskStore.getState().updateTask(loadedTask);
+        }
+
+        if (!cancelled) {
+          setTask(loadedTask);
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError instanceof Error ? loadError.message : "Task load failed");
+        }
+      }
+    }
+
+    void hydrateTask();
+
+    return () => {
+      cancelled = true;
+    };
   }, [taskId]);
 
   // Adaptive polling fallback (refreshes store via loadTask; store changes auto-trigger selector)
@@ -88,19 +137,22 @@ export function useTaskSubscription(taskId: string) {
         // come via notifyListeners → Zustand store. Polling the server would
         // return stale pre-generation data and cause UI flickering.
         const currentStatus = taskRef.current?.status;
-        if (currentStatus && REALTIME_STATUSES.has(currentStatus)) {
+        if (currentStatus && getTaskStateAuthority(currentStatus) === "client_local") {
           schedulePoll();
           return;
         }
 
         const t = await getTask(taskId);
-        if (!t) return;
+        if (!t) {
+          schedulePoll();
+          return;
+        }
 
         // Refresh store (if changed, selector auto-triggers re-render)
         useTaskStore.getState().updateTask(t);
 
         // Unrecoverable failure: stop polling
-        if (t.status === "failed" && !t.script) return;
+        if (!shouldContinuePollingAfterRead(t)) return;
 
         schedulePoll();
       }, getPollingInterval(current));
@@ -118,18 +170,20 @@ export function useTaskSubscription(taskId: string) {
 }
 
 /** Return polling interval (ms) based on task status */
-function getPollingInterval(task: GenerateTask | null): number {
+export function getPollingInterval(task: GenerateTask | null): number {
   if (!task) return 2000;
+  if (isServerPollingStatus(task.status)) {
+    return 2000;
+  }
   switch (task.status) {
+    case "created":
     case "scripting":
     case "generating":
     case "pending":
-      return 2000;  // Active states: 2s
-    case "script_ready":
-      return 5000;  // Script ready, waiting for user: 5s
+      return 2000;
     case "completed":
     case "failed":
-      return 8000;  // Terminal states (fallback, rarely reached): 8s
+      return 8000;
     default:
       return 5000;
   }

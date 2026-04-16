@@ -1,24 +1,63 @@
 import type { Metadata, Viewport } from "next";
+import { DM_Sans, Noto_Sans_SC, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ServiceWorkerRegistrar } from "@/components/ServiceWorkerRegistrar";
 import { GlobalErrorBoundary } from "@/components/GlobalErrorBoundary";
+import { BottomTabBar } from "@/components/BottomTabBar";
+import { ToastProvider } from "@/components/ui/Toast";
 import Link from "next/link";
+import { BookImage, Image as ImageIcon, Users, Library, Clock, Settings } from "lucide-react";
+
+const dmSans = DM_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-dm-sans",
+  display: "swap",
+});
+
+const notoSansSC = Noto_Sans_SC({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-noto-sans-sc",
+  display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-jetbrains-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "ComicPedia - AI 漫画生成器",
-  description: "AI 驱动的漫画生成工具：科普、诗词、小说、小红书图文",
+  description: "AI 驱动的漫画生成器：输入任意主题，自动生成完整漫画。支持科普、百科、诗词、小说、小红书，12 种画风自由组合。",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
     title: "ComicPedia",
   },
+  openGraph: {
+    title: "ComicPedia - AI Comic Generator",
+    description: "Turn any topic into a full comic — AI writes the storyboard, generates the art, and reviews quality automatically.",
+    type: "website",
+    locale: "zh_CN",
+    siteName: "ComicPedia",
+    images: [{ url: "/og-image.png", width: 1200, height: 630, alt: "ComicPedia" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "ComicPedia - AI Comic Generator",
+    description: "Turn any topic into a full comic — AI writes the storyboard, generates the art, and reviews quality automatically.",
+    images: ["/og-image.png"],
+  },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#7c3aed",
+  themeColor: "#3d8b84",
 };
 
 export default function RootLayout({
@@ -26,12 +65,13 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const isShowcase = process.env.SHOWCASE_MODE === "true";
+  const isShowcase = process.env.NEXT_PUBLIC_SHOWCASE_MODE === "true";
 
   return (
     <html lang="zh-CN" suppressHydrationWarning>
-      <body className="min-h-screen bg-background antialiased">
+      <body className={`min-h-screen bg-background antialiased ${dmSans.variable} ${notoSansSC.variable} ${jetbrainsMono.variable}`}>
         <ThemeProvider>
+          <ToastProvider>
           {/* Skip to content link — keyboard accessibility */}
           <a
             href="#main-content"
@@ -45,22 +85,10 @@ export default function RootLayout({
             <div className="container mx-auto px-4 h-14 flex items-center justify-between">
               {/* Logo */}
               <Link href={isShowcase ? "/gallery" : "/"} className="flex items-center gap-2 font-bold text-lg group">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-sm group-hover:shadow-md transition-shadow">
-                  <svg
-                    className="w-5 h-5 text-white"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                    />
-                  </svg>
+                <div className="w-8 h-8 rounded-lg bg-teal flex items-center justify-center shadow-sm group-hover:shadow-md transition-shadow">
+                  <BookImage className="w-5 h-5 text-white" />
                 </div>
-                <span className="hidden sm:inline bg-gradient-to-r from-purple-600 to-pink-600 dark:from-purple-400 dark:to-pink-400 bg-clip-text text-transparent">
+                <span className="hidden sm:inline text-teal">
                   ComicPedia{isShowcase ? " Gallery" : ""}
                 </span>
               </Link>
@@ -72,9 +100,7 @@ export default function RootLayout({
                   className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5 min-h-[44px]"
                   aria-label="作品库"
                 >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
+                  <ImageIcon className="w-4 h-4" />
                   <span className="hidden sm:inline">作品</span>
                 </Link>
                 <Link
@@ -82,9 +108,7 @@ export default function RootLayout({
                   className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5 min-h-[44px]"
                   aria-label="角色库"
                 >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
+                  <Users className="w-4 h-4" />
                   <span className="hidden sm:inline">角色</span>
                 </Link>
                 <Link
@@ -92,9 +116,7 @@ export default function RootLayout({
                   className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5 min-h-[44px]"
                   aria-label="连载系列"
                 >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                  </svg>
+                  <Library className="w-4 h-4" />
                   <span className="hidden sm:inline">连载</span>
                 </Link>
                 {!isShowcase && (
@@ -104,9 +126,7 @@ export default function RootLayout({
                       className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5 min-h-[44px]"
                       aria-label="历史记录"
                     >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
+                      <Clock className="w-4 h-4" />
                       <span className="hidden sm:inline">历史记录</span>
                     </Link>
                     <Link
@@ -114,10 +134,7 @@ export default function RootLayout({
                       className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5 min-h-[44px]"
                       aria-label="设置"
                     >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
+                      <Settings className="w-4 h-4" />
                       <span className="hidden sm:inline">设置</span>
                     </Link>
                   </>
@@ -128,12 +145,14 @@ export default function RootLayout({
           </nav>
 
           {/* 主内容 */}
-          <main id="main-content" className="container mx-auto px-4 py-6 sm:py-8" role="main">
-            <GlobalErrorBoundary>
-              {children}
-            </GlobalErrorBoundary>
+          <main id="main-content" className="container mx-auto px-4 py-6 sm:py-8 pb-20 sm:pb-8" role="main">
+              <GlobalErrorBoundary>
+                {children}
+              </GlobalErrorBoundary>
           </main>
+          <BottomTabBar />
           <ServiceWorkerRegistrar />
+          </ToastProvider>
         </ThemeProvider>
       </body>
     </html>

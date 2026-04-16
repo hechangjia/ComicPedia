@@ -7,6 +7,8 @@ import { getAllSeries, saveSeries, deleteSeries, getAllComics } from "@/lib/clie
 import { Series, createSeries } from "@/lib/series";
 import type { GenerateTask, ComicStyle, ContentType } from "@/lib/types";
 import { STYLE_META } from "@/lib/config/styles";
+import { Layers, Plus } from "lucide-react";
+
 
 export default function SeriesPage() {
   const router = useRouter();
@@ -95,9 +97,7 @@ export default function SeriesPage() {
           onClick={() => setShowCreate(!showCreate)}
           className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity flex items-center gap-2 min-h-[44px]"
         >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
+          <Plus className="w-4 h-4" />
           新建连载
         </button>
       </div>
@@ -176,9 +176,7 @@ export default function SeriesPage() {
       {seriesList.length === 0 ? (
         <div className="text-center py-16 space-y-4">
           <div className="w-16 h-16 mx-auto rounded-full bg-muted flex items-center justify-center">
-            <svg className="w-8 h-8 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-            </svg>
+            <Layers className="w-8 h-8 text-muted-foreground" strokeWidth={1.5} />
           </div>
           <p className="text-muted-foreground">还没有连载系列</p>
           <p className="text-xs text-muted-foreground">创建一个系列，将多个漫画组织成连续故事</p>
@@ -223,12 +221,12 @@ export default function SeriesPage() {
                           {validEpisodes.length} 集
                         </span>
                         {missingCount > 0 && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-warning/10 text-warning">
                             {missingCount} 已删除
                           </span>
                         )}
                         {completedEps > 0 && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-success/10 text-success">
                             {completedEps} 完成
                           </span>
                         )}
@@ -253,7 +251,7 @@ export default function SeriesPage() {
                       )}
                       <button
                         onClick={() => handleDelete(series.id)}
-                        className="text-xs text-red-500 hover:text-red-600 ml-auto"
+                        className="text-xs text-error hover:text-error ml-auto"
                         aria-label={`删除连载"${series.title}"`}
                       >
                         删除

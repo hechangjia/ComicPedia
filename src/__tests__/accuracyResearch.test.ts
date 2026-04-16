@@ -1,0 +1,1031 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const {
+  getWikipediaSummaryMock,
+  searchWikipediaMock,
+  resolveAccuracyProvidersMock,
+  searchWithProviderMock,
+  fetchWithProviderMock,
+} = vi.hoisted(() => ({
+  getWikipediaSummaryMock: vi.fn(),
+  searchWikipediaMock: vi.fn(),
+  resolveAccuracyProvidersMock: vi.fn(),
+  searchWithProviderMock: vi.fn(),
+  fetchWithProviderMock: vi.fn(),
+}));
+
+vi.mock("@/lib/server/wikipedia", () => ({
+  getWikipediaSummary: getWikipediaSummaryMock,
+  searchWikipedia: searchWikipediaMock,
+}));
+
+vi.mock("@/lib/accuracy/providerRegistry", () => ({
+  resolveAccuracyProviders: resolveAccuracyProvidersMock,
+  getWhitelistDomains: (config: { whitelistDomains?: string[] }) =>
+    (config.whitelistDomains || []).map((domain) => domain.trim().toLowerCase()).filter(Boolean),
+}));
+
+vi.mock("@/lib/accuracy/providerClients", () => ({
+  searchWithProvider: searchWithProviderMock,
+  fetchWithProvider: fetchWithProviderMock,
+}));
+
+describe("accuracy research", () => {
+  beforeEach(() => {
+    getWikipediaSummaryMock.mockReset();
+    searchWikipediaMock.mockReset();
+    resolveAccuracyProvidersMock.mockReset();
+    searchWithProviderMock.mockReset();
+    fetchWithProviderMock.mockReset();
+  });
+
+  it("uses wikipedia anchor evidence first and skips provider fallback when anchor coverage is sufficient", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "DNA",
+      extract: "DNA stands for deoxyribonucleic acid. DNA was first isolated in 1869 and carries hereditary information in living organisms.",
+      lang: "en",
+      sections: ["History", "Structure"],
+      pageUrl: "https://en.wikipedia.org/wiki/DNA",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "DNA",
+      contentType: "science",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(searchWithProviderMock).not.toHaveBeenCalled();
+    expect(result.factPack.sourceEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceTier: "anchor",
+          retrievalMethod: "wikipedia",
+          domain: "en.wikipedia.org",
+        }),
+      ]),
+    );
+    expect(result.researchBrief.sourceTiersUsed).toEqual(["anchor"]);
+    expect(result.researchBrief.verifiedHardFactCount).toBeGreaterThan(0);
+    expect(result.researchBrief.safeToGenerate).toBe(true);
+  });
+
+  it("extracts multiple hard facts from a dense DNA anchor definition", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "DNA",
+      extract: "Deoxyribonucleic acid (DNA) is a polymer composed of two polynucleotide chains that coil around each other to form a double helix. The polymer carries genetic instructions for the development, functioning, growth and reproduction of all known organisms and many viruses.",
+      lang: "en",
+      sections: ["Structure", "Function"],
+      pageUrl: "https://en.wikipedia.org/wiki/DNA",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "DNA",
+      contentType: "wikipedia",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts.length).toBeGreaterThanOrEqual(2);
+    expect(result.factPack.hardFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+          object: "DNA is a polymer composed of two polynucleotide chains",
+        }),
+        expect.objectContaining({
+          claimType: "term",
+          object: expect.stringMatching(/double helix/i),
+        }),
+        expect.objectContaining({
+          claimType: "term",
+          object: expect.stringMatching(/genetic instructions/i),
+        }),
+      ]),
+    );
+    expect(result.factPack.hardFacts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          object: expect.stringMatching(/forms of life/i),
+        }),
+      ]),
+    );
+    expect(result.researchBrief.safeToGenerate).toBe(true);
+  });
+
+  it("filters whitelist results, caps source counts, and truncates excerpts", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "火药",
+      extract: "火药是一种重要发明。",
+      lang: "zh",
+      sections: ["历史"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E7%81%AB%E8%8D%AF",
+    });
+
+    resolveAccuracyProvidersMock.mockReturnValue([
+      {
+        id: "search-primary",
+        name: "Firecrawl Search",
+        kind: "search",
+        vendor: "firecrawl",
+        baseUrl: "https://api.firecrawl.dev",
+        apiKey: "fc",
+        enabled: true,
+        priority: 1,
+        capabilities: ["search"],
+      },
+    ]);
+
+    searchWithProviderMock.mockResolvedValue([
+      { url: "https://allowed.com/a", title: "A", domain: "allowed.com", excerpt: "x".repeat(1200) },
+      { url: "https://blocked.com/a", title: "B", domain: "blocked.com", excerpt: "blocked" },
+      { url: "https://allowed.com/b", title: "C", domain: "allowed.com", excerpt: "c".repeat(1200) },
+      { url: "https://allowed.com/c", title: "D", domain: "allowed.com", excerpt: "d".repeat(1200) },
+      { url: "https://allowed.com/d", title: "E", domain: "allowed.com", excerpt: "e".repeat(1200) },
+    ]);
+    fetchWithProviderMock.mockResolvedValue({
+      url: "https://allowed.com/a",
+      title: "A fetched",
+      domain: "allowed.com",
+      excerpt: "f".repeat(1200),
+    });
+
+    const result = await runAccuracyResearch({
+      topic: "火药",
+      contentType: "science",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: "search-primary",
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [" allowed.com ", "allowed.com"],
+      },
+    });
+
+    const whitelistEntries = result.factPack.sourceEntries.filter((entry) => entry.sourceTier === "whitelist");
+    expect(whitelistEntries).toHaveLength(3);
+    expect(whitelistEntries.every((entry) => entry.domain === "allowed.com")).toBe(true);
+    expect(whitelistEntries.every((entry) => entry.excerpt.length <= 800)).toBe(true);
+  });
+
+  it("records a coverage gap instead of unbounded fallback when the research budget is exhausted", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "未知主题",
+      extract: "资料很少。",
+      lang: "zh",
+      sections: [],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E6%9C%AA%E7%9F%A5%E4%B8%BB%E9%A2%98",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([
+      {
+        id: "search-primary",
+        name: "Search Primary",
+        kind: "search",
+        vendor: "custom",
+        baseUrl: "https://search.example.com",
+        apiKey: "secret",
+        enabled: true,
+        priority: 1,
+        capabilities: ["search"],
+      },
+    ]);
+
+    const result = await runAccuracyResearch({
+      topic: "未知主题",
+      contentType: "science",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: "search-primary",
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: ["allowed.com"],
+      },
+      budgetMs: 0,
+    });
+
+    expect(searchWithProviderMock).not.toHaveBeenCalled();
+    expect(result.factPack.coverageGaps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          reason: expect.stringContaining("budget"),
+        }),
+      ]),
+    );
+    expect(result.researchBrief.safeToGenerate).toBe(false);
+  });
+
+  it("uses configured fetch providers to enrich whitelist evidence and records the runtime provider trace", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "火药",
+      extract: "火药是一种重要发明。",
+      lang: "zh",
+      sections: ["历史"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E7%81%AB%E8%8D%AF",
+    });
+
+    resolveAccuracyProvidersMock.mockImplementation((_config, kind: "search" | "fetch") => {
+      if (kind === "search") {
+        return [
+          {
+            id: "search-primary",
+            name: "Tavily Search",
+            kind: "search",
+            vendor: "tavily",
+            baseUrl: "https://api.tavily.com",
+            apiKey: "tv",
+            enabled: true,
+            priority: 0,
+            capabilities: ["search"],
+          },
+        ];
+      }
+
+      return [
+        {
+          id: "fetch-primary",
+          name: "Firecrawl Fetch",
+          kind: "fetch",
+          vendor: "firecrawl",
+          baseUrl: "https://api.firecrawl.dev",
+          apiKey: "fc",
+          enabled: true,
+          priority: 0,
+          capabilities: ["fetch"],
+        },
+      ];
+    });
+
+    searchWithProviderMock.mockResolvedValue([
+      {
+        url: "https://allowed.com/history/gunpowder",
+        title: "火药历史",
+        domain: "allowed.com",
+        excerpt: "搜索摘要",
+      },
+    ]);
+    fetchWithProviderMock.mockResolvedValue({
+      url: "https://allowed.com/history/gunpowder",
+      title: "火药历史",
+      domain: "allowed.com",
+      excerpt: "学术界一般认为火药发明于7世纪的中国，为当时中国术士炼制长生不老药时意外得到的副产品。",
+    });
+
+    const result = await runAccuracyResearch({
+      topic: "火药",
+      contentType: "science",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: "search-primary",
+          fallbackSearch: null,
+          primaryFetch: "fetch-primary",
+          fallbackFetch: null,
+        },
+        whitelistDomains: ["allowed.com"],
+      },
+    });
+
+    expect(searchWithProviderMock).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "search-primary" }),
+      "火药",
+      expect.objectContaining({ limit: 5 }),
+    );
+    expect(fetchWithProviderMock).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "fetch-primary" }),
+      "https://allowed.com/history/gunpowder",
+      expect.objectContaining({ timeoutMs: 8000 }),
+    );
+    expect(result.factPack.sourceEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceTier: "whitelist",
+          retrievalMethod: "fetch",
+          providerId: "fetch-primary",
+          excerpt: expect.stringContaining("7世纪的中国"),
+        }),
+      ]),
+    );
+    expect(result.factPack.queryPlan.providerExecutions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          phase: "whitelist_search",
+          providerId: "search-primary",
+          providerName: "Tavily Search",
+          slot: "primarySearch",
+          resultCount: 1,
+          outcome: "success",
+        }),
+        expect.objectContaining({
+          phase: "whitelist_fetch",
+          providerId: "fetch-primary",
+          providerName: "Firecrawl Fetch",
+          slot: "primaryFetch",
+          url: "https://allowed.com/history/gunpowder",
+          outcome: "success",
+        }),
+      ]),
+    );
+  });
+
+  it("extracts richer hard facts for the 牛顿 golden topic from anchor evidence", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "艾萨克·牛顿",
+      extract: "艾萨克·牛顿是英国物理学家和数学家，出生于英国林肯郡伍尔索普庄园，万有引力理论由艾萨克·牛顿提出。",
+      lang: "zh",
+      sections: ["生平", "科学贡献"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E8%89%BE%E8%90%A8%E5%85%8B%C2%B7%E7%89%9B%E9%A1%BF",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "牛顿",
+      contentType: "science",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "person",
+          object: "艾萨克·牛顿",
+        }),
+        expect.objectContaining({
+          claimType: "place",
+          object: "英国林肯郡伍尔索普庄园",
+        }),
+        expect.objectContaining({
+          claimType: "event",
+          object: "万有引力理论由艾萨克·牛顿提出",
+        }),
+      ]),
+    );
+  });
+
+  it("does not turn casual 可以 clauses into hard facts", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "牛顿",
+      extract: "牛顿是英国物理学家。牛顿可以装进一夸脱的马克杯。",
+      lang: "zh",
+      sections: ["轶事"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E7%89%9B%E9%A1%BF",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "牛顿",
+      contentType: "wikipedia",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          object: expect.stringMatching(/可以装进/),
+        }),
+      ]),
+    );
+  });
+
+  it("falls back to wikipedia search for science question topics and recovers anchor coverage", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        title: "雷",
+        extract: "雷是由闪电使周围空气迅速膨胀而形成的声波现象。",
+        lang: "zh",
+        sections: ["形成机制"],
+        pageUrl: "https://zh.wikipedia.org/wiki/%E9%9B%B7",
+      });
+    searchWikipediaMock.mockResolvedValue([
+      { title: "雷", description: "大气中的声学现象" },
+    ]);
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "为什么会打雷",
+      contentType: "science",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(searchWikipediaMock).toHaveBeenCalledWith("雷", "zh");
+    expect(result.factPack.sourceEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceTier: "anchor",
+          title: "雷",
+        }),
+      ]),
+    );
+    expect(result.factPack.hardFacts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          object: expect.stringMatching(/为什么会打雷/),
+        }),
+      ]),
+    );
+    expect(result.factPack.hardFacts.length).toBeGreaterThanOrEqual(2);
+    expect(result.researchBrief.safeToGenerate).toBe(true);
+  });
+
+  it("prefers the best wikipedia search hit instead of blindly taking the first result for question topics", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockImplementation(async (title: string) => {
+      if (title === "为什么会打雷") return null;
+      if (title === "雷") {
+        return {
+          title: "雷",
+          extract: "雷是由闪电使周围空气迅速膨胀而形成的声波现象。",
+          lang: "zh",
+          sections: ["形成机制"],
+          pageUrl: "https://zh.wikipedia.org/wiki/%E9%9B%B7",
+        };
+      }
+      return null;
+    });
+    searchWikipediaMock.mockResolvedValue([
+      { title: "雷打雪", description: "降雪伴随打雷的天气现象" },
+      { title: "雷", description: "大气中的声学现象" },
+    ]);
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "为什么会打雷",
+      contentType: "science",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.sourceEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceTier: "anchor",
+          title: "雷",
+        }),
+      ]),
+    );
+  });
+
+  it("extracts a mechanism reaction fact for thunder topics and avoids cloud fragment noise", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "雷",
+      extract: "雷（thunder）古代亦写作“靁”，因雷云内部电荷分布不平均，产生高电位形成的带电云层，是静电释放的反应，因光热使空气迅速膨胀所产生的自然现象。",
+      lang: "zh",
+      sections: ["机制"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E9%9B%B7",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "为什么会打雷",
+      contentType: "science",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+          object: expect.stringMatching(/静电释放的反应/),
+        }),
+        expect.objectContaining({
+          claimType: "term",
+          object: "雷云内部电荷分布不平均",
+        }),
+        expect.objectContaining({
+          claimType: "term",
+          object: "因光热使空气迅速膨胀所产生的自然现象",
+        }),
+      ]),
+    );
+    expect(result.factPack.hardFacts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+          object: "雷形成的带电云层",
+        }),
+        expect.objectContaining({
+          claimType: "term",
+          object: expect.stringMatching(/雷形成的声波/),
+        }),
+      ]),
+    );
+  });
+
+  it("ignores noisy late years outside core factual context for biography topics", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "牛顿",
+      extract: "牛顿出生于1643年。1687年他发表《自然哲学的数学原理》。2005年有一次纪念活动重新统计了他的手稿。",
+      lang: "zh",
+      sections: ["生平"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E7%89%9B%E9%A1%BF",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "牛顿",
+      contentType: "wikipedia",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ claimType: "date", object: "1643" }),
+        expect.objectContaining({ claimType: "date", object: "1687" }),
+      ]),
+    );
+    expect(result.factPack.hardFacts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ claimType: "date", object: "2005" }),
+      ]),
+    );
+  });
+
+  it("prefers the canonical Gregorian birth year over the adjacent Julian year in mixed-calendar leads", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "牛顿",
+      extract: "艾萨克·牛顿（儒略历：1642年12月25日—1727年3月20日，格里历：1643年1月4日—1727年3月31日），英国物理学家。1687年他发表《自然哲学的数学原理》。",
+      lang: "zh",
+      sections: ["生平"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E7%89%9B%E9%A1%BF",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "牛顿",
+      contentType: "wikipedia",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ claimType: "date", object: "1643" }),
+        expect.objectContaining({ claimType: "date", object: "1727" }),
+      ]),
+    );
+    expect(result.factPack.hardFacts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ claimType: "date", object: "1642" }),
+      ]),
+    );
+  });
+
+  it("extracts a canonical person fact from the anchor title even when the lead contains honorific noise", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "艾萨克·牛顿",
+      extract: "艾萨克·牛顿爵士 PRS MP（英语：Sir Isaac Newton）是英国物理学家、数学家、天文学家、自然哲学家及辉格党政治人物。",
+      lang: "zh",
+      sections: ["生平"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E8%89%BE%E8%90%A8%E5%85%8B%C2%B7%E7%89%9B%E9%A1%BF",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "牛顿",
+      contentType: "wikipedia",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "person",
+          object: "艾萨克·牛顿",
+        }),
+      ]),
+    );
+  });
+
+  it("extracts a canonical person fact even when the anchor title itself includes honorific noise", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "艾萨克·牛顿爵士 PRS MP",
+      extract: "艾萨克·牛顿爵士 PRS MP（英语：Sir Isaac Newton）是英国物理学家、数学家、天文学家、自然哲学家及辉格党政治人物。",
+      lang: "zh",
+      sections: ["生平"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E8%89%BE%E8%90%A8%E5%85%8B%C2%B7%E7%89%9B%E9%A1%BF",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "牛顿",
+      contentType: "wikipedia",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "person",
+          object: "艾萨克·牛顿",
+        }),
+      ]),
+    );
+  });
+
+  it("extracts a canonical person fact from mixed-calendar Newton leads that omit a simple 是-identity clause", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "艾萨克·牛顿爵士 PRS MP",
+      extract: "艾萨克·牛顿爵士 PRS MP（英语：Sir Isaac Newton；儒略历：1642年12月25日—1727年3月20日，格里历：1643年1月4日—1727年3月31日），英国物理学家、数学家、天文学家、自然哲学家及辉格党政治人物。",
+      lang: "zh",
+      sections: ["生平"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E8%89%BE%E8%90%A8%E5%85%8B%C2%B7%E7%89%9B%E9%A1%BF",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "牛顿",
+      contentType: "wikipedia",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "person",
+          object: "艾萨克·牛顿",
+        }),
+      ]),
+    );
+  });
+
+  it("ignores noisy place phrases such as shrine lists or generic home references", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "女娲",
+      extract: "女娲是中国上古神话中的创世女神。除了位于山西省临汾市洪洞县的娲皇陵、数千年来一直享受历朝历代皇帝尊奉、祭祀的国家级神庙娲皇庙外，各地也均见女娲信仰文化。牛顿后来住进了位于北威特姆的家。",
+      lang: "zh",
+      sections: ["信仰"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E5%A5%B3%E5%A8%B2",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "女娲",
+      contentType: "wikipedia",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "place",
+          object: expect.stringMatching(/娲皇陵|庙外|北威特姆的家/),
+        }),
+      ]),
+    );
+  });
+
+  it("compresses overly nested birthplace clauses to a shorter canonical place", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "牛顿",
+      extract: "艾萨克·牛顿出生于英国英格兰东米德兰林肯郡南凯斯蒂文科尔斯沃斯村畔伍尔索普的伍尔索普庄园。",
+      lang: "zh",
+      sections: ["生平"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E7%89%9B%E9%A1%BF",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "牛顿",
+      contentType: "wikipedia",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "place",
+          object: "伍尔索普庄园",
+        }),
+      ]),
+    );
+    expect(result.factPack.hardFacts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "place",
+          object: expect.stringMatching(/英国英格兰东米德兰/),
+        }),
+      ]),
+    );
+  });
+
+  it("extracts origin-place hard facts for the 火药 golden topic", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "火药",
+      extract: "火药是中国古代发明的一种混合炸药，起源于中国。",
+      lang: "zh",
+      sections: ["历史"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E7%81%AB%E8%8D%AF",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "火药",
+      contentType: "science",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "place",
+          object: "中国",
+        }),
+      ]),
+    );
+  });
+
+  it("extracts century-level date and origin place facts for invention topics like 火药", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "火药",
+      extract: "学术界一般认为火药发明于7世纪的中国，为当时中国术士炼制长生不老药时意外得到的副产品。",
+      lang: "zh",
+      sections: ["历史"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E7%81%AB%E8%8D%AF",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "火药",
+      contentType: "wikipedia",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "place",
+          object: "中国",
+        }),
+        expect.objectContaining({
+          claimType: "date",
+          object: "7世纪",
+        }),
+      ]),
+    );
+    expect(result.researchBrief.safeToGenerate).toBe(true);
+  });
+
+  it("extracts myth identity facts such as 人类始祖 and 人首蛇身 for 女娲", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "女娲",
+      extract: "女娲（wā）又称女娲氏，另称娲皇、女希氏，俗称女娲娘娘。原为中国传说时代中的上古氏族首领，后成为中国神话中的人类始祖。根据东汉文献记载，女娲人首蛇身（龙身）。",
+      lang: "zh",
+      sections: ["神话形象"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E5%A5%B3%E5%A8%B2",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "女娲",
+      contentType: "wikipedia",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+          object: expect.stringMatching(/人类始祖/),
+        }),
+        expect.objectContaining({
+          claimType: "term",
+          object: "女娲人首蛇身（龙身）",
+        }),
+      ]),
+    );
+    expect(result.researchBrief.safeToGenerate).toBe(true);
+  });
+
+  it("does not promote weak myth extension terms like 职业神 or 后世神祇 into hard facts", async () => {
+    const { runAccuracyResearch } = await import("@/lib/accuracy/research");
+
+    getWikipediaSummaryMock.mockResolvedValue({
+      title: "女娲",
+      extract: "女娲是中国神话中的人类始祖。女娲亦成为中国雨伞和绣补业者所祀奉的职业神。根据《道藏》记载，女娲成为后世民间信仰中的神祇。",
+      lang: "zh",
+      sections: ["信仰"],
+      pageUrl: "https://zh.wikipedia.org/wiki/%E5%A5%B3%E5%A8%B2",
+    });
+    resolveAccuracyProvidersMock.mockReturnValue([]);
+
+    const result = await runAccuracyResearch({
+      topic: "女娲",
+      contentType: "wikipedia",
+      accuracyConfig: {
+        providers: [],
+        slots: {
+          primarySearch: null,
+          fallbackSearch: null,
+          primaryFetch: null,
+          fallbackFetch: null,
+        },
+        whitelistDomains: [],
+      },
+    });
+
+    expect(result.factPack.hardFacts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          claimType: "term",
+          object: expect.stringMatching(/职业神|民间信仰中的神祇/),
+        }),
+      ]),
+    );
+  });
+});

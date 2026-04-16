@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { ComicPanel, PanelTransition } from "@/lib/types";
+import { ChevronLeft, ChevronRight, Pause, Play } from "lucide-react";
+
 
 interface DynamicPlayerProps {
   panels: ComicPanel[];
@@ -114,9 +116,7 @@ export function DynamicPlayer({ panels, title }: DynamicPlayerProps) {
             onClick={prev}
             className="absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/20 text-white flex items-center justify-center hover:bg-white/30 transition-colors"
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
+            <ChevronLeft className="w-5 h-5" />
           </button>
         )}
         {currentIndex < validPanels.length - 1 && (
@@ -124,9 +124,7 @@ export function DynamicPlayer({ panels, title }: DynamicPlayerProps) {
             onClick={next}
             className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/20 text-white flex items-center justify-center hover:bg-white/30 transition-colors"
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
+            <ChevronRight className="w-5 h-5" />
           </button>
         )}
       </div>
@@ -139,17 +137,12 @@ export function DynamicPlayer({ panels, title }: DynamicPlayerProps) {
         >
           {isPlaying ? (
             <>
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                <rect x="6" y="4" width="4" height="16" />
-                <rect x="14" y="4" width="4" height="16" />
-              </svg>
+              <Pause className="w-4 h-4" />
               暂停
             </>
           ) : (
             <>
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M8 5v14l11-7z" />
-              </svg>
+              <Play className="w-4 h-4" />
               {currentIndex === validPanels.length - 1 ? "重播" : "自动播放"}
             </>
           )}

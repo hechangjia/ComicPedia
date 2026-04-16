@@ -1,0 +1,146 @@
+"use client";
+
+import React from "react";
+import type { RelationType } from "@/lib/types";
+
+const TYPE_COLORS: Record<RelationType, string> = {
+  friend: "#3b82f6",
+  rival: "#ef4444",
+  mentor: "#eab308",
+  lover: "#ec4899",
+  family: "#22c55e",
+  ally: "#14b8a6",
+  enemy: "#991b1b",
+};
+
+const TYPE_LABELS: Record<RelationType, string> = {
+  friend: "朋友",
+  rival: "对手",
+  mentor: "导师",
+  lover: "恋人",
+  family: "家人",
+  ally: "盟友",
+  enemy: "敌人",
+};
+
+interface RelationEdgeProps {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  type: RelationType;
+  label?: string;
+  strength: number;
+  highlighted: boolean;
+  dimmed: boolean;
+  onClick?: () => void;
+  /** Number of episodes both characters co-appear in */
+  episodeCount?: number;
+  /** Whether this relationship is "stale" (3+ episodes without type change) */
+  stale?: boolean;
+  /** Most recent evolution event summary for tooltip */
+  lastEventSummary?: string;
+}
+
+export function RelationEdge({
+  x1,
+  y1,
+  x2,
+  y2,
+  type,
+  label,
+  strength,
+  highlighted,
+  dimmed,
+  onClick,
+  episodeCount,
+  stale,
+  lastEventSummary,
+}: RelationEdgeProps) {
+  const color = TYPE_COLORS[type] ?? "#6b7280";
+  const width = 1 + strength * 4;
+  const baseOpacity = stale ? 0.25 : dimmed ? 0.12 : highlighted ? 1 : 0.7;
+  const opacity = baseOpacity;
+  const mx = (x1 + x2) / 2;
+  const my = (y1 + y2) / 2;
+  const displayLabel = label || TYPE_LABELS[type] || type;
+  const dashArray = stale ? "6 4" : undefined;
+
+  return (
+    <g
+      style={{ cursor: "pointer", transition: "opacity 0.2s" }}
+      onClick={onClick}
+    >
+      {lastEventSummary && <title>{lastEventSummary}</title>}
+      <line
+        x1={x1}
+        y1={y1}
+        x2={x2}
+        y2={y2}
+        stroke={color}
+        strokeWidth={highlighted ? width + 2 : width}
+        strokeOpacity={opacity}
+        strokeLinecap="round"
+        strokeDasharray={dashArray}
+        style={{ transition: "stroke 0.6s ease, stroke-opacity 0.3s ease" }}
+      />
+      {/* Invisible wider line for easier click target */}
+      <line
+        x1={x1}
+        y1={y1}
+        x2={x2}
+        y2={y2}
+        stroke="transparent"
+        strokeWidth={Math.max(width + 10, 16)}
+      />
+      {/* Midpoint label */}
+      <rect
+        x={mx - displayLabel.length * 6}
+        y={my - 10}
+        width={displayLabel.length * 12}
+        height={20}
+        rx={4}
+        fill="#1f2937"
+        fillOpacity={dimmed ? 0.3 : 0.85}
+      />
+      <text
+        x={mx}
+        y={my}
+        textAnchor="middle"
+        dominantBaseline="central"
+        fill={color}
+        fontSize={11}
+        fontWeight={600}
+        style={{ pointerEvents: "none", userSelect: "none", opacity }}
+      >
+        {displayLabel}
+      </text>
+      {/* Episode count badge */}
+      {episodeCount != null && episodeCount > 0 && (
+        <>
+          <circle
+            cx={mx + displayLabel.length * 6 + 8}
+            cy={my}
+            r={9}
+            fill={color}
+            fillOpacity={0.9}
+          />
+          <text
+            x={mx + displayLabel.length * 6 + 8}
+            y={my}
+            textAnchor="middle"
+            dominantBaseline="central"
+            fill="#fff"
+            fontSize={9}
+            fontWeight={700}
+            style={{ pointerEvents: "none", userSelect: "none" }}
+          >
+            {episodeCount}
+          </text>
+        </>
+      )}
+    </g>
+  );
+}
+
+export { TYPE_COLORS, TYPE_LABELS };

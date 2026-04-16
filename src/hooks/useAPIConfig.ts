@@ -2,6 +2,8 @@
 
 import { useEffect, useCallback, useSyncExternalStore } from "react";
 import {
+  AccuracyProviderConfig,
+  AccuracyProviderSlots,
   UserAPIConfig,
   UserAPIConfigV2,
   UserLLMConfig,
@@ -9,6 +11,7 @@ import {
   PartialLLMConfig,
   PartialImageGenConfig,
 } from "@/lib/types";
+import { createEmptyAccuracyConfig, normalizeAccuracyConfig } from "@/lib/accuracy/providerConfig";
 
 const STORAGE_KEY = "comicpedia_api_config";
 const CONFIG_VERSION = 2;
@@ -41,6 +44,7 @@ function createEmptyConfig(): UserAPIConfigV2 {
     llmConfigs: [],
     imageConfigs: [],
     vlmConfigs: [],
+    accuracyConfig: createEmptyAccuracyConfig(),
     activeLLMId: null,
     activeImageId: null,
     activeVLMId: null,
@@ -111,6 +115,7 @@ function loadConfig(): UserAPIConfigV2 {
       // Ensure vlmConfigs exists (backward compat with pre-VLM configs)
       if (!cfg.vlmConfigs) cfg.vlmConfigs = [];
       if (cfg.activeVLMId === undefined) cfg.activeVLMId = null;
+      cfg.accuracyConfig = normalizeAccuracyConfig(cfg.accuracyConfig);
       return cfg;
     }
 
@@ -128,6 +133,7 @@ function saveConfig(config: UserAPIConfigV2): void {
 
   const nextConfig: UserAPIConfigV2 = {
     ...config,
+    accuracyConfig: normalizeAccuracyConfig(config.accuracyConfig),
     updatedAt: new Date().toISOString(),
   };
 
@@ -374,6 +380,63 @@ export function useAPIConfig() {
     updateConfig((prev) => ({ ...prev, activeVLMId: id }));
   }, [updateConfig]);
 
+  // --- Accuracy Provider CRUD ---
+
+  const addAccuracyProvider = useCallback((provider: Omit<AccuracyProviderConfig, "id">) => {
+    updateConfig((prev) => ({
+      ...prev,
+      accuracyConfig: normalizeAccuracyConfig({
+        ...prev.accuracyConfig,
+        providers: [...prev.accuracyConfig.providers, { ...provider, id: generateId() }],
+      }),
+    }));
+  }, [updateConfig]);
+
+  const updateAccuracyProviderById = useCallback((id: string, updates: Partial<Omit<AccuracyProviderConfig, "id">>) => {
+    updateConfig((prev) => ({
+      ...prev,
+      accuracyConfig: normalizeAccuracyConfig({
+        ...prev.accuracyConfig,
+        providers: prev.accuracyConfig.providers.map((provider) =>
+          provider.id === id ? { ...provider, ...updates } : provider,
+        ),
+      }),
+    }));
+  }, [updateConfig]);
+
+  const removeAccuracyProvider = useCallback((id: string) => {
+    updateConfig((prev) => ({
+      ...prev,
+      accuracyConfig: normalizeAccuracyConfig({
+        ...prev.accuracyConfig,
+        providers: prev.accuracyConfig.providers.filter((provider) => provider.id !== id),
+      }),
+    }));
+  }, [updateConfig]);
+
+  const assignAccuracySlot = useCallback((slot: keyof AccuracyProviderSlots, providerId: string | null) => {
+    updateConfig((prev) => ({
+      ...prev,
+      accuracyConfig: normalizeAccuracyConfig({
+        ...prev.accuracyConfig,
+        slots: {
+          ...prev.accuracyConfig.slots,
+          [slot]: providerId,
+        },
+      }),
+    }));
+  }, [updateConfig]);
+
+  const setAccuracyWhitelistDomains = useCallback((domains: string[]) => {
+    updateConfig((prev) => ({
+      ...prev,
+      accuracyConfig: normalizeAccuracyConfig({
+        ...prev.accuracyConfig,
+        whitelistDomains: domains,
+      }),
+    }));
+  }, [updateConfig]);
+
   // --- Helpers ---
 
   const getLLMById = useCallback((id: string) => {
@@ -429,6 +492,11 @@ export function useAPIConfig() {
     updateVLMById,
     removeVLM,
     setActiveVLM,
+    addAccuracyProvider,
+    updateAccuracyProviderById,
+    removeAccuracyProvider,
+    assignAccuracySlot,
+    setAccuracyWhitelistDomains,
     getLLMById,
     getImageById,
     getVLMById,

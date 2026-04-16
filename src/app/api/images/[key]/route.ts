@@ -8,15 +8,21 @@ interface RouteParams {
   params: Promise<{ key: string }>;
 }
 
+function isMutableImageKey(key: string): boolean {
+  if (key.startsWith("char_")) return true;
+  if (key.endsWith("_cur")) return true;
+  if (/_ref\d+$/.test(key)) return true;
+  return false;
+}
+
 /** GET /api/images/[key] — 提供图片文件 */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { key } = await params;
     const decodedKey = decodeURIComponent(key);
 
-    // Character images (char_*) are mutable — they can be replaced on re-generation.
-    // Comic panel images are immutable — once generated, content never changes at same key.
-    const isMutable = decodedKey.startsWith("char_");
+    // Mutable keys must revalidate, immutable keys can be long-cached.
+    const isMutable = isMutableImageKey(decodedKey);
     const cacheControl = isMutable
       ? "public, max-age=0, must-revalidate"
       : "public, max-age=31536000, immutable";

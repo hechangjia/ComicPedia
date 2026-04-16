@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { useContentForm } from "@/hooks/useContentForm";
 import { StyleSelector } from "./StyleSelector";
 import { PanelCountSelector } from "./PanelCountSelector";
@@ -11,7 +12,14 @@ import { ErrorAlert } from "./ErrorAlert";
 import { Spinner } from "./ui/Spinner";
 import { QualitySelector } from "./QualitySelector";
 import { GuideCharacterToggle } from "./GuideCharacterToggle";
-import { MathText } from "./MathText";
+import { GenerationPresetSelector } from "./GenerationPresetSelector";
+import dynamic from "next/dynamic";
+import { AdvancedGenerationSettings } from "./AdvancedGenerationSettings";
+
+const MathText = dynamic(() =>
+  import("./MathText").then((m) => ({ default: m.MathText })),
+  { ssr: false }
+);
 import { summarizeWikipediaContent } from "@/lib/llm";
 import { getStoredRequestConfigs } from "@/hooks/useAPIConfig";
 import type { WikipediaContent } from "@/lib/types";
@@ -37,8 +45,8 @@ const EXAMPLE_TOPICS = [
   "人工智能",
 ];
 
-export function WikipediaForm() {
-  const [searchQuery, setSearchQuery] = useState("");
+export function WikipediaForm({ initialTopic = "" }: { initialTopic?: string }) {
+  const [searchQuery, setSearchQuery] = useState(initialTopic);
   const [lang, setLang] = useState("zh");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -50,6 +58,7 @@ export function WikipediaForm() {
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [contentViewMode, setContentViewMode] = useState<"edit" | "preview">("edit");
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const resultsRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -288,7 +297,7 @@ export function WikipediaForm() {
                             onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                           />
                         ) : (
-                          <div className="w-10 h-10 rounded bg-muted flex items-center justify-center flex-shrink-0 text-lg font-bold text-blue-500">
+                          <div className="w-10 h-10 rounded bg-muted flex items-center justify-center flex-shrink-0 text-lg font-bold text-info">
                             W
                           </div>
                         )}
@@ -324,7 +333,7 @@ export function WikipediaForm() {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="font-medium text-sm flex items-center gap-2">
-                <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-blue-500 text-white text-xs font-bold">W</span>
+                <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-info/50 text-white text-xs font-bold">W</span>
                 {selectedArticle.title}
               </h3>
               <div className="flex items-center gap-3">
@@ -333,7 +342,7 @@ export function WikipediaForm() {
                     href={selectedArticle.pageUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-xs text-blue-500 hover:text-blue-600 hover:underline transition-colors"
+                    className="text-xs text-info hover:text-info hover:underline transition-colors"
                   >
                     查看 Wikipedia 原文
                   </a>
@@ -419,7 +428,7 @@ export function WikipediaForm() {
                 <button
                   onClick={handleSummarize}
                   disabled={form.isLoading || isSummarizing || editedContent.length < 500}
-                  className="text-xs px-2.5 py-1 rounded-md border border-blue-300 text-blue-600 hover:bg-blue-50 hover:border-blue-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  className="text-xs px-2.5 py-1 rounded-md border border-info/30 text-info hover:bg-info/5 hover:border-info/40 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   {isSummarizing ? (
                     <span className="flex items-center gap-1">
@@ -440,56 +449,90 @@ export function WikipediaForm() {
 
         {/* 配置选项 */}
         {selectedArticle && (
-          <>
-            <ModelSelector type="llm" value={form.selectedLLMId} onChange={form.setSelectedLLMId} disabled={form.isLoading} />
-            <ModelSelector type="image" value={form.selectedImageId} onChange={form.setSelectedImageId} disabled={form.isLoading} />
-            <StyleSelector value={form.style} onChange={form.setStyle} disabled={form.isLoading} />
-
-            <PanelCountSelector
-              panelCount={form.panelCount}
-              customPanelCount={form.customPanelCount}
-              onPanelCountChange={form.setPanelCount}
-              onCustomPanelCountChange={form.setCustomPanelCount}
+          <div className="space-y-4">
+            {/* 核心配置 - 默认显示 */}
+            <GenerationPresetSelector
+              value={form.selectedPresetId}
+              onChange={form.setSelectedPresetId}
               disabled={form.isLoading}
             />
+
+            <StyleSelector value={form.style} onChange={form.setStyle} disabled={form.isLoading} />
 
             <QualitySelector value={form.quality} onChange={form.setQuality} disabled={form.isLoading} />
 
-            {form.showGuideCharacterToggle && (
-              <GuideCharacterToggle
-                checked={form.allowGuideCharacter}
-                onChange={form.setAllowGuideCharacter}
-                disabled={form.isLoading}
-              />
-            )}
+            {/* 高级设置 - 可折叠 */}
+            <div className="border-t pt-4">
+              <button
+                type="button"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                className="flex items-center justify-between w-full text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <span className="font-medium">高级设置</span>
+                {showAdvanced ? (
+                  <ChevronUp className="w-4 h-4" />
+                ) : (
+                  <ChevronDown className="w-4 h-4" />
+                )}
+              </button>
 
-            <CharacterPicker
-              selectedIds={form.selectedCharacterIds}
-              onSelectionChange={form.handleCharacterSelection}
-              currentStyle={form.style}
-              disabled={form.isLoading}
-            />
+              {showAdvanced && (
+                <div className="mt-4 space-y-4 animate-fade-in">
+                  <ModelSelector type="llm" value={form.selectedLLMId} onChange={form.setSelectedLLMId} disabled={form.isLoading} />
+                  <ModelSelector type="image" value={form.selectedImageId} onChange={form.setSelectedImageId} disabled={form.isLoading} />
 
-            <ReferenceImagePanel
-              referenceImage={form.referenceImage}
-              referenceImages={form.referenceImages}
-              referenceLabels={form.referenceLabels}
-              controlMode={form.controlMode}
-              onImageChange={form.setReferenceImage}
-              onImagesChange={form.setReferenceImages}
-              onLabelsChange={form.setReferenceLabels}
-              onControlModeChange={form.setControlMode}
-              onAIGenerate={form.handleAIGenerateReference}
-              onAIGenerateCharacters={form.handleAIGenerateCharacters}
-              onRegenerateRef={form.handleRegenerateFormRef}
-              onRefVersionChange={form.handleFormRefVersionChange}
-              title={topic}
-              referenceEntries={form.referenceEntries}
-              onEntriesChange={form.setReferenceEntries}
-              genMode={form.genMode}
-              onGenModeChange={form.setGenMode}
-            />
-          </>
+                  <AdvancedGenerationSettings
+                    value={form.advancedSettings}
+                    onChange={form.setAdvancedSettings}
+                    disabled={form.isLoading}
+                  />
+
+                  <PanelCountSelector
+                    panelCount={form.panelCount}
+                    customPanelCount={form.customPanelCount}
+                    onPanelCountChange={form.setPanelCount}
+                    onCustomPanelCountChange={form.setCustomPanelCount}
+                    disabled={form.isLoading}
+                  />
+
+                  {form.showGuideCharacterToggle && (
+                    <GuideCharacterToggle
+                      checked={form.allowGuideCharacter}
+                      onChange={form.setAllowGuideCharacter}
+                      disabled={form.isLoading}
+                    />
+                  )}
+
+                  <CharacterPicker
+                    selectedIds={form.selectedCharacterIds}
+                    onSelectionChange={form.handleCharacterSelection}
+                    currentStyle={form.style}
+                    disabled={form.isLoading}
+                  />
+
+                  <ReferenceImagePanel
+                    referenceImage={form.referenceImage}
+                    referenceImages={form.referenceImages}
+                    referenceLabels={form.referenceLabels}
+                    controlMode={form.controlMode}
+                    onImageChange={form.setReferenceImage}
+                    onImagesChange={form.setReferenceImages}
+                    onLabelsChange={form.setReferenceLabels}
+                    onControlModeChange={form.setControlMode}
+                    onAIGenerate={form.handleAIGenerateReference}
+                    onAIGenerateCharacters={form.handleAIGenerateCharacters}
+                    onRegenerateRef={form.handleRegenerateFormRef}
+                    onRefVersionChange={form.handleFormRefVersionChange}
+                    title={topic}
+                    referenceEntries={form.referenceEntries}
+                    onEntriesChange={form.setReferenceEntries}
+                    genMode={form.genMode}
+                    onGenModeChange={form.setGenMode}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
         )}
 
         <ErrorAlert message={form.error} onClose={() => form.setError("")} />
@@ -505,7 +548,7 @@ export function WikipediaForm() {
               生成中...
             </span>
           ) : (
-            "生成百科漫画"
+            "一键生成百科漫画"
           )}
         </button>
       </div>

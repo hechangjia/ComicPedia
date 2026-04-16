@@ -4,6 +4,8 @@ import { useState } from "react";
 import { ComicPanel, ComicScript, PartialLLMConfig } from "@/lib/types";
 import { optimizeDialogue, optimizeImagePrompt } from "@/lib/aiEditor";
 import { Spinner } from "@/components/ui/Spinner";
+import { ChevronDown } from "lucide-react";
+
 
 interface AIEditAssistantProps {
   panel: ComicPanel;
@@ -52,11 +54,11 @@ export function AIEditAssistant({ panel, script, panelIndex, llmConfig, onApply 
           type="button"
           onClick={() => setIsOpen(!isOpen)}
           disabled={loading}
-          className="px-3 py-2 text-sm border border-purple-300 text-purple-600 dark:text-purple-400 rounded flex items-center gap-1.5 hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors min-h-[44px] disabled:opacity-50"
+          className="px-3 py-2 text-sm border border-teal/30 text-teal rounded flex items-center gap-1.5 hover:bg-teal-soft dark:hover:bg-teal/10 transition-colors min-h-[44px] disabled:opacity-50"
         >
           {loading ? <Spinner size="sm" /> : <span>✨</span>}
           {loading ? "AI 思考中..." : "AI 辅助"}
-          {!loading && <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>}
+          {!loading && <ChevronDown className="w-3 h-3" />}
         </button>
         {isOpen && (
           <div className="absolute left-0 mt-1 bg-card border rounded-lg shadow-lg p-1 min-w-[160px] z-20">
@@ -76,12 +78,12 @@ export function AIEditAssistant({ panel, script, panelIndex, llmConfig, onApply 
         )}
       </div>
 
-      {error && <p className="text-xs text-red-500">{error}</p>}
+      {error && <p className="text-xs text-error">{error}</p>}
 
       {suggestion && (
-        <div className="p-3 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 space-y-2">
+        <div className="p-3 rounded-lg bg-teal-soft dark:bg-teal/10 border border-teal/30 space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-purple-700 dark:text-purple-300">
+            <span className="text-xs font-medium text-teal">
               AI 建议 ({suggestion.field === "dialogue" ? "对话" : "图片提示词"})
             </span>
           </div>
@@ -91,7 +93,7 @@ export function AIEditAssistant({ panel, script, panelIndex, llmConfig, onApply 
           <div className="flex gap-2">
             <button
               onClick={handleApply}
-              className="px-3 py-1.5 text-xs bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+              className="px-3 py-1.5 text-xs bg-teal text-white rounded hover:opacity-90 transition-colors"
             >
               采纳
             </button>

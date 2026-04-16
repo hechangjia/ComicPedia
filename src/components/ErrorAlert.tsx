@@ -1,6 +1,7 @@
 "use client";
 
 import { ErrorSeverity } from "@/lib/errors";
+import { X } from "lucide-react";
 
 interface ErrorAlertProps {
   /** 消息内容 */
@@ -16,9 +17,9 @@ interface ErrorAlertProps {
 }
 
 const SEVERITY_STYLES: Record<ErrorSeverity, string> = {
-  error: "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400",
-  warning: "bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400",
-  info: "bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400",
+  error: "bg-error/5 text-error bg-error/10 text-error",
+  warning: "bg-warning/5 text-warning",
+  info: "bg-info/5 text-info bg-info/10 text-info",
 };
 
 /**
@@ -51,9 +52,7 @@ export function ErrorAlert({
           className="shrink-0 hover:opacity-70 transition-opacity"
           aria-label="关闭"
         >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          <X className="w-4 h-4" />
         </button>
       )}
     </div>

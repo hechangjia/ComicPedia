@@ -1,6 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { generateAllImages } from "@/lib/client/generator";
-import type { GenerateTask, VisualQualityScore } from "@/lib/types";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { generateAllImages, startGeneration } from "@/lib/client/generator";
+import {
+  buildEnhancedTopicFromResearch,
+  generateScript,
+  generateScriptStream,
+  generateTopicResearch,
+} from "@/lib/llm";
+import { generateNarrativeOutline, buildOutlineGuidance } from "@/lib/director";
+import { validateScript } from "@/lib/scriptValidator";
+import type { GenerateTask, NarrativeOutline, VisualQualityScore } from "@/lib/types";
 
 const {
   getTaskMock,
@@ -17,6 +25,9 @@ const {
   urlToBase64Mock,
   withRetryMock,
   mergeReferenceImageMock,
+  fetchMock,
+  reviewPanelClaimsMock,
+  repairAccuracyIssuesMock,
 } = vi.hoisted(() => ({
   getTaskMock: vi.fn(),
   saveTaskMock: vi.fn(),
@@ -32,6 +43,9 @@ const {
   urlToBase64Mock: vi.fn(),
   withRetryMock: vi.fn(),
   mergeReferenceImageMock: vi.fn(),
+  fetchMock: vi.fn(),
+  reviewPanelClaimsMock: vi.fn(),
+  repairAccuracyIssuesMock: vi.fn(),
 }));
 
 vi.mock("@/lib/client/db", () => ({
@@ -86,6 +100,14 @@ vi.mock("@/lib/scriptRepair", () => ({
 vi.mock("@/lib/director", () => ({
   generateNarrativeOutline: vi.fn(),
   buildOutlineGuidance: vi.fn(),
+}));
+
+vi.mock("@/lib/accuracy/claimReview", () => ({
+  reviewPanelClaims: reviewPanelClaimsMock,
+}));
+
+vi.mock("@/lib/accuracy/repair", () => ({
+  repairAccuracyIssues: repairAccuracyIssuesMock,
 }));
 
 vi.mock("@/lib/utils", () => ({
@@ -207,6 +229,166 @@ function makeMultiPanelTask(panelCount: number): GenerateTask {
   };
 }
 
+function makeBeatPlan(overrides: Partial<NarrativeOutline> = {}): NarrativeOutline {
+  return {
+    totalPanels: 5,
+    templateType: "mechanism",
+    source: "beat-plan",
+    narrativeArc: "A hook-first explanation of why thunder happens",
+    infoDistribution: "progressive",
+    characterList: [],
+    panels: [
+      {
+        narrativeFunction: "opening",
+        beatRole: "hook",
+        suggestedComposition: "close-up",
+        shotIntent: "hook-closeup",
+        characters: [],
+        keyInfo: "先用反常识现象抓住读者",
+        knowledgeGoal: "先让读者产生疑问",
+        infoDensity: "low",
+        intensity: "high",
+        carryForward: "为什么会出现这种现象",
+      },
+      {
+        narrativeFunction: "development",
+        beatRole: "progression",
+        suggestedComposition: "medium shot",
+        shotIntent: "contrast",
+        characters: [],
+        keyInfo: "说明旧直觉为什么不够",
+        knowledgeGoal: "看见旧解释的不足",
+        infoDensity: "medium",
+        intensity: "medium",
+        carryForward: "真正机制是什么",
+      },
+      {
+        narrativeFunction: "climax",
+        beatRole: "reveal",
+        suggestedComposition: "dynamic",
+        shotIntent: "reveal",
+        characters: [],
+        keyInfo: "揭示核心机制",
+        knowledgeGoal: "理解因果链条",
+        infoDensity: "high",
+        intensity: "high",
+        carryForward: "它会带来什么后果",
+      },
+      {
+        narrativeFunction: "resolution",
+        beatRole: "progression",
+        suggestedComposition: "wide shot",
+        shotIntent: "process",
+        characters: [],
+        keyInfo: "推进结果",
+        knowledgeGoal: "看懂机制落到现实的过程",
+        infoDensity: "medium",
+        intensity: "medium",
+        carryForward: "最后记住什么",
+      },
+      {
+        narrativeFunction: "epilogue",
+        beatRole: "closure",
+        suggestedComposition: "wide shot",
+        shotIntent: "aftermath",
+        characters: [],
+        keyInfo: "收束记忆点",
+        knowledgeGoal: "留下清晰结论",
+        infoDensity: "low",
+        intensity: "medium",
+        carryForward: "none",
+      },
+    ],
+    ...overrides,
+  };
+}
+
+function makeGeneratedScript() {
+  return {
+    title: "雷电从哪里来",
+    topic: "为什么会打雷",
+    style: "flat" as const,
+    characterDescription: "",
+    panels: [
+      {
+        id: 1,
+        scene: "乌云压城",
+        dialogue: "先看到闪电和雷声的错位现象",
+        imagePrompt: "storm clouds, close-up lightning, dramatic sky",
+        status: "pending" as const,
+      },
+      {
+        id: 2,
+        scene: "云层摩擦",
+        dialogue: "云层里的电荷开始分离",
+        imagePrompt: "charged clouds, contrast composition",
+        status: "pending" as const,
+      },
+    ],
+  };
+}
+
+function makeFactPack() {
+  return {
+    topic: "为什么会打雷",
+    queryPlan: {
+      hardFactQueries: ["为什么会打雷"],
+      softFactQueries: ["为什么会打雷 overview"],
+      fallbackUsed: false,
+    },
+    hardFacts: [
+      {
+        id: "fact-1",
+        claimType: "term",
+        subject: "为什么会打雷",
+        predicate: "definition",
+        object: "雷声来自闪电加热空气后的剧烈膨胀。",
+        normalizedValue: "雷声来自闪电加热空气后的剧烈膨胀。",
+        sourceIds: ["anchor-1"],
+        confidence: 0.95,
+        mustPreserve: true,
+      },
+    ],
+    softFacts: [],
+    sourceEntries: [
+      {
+        id: "anchor-1",
+        url: "https://zh.wikipedia.org/wiki/%E9%9B%B7",
+        domain: "zh.wikipedia.org",
+        title: "雷",
+        sourceTier: "anchor",
+        retrievalMethod: "wikipedia",
+        excerpt: "雷声来自闪电加热空气后的剧烈膨胀。",
+        retrievedAt: "2026-03-27T00:00:00.000Z",
+        trustScore: 0.95,
+      },
+    ],
+    coverageGaps: [],
+    confidenceSummary: {
+      hardFactCoverage: 1,
+      softFactCoverage: 0,
+      overallRisk: "low",
+    },
+    recommendedNarrativeAngles: [],
+  };
+}
+
+function makeResearchBrief() {
+  return {
+    verifiedHardFactCount: 1,
+    sourceTiersUsed: ["anchor"],
+    majorRisks: [],
+    safeToGenerate: true,
+  };
+}
+
+function mockJsonResponse(body: unknown, ok: boolean = true) {
+  return {
+    ok,
+    json: vi.fn().mockResolvedValue(body),
+  } as unknown as Response;
+}
+
 describe("taskLifecycle automatic visual review", () => {
   beforeEach(() => {
     getTaskMock.mockReset();
@@ -238,6 +420,122 @@ describe("taskLifecycle automatic visual review", () => {
     urlToBase64Mock.mockResolvedValue("data:image/png;base64,retried-panel");
     withRetryMock.mockResolvedValue("https://example.com/retried-panel.png");
     mergeReferenceImageMock.mockImplementation((config) => config);
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockRejectedValue(new TypeError("Failed to parse URL from /api/tasks/task/actions"));
+  });
+
+  it("posts a generate_all_images task action before using the local image pipeline", async () => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValue(
+      mockJsonResponse({
+        success: true,
+      }),
+    );
+
+    await generateAllImages("task-server-actions", {
+      extraBody: {
+        negative_prompt: "keep details",
+      },
+    }, true, {
+      provider: "openai-compatible",
+      model: "gpt-4o",
+      apiKey: "test-key",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/tasks/task-server-actions/actions",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "generate_all_images",
+          imageConfig: {
+            extraBody: {
+              negative_prompt: "keep details",
+            },
+          },
+          forceAll: true,
+          llmConfig: {
+            provider: "openai-compatible",
+            model: "gpt-4o",
+            apiKey: "test-key",
+          },
+        }),
+      }),
+    );
+    expect(getTaskMock).not.toHaveBeenCalled();
+    expect(saveTaskMock).not.toHaveBeenCalled();
+    expect(evaluateQualityMock).not.toHaveBeenCalled();
+  });
+
+  it("includes imageConfigId when posting generate_all_images task actions", async () => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValue(
+      mockJsonResponse({
+        success: true,
+      }),
+    );
+
+    await generateAllImages("task-server-actions", {
+      extraBody: {
+        negative_prompt: "keep details",
+      },
+    }, false, {
+      provider: "openai-compatible",
+      model: "gpt-4o",
+      apiKey: "test-key",
+    }, "img-remote-1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/tasks/task-server-actions/actions",
+      expect.objectContaining({
+        body: JSON.stringify({
+          action: "generate_all_images",
+          imageConfigId: "img-remote-1",
+          imageConfig: {
+            extraBody: {
+              negative_prompt: "keep details",
+            },
+          },
+          forceAll: false,
+          llmConfig: {
+            provider: "openai-compatible",
+            model: "gpt-4o",
+            apiKey: "test-key",
+          },
+        }),
+      }),
+    );
+  });
+
+  it("caches unsupported task actions after a 404 and skips the failing POST on later calls", async () => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      json: vi.fn().mockResolvedValue({ error: "missing route" }),
+    } as unknown as Response);
+
+    const firstTask = makeTask();
+    const secondTask = makeTask();
+    secondTask.id = "task-visual-review-2";
+    getTaskMock
+      .mockResolvedValueOnce(firstTask)
+      .mockResolvedValueOnce(secondTask);
+
+    await generateAllImages(firstTask.id);
+    await generateAllImages(secondTask.id);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/tasks/${firstTask.id}/actions`,
+      expect.any(Object),
+    );
+    expect(getTaskMock).toHaveBeenCalledTimes(2);
   });
 
   it("persists visual review projection onto the refreshed task snapshot after fine generation completes", async () => {
@@ -687,5 +985,53 @@ describe("taskLifecycle automatic visual review", () => {
       expect(persistedTask.script?.panels[0].imagePrompt).toBe(patchedPrompt);
       expect(withRetryMock).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("taskLifecycle startGeneration", () => {
+  beforeEach(() => {
+    saveTaskMock.mockReset();
+    getTaskMock.mockReset();
+    vi.mocked(generateTopicResearch).mockReset();
+    vi.mocked(generateScriptStream).mockReset();
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterAll(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("posts the request to /api/tasks and returns the durable task id", async () => {
+    fetchMock.mockResolvedValue(
+      mockJsonResponse({
+        success: true,
+        id: "task-server-owned-1",
+      }),
+    );
+
+    const request = {
+      topic: "为什么会打雷",
+      style: "flat" as const,
+      contentType: "science" as const,
+      quality: "standard" as const,
+      llmConfig: { model: "gpt-4o", provider: "openai-compatible" as const },
+    };
+
+    const taskId = await startGeneration(request);
+
+    expect(taskId).toBe("task-server-owned-1");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/tasks",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ request }),
+      }),
+    );
+    expect(saveTaskMock).not.toHaveBeenCalled();
+    expect(getTaskMock).not.toHaveBeenCalled();
+    expect(vi.mocked(generateTopicResearch)).not.toHaveBeenCalled();
+    expect(vi.mocked(generateScriptStream)).not.toHaveBeenCalled();
   });
 });

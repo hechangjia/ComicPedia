@@ -6,6 +6,7 @@ import { saveTask, getTask } from "./db";
 import { notifyListeners } from "./eventBus";
 import { abortControllers, abortKey } from "./abortManager";
 import { buildEnhancedPrompt, mergeReferenceImage } from "./promptEnhancer";
+import { persistClientImage } from "./persistedImage";
 
 /** 每个面板最多保留的历史版本数 */
 const MAX_IMAGE_VERSIONS = 10;
@@ -23,31 +24,31 @@ export function pushImageVersion(panel: ComicPanel, imageUrl: string): void {
   panel.activeVersionIndex = panel.imageVersions.length - 1;
 }
 
-/**
- * 将 Base64 图片保存到文件系统（通过 API route）。
- * 非阻塞、非关键操作——失败不影响主流程。
- */
-async function saveImageToFileSystem(
+async function resolvePersistedPanelImage(
   taskId: string,
   panelIndex: number,
-  base64Data: string,
-  title?: string,
-): Promise<void> {
+  title: string | undefined,
+  imageUrl: string,
+): Promise<string> {
   try {
-    if (!base64Data.startsWith("data:image")) return;
-
-    const res = await fetch("/api/save-image", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ taskId, panelIndex, base64Data, title }),
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      console.warn(`[SaveImage] Failed for panel ${panelIndex}:`, err);
+    const base64 = await urlToBase64(imageUrl);
+    if (base64.startsWith("data:image")) {
+      const persisted = await persistClientImage({
+        taskId,
+        panelIndex,
+        title,
+        base64Data: base64,
+        type: "panel",
+      });
+      if (persisted) {
+        return persisted.url;
+      }
+      console.warn(`[SaveImage] Failed for panel ${panelIndex}`);
     }
+    return base64;
   } catch (err) {
-    console.warn(`[SaveImage] Network error for panel ${panelIndex}:`, err);
+    console.warn(`Panel ${panelIndex} Base64 conversion failed:`, err);
+    return imageUrl;
   }
 }
 
@@ -122,9 +123,6 @@ export async function reorderPanels(
   const [moved] = panels.splice(fromIndex, 1);
   panels.splice(toIndex, 0, moved);
 
-  // 重新编号 panel.id
-  panels.forEach((p, i) => { p.id = i + 1; });
-
   task.script.panels = panels;
   task.updatedAt = new Date();
   await saveTask(task);
@@ -174,26 +172,10 @@ export async function regeneratePanel(
       controller.signal,
     );
 
-    // 先标记完成，异步转换 Base64
+    const finalImageUrl = await resolvePersistedPanelImage(task.id, panelIndex, script.title, imageUrl);
     panel.status = "completed";
-    panel.imageUrl = imageUrl;
-
-    // 后台异步转换 + 保存
-    urlToBase64(imageUrl)
-      .then((base64) => {
-        try {
-          panel.imageUrl = base64;
-          pushImageVersion(panel, base64);
-          saveImageToFileSystem(task.id, panelIndex, base64, script.title);
-          notifyListeners(task);
-        } catch (innerErr) {
-          console.error(`Panel ${panelIndex} post-conversion processing failed:`, innerErr);
-        }
-      })
-      .catch((err) => {
-        console.warn(`Panel ${panelIndex} Base64 conversion failed:`, err);
-        pushImageVersion(panel, imageUrl);
-      });
+    panel.imageUrl = finalImageUrl;
+    pushImageVersion(panel, finalImageUrl);
   } catch (err) {
     console.error(`Panel ${panelIndex} regeneration failed:`, err);
     panel.status = "failed";

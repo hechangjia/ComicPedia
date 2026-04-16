@@ -4,6 +4,8 @@ import { useState } from "react";
 import type { Character, ComicStyle } from "@/lib/types";
 import { STYLE_DESCRIPTIONS } from "@/lib/config/styles";
 import { formatDate } from "@/lib/utils";
+import { Check, ChevronLeft, ChevronRight, Pencil, Trash2 } from "lucide-react";
+
 
 const STYLE_NAMES: Record<ComicStyle, string> = Object.fromEntries(
   (Object.keys(STYLE_DESCRIPTIONS) as ComicStyle[]).map((key) => [
@@ -20,8 +22,8 @@ const CHARACTER_REVIEW_LABELS = {
 
 const CHARACTER_REVIEW_BADGES = {
   unreviewed: "bg-slate-100/90 text-slate-700",
-  reviewed: "bg-emerald-100/90 text-emerald-700",
-  needs_repair: "bg-amber-100/90 text-amber-700",
+  reviewed: "bg-success/10 text-success",
+  needs_repair: "bg-warning/10 text-warning",
 } as const;
 
 export function CharacterCard({
@@ -101,9 +103,7 @@ export function CharacterCard({
               isSelected ? "bg-primary border-primary text-white" : "border-white/80 bg-black/30"
             }`}>
               {isSelected && (
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                </svg>
+                <Check className="w-4 h-4" strokeWidth={3} />
               )}
             </div>
           </div>
@@ -123,18 +123,14 @@ export function CharacterCard({
               className="absolute left-1 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 transition-colors opacity-0 group-hover:opacity-100"
               title="\u4E0A\u4E00\u5F20"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
+              <ChevronLeft className="w-4 h-4" />
             </button>
             <button
               onClick={goNext}
               className="absolute right-1 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 transition-colors opacity-0 group-hover:opacity-100"
               title="\u4E0B\u4E00\u5F20"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
+              <ChevronRight className="w-4 h-4" />
             </button>
             <div className={`absolute ${bottomOffsetClass} left-1/2 -translate-x-1/2 flex gap-1`}>
               {allItems.map((_, i) => (
@@ -166,18 +162,14 @@ export function CharacterCard({
             className="w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 transition-colors"
             title="\u7F16\u8F91"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-            </svg>
+            <Pencil className="w-4 h-4" />
           </button>
           <button
             onClick={onDelete}
-            className="w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-red-600 transition-colors"
+            className="w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-error/90 transition-colors"
             title="\u5220\u9664"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
+            <Trash2 className="w-4 h-4" />
           </button>
           </div>
         )}

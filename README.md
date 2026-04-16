@@ -29,6 +29,17 @@
 - **角色一致性** — 角色库管理外观描述与参考图，跨面板保持视觉统一
 - **零依赖部署** — SQLite + IndexedDB，无需外部数据库，Docker 一键启动
 
+## 生成流程（2026-04 编排升级）
+
+- 阶段 1：服务端后台执行 Research / Script，页面关闭后仍会继续
+- 阶段 2：脚本完成后默认不自动出图，结果页提供：
+  - 生成本张
+  - 生成选中
+  - 继续剩余
+- 本地 ComfyUI 默认先走校准图，再继续剩余队列
+- 页面关闭时，当前出图会尽量完成并落盘，剩余队列自动暂停
+- 轻量视觉检查自动执行；深度复审需要用户手动触发
+
 ---
 
 ## 目录
@@ -40,6 +51,7 @@
 - [快速开始](#快速开始)
   - [环境要求](#环境要求)
   - [本地开发](#本地开发)
+  - [断网后快速恢复](#断网后快速恢复)
   - [Docker 部署](#docker-部署)
   - [配置说明](#配置说明)
 - [项目结构](#项目结构)
@@ -271,6 +283,77 @@ pnpm dev
 >
 > 同时建议清除浏览器中对应站点的 IndexedDB 缓存（开发者工具 → Application → IndexedDB → 删除 `comicpedia` 数据库），避免旧数据从浏览器缓存回写到服务端。
 
+### 断网后快速恢复
+
+下次重新开始时，先做这 4 步：
+
+```bash
+pnpm install
+pnpm dev
+```
+
+然后在浏览器里按这个顺序确认：
+
+1. 打开 `http://localhost:3000/settings`
+2. 确认 `Accuracy Research Providers` 仍然存在
+3. 确认图片配置里默认项还是当前可用模型
+4. 再打开首页、历史页、结果页
+
+这轮收尾后的已知状态：
+
+- 历史垃圾数据已经清理过一次，SQLite 当前剩余 `33` 条任务
+- 维护日志里有两条清理记录：
+  - `436 auto-delete task(s) removed`
+  - `20 origin fixture task(s) removed`
+- `神农尝百草` 没丢，直接访问：
+  - `http://localhost:3000/result/264c7dde-27af-48b0-b3ad-3c7f9d49d404`
+- 设置页新增了 `维护与修复` 面板，可以做两件事：
+  - `扫描任务健康 -> 执行自动删除`
+  - `作品找回搜索`
+
+如果你再次遇到“历史里出现空白 Episode / Test”：
+
+1. 进入 `设置 -> 维护与修复`
+2. 点击 `扫描任务健康`
+3. 先看 `可自动删除` 数量
+4. 再点击 `执行自动删除`
+
+如果你要确认 Accuracy provider 真的在起作用：
+
+1. 生成一个 `science` 或 `wikipedia` 任务
+2. 打开结果页
+3. 展开 `Accuracy Summary`
+4. 看 `命中链路`
+
+这里会显示本次研究实际用了哪个 `主 Search / 备 Search / 主 Fetch / 备 Fetch`。
+
+如果图片配置再次提示“返回 HTML 页面，不是图片 API”：
+
+- 说明 `API URL` 指到了站点首页，不是接口根地址
+- 这次已经确认 `aiapi.exe.xyz` 的正确 API 根应为：
+  - `https://aiapi.exe.xyz/v1`
+- 但 `google/nano-banana-2` 当前仍会被上游返回 `insufficient_user_quota`
+- 所以它现在只适合保留为候选配置，不适合直接设成默认发布模型
+
+当前默认图片模型仍建议保持可用配置，不要切到 `nano-banana-2`，除非你已经补足上游额度。
+
+### 质量检查与发版
+
+```bash
+# 本地质量检查
+pnpm lint
+pnpm test
+pnpm build
+
+# 发版前一键检查
+pnpm ship:check
+```
+
+- `pnpm ship:check` 会顺序执行 `lint -> test -> build`，并阻止直接从默认基线分支发版
+- GitHub Actions CI 会在 push / pull request 时运行同一套检查
+- 推荐流程：在功能分支或 `dev` 上开发 -> 运行 `pnpm ship:check` -> push -> 创建指向 `master` 的 PR -> 合并前做关键页面冒烟测试
+- 详细清单见 `docs/ai/ship.md`
+
 ### Docker 部署
 
 ```bash
@@ -292,7 +375,7 @@ curl http://localhost:61323/api/health
 **Docker 详情：**
 - 默认端口：`61323`
 - 数据卷：`comicpedia-data` 挂载到 `/app/data`（SQLite + 图片文件）
-- 内存限制：1 GB
+- 内存限制：2 GB（保底预留 512 MB）
 - 多阶段构建 + standalone 输出模式
 
 ### 配置说明

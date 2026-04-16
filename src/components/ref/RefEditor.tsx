@@ -50,7 +50,7 @@ export function RefEditor({
           <button
             onClick={onRegenerate}
             disabled={regenerating}
-            className="px-3 py-1.5 text-xs bg-purple-600 text-white rounded-lg disabled:opacity-50 min-h-[32px] flex items-center gap-1"
+            className="px-3 py-1.5 text-xs bg-[#3d8b84] text-white rounded-lg disabled:opacity-50 min-h-[32px] flex items-center gap-1"
           >
             {regenerating ? (
               <>

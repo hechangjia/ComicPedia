@@ -1,5 +1,8 @@
 "use client";
 
+import type { ReactNode } from "react";
+import { Image as ImageIcon, Info, RefreshCw } from "lucide-react";
+
 interface LLMConfig {
   id: string;
   name?: string;
@@ -16,7 +19,7 @@ interface ScriptReadyBarProps {
   completedPanels: number;
   totalPanels: number;
   pendingPanels: number;
-  generatingAll: boolean;
+  generatingAll?: boolean;
   llmConfigs: LLMConfig[];
   imageConfigs: ImageConfig[];
   activeLLMId: string;
@@ -26,14 +29,15 @@ interface ScriptReadyBarProps {
   onSelectedLLMIdChange: (id: string) => void;
   onSelectedImageIdChange: (id: string) => void;
   onRegenerateScript: () => void;
-  onGenerateAll: () => void;
+  onGenerateAll?: () => void;
+  actionSlot?: ReactNode;
 }
 
 export function ScriptReadyBar({
   completedPanels,
   totalPanels,
   pendingPanels,
-  generatingAll,
+  generatingAll = false,
   llmConfigs,
   imageConfigs,
   activeLLMId,
@@ -44,24 +48,23 @@ export function ScriptReadyBar({
   onSelectedImageIdChange,
   onRegenerateScript,
   onGenerateAll,
+  actionSlot,
 }: ScriptReadyBarProps) {
   return (
-    <div className="p-4 rounded-xl border bg-blue-50 dark:bg-blue-900/20 space-y-3 no-print">
+    <div className="p-4 rounded-xl border bg-info/10 space-y-3 no-print">
       <div className="flex items-start gap-3">
-        <svg className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
+        <Info className="w-5 h-5 text-info mt-0.5 shrink-0" />
         <div className="flex-1 space-y-1">
-          <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
+          <p className="text-sm font-medium text-info">
             分镜脚本已就绪
             {completedPanels > 0 && (
-              <span className="ml-2 text-xs font-normal text-blue-600 dark:text-blue-300">
+              <span className="ml-2 text-xs font-normal text-info">
                 （已生成 {completedPanels}/{totalPanels} 张图片）
               </span>
             )}
           </p>
-          <p className="text-xs text-blue-600 dark:text-blue-300">
-            请审查每个分镜的提示词，点击编辑按钮可修改。确认无误后，可单独生成某个分镜的图片，或点击下方按钮一次性全部生成。
+          <p className="text-xs text-info">
+            请审查每个分镜的提示词，点击编辑按钮可修改。确认无误后，可在下方工作区按面板推进生成队列。
           </p>
         </div>
       </div>
@@ -69,7 +72,7 @@ export function ScriptReadyBar({
         {/* LLM model selector + regenerate script */}
         {llmConfigs.length > 1 && (
           <div className="flex items-center gap-1.5">
-            <label className="text-xs text-blue-600 dark:text-blue-300 whitespace-nowrap">LLM:</label>
+            <label className="text-xs text-info whitespace-nowrap">LLM:</label>
             <select
               value={selectedLLMId}
               onChange={(e) => onSelectedLLMIdChange(e.target.value)}
@@ -85,17 +88,15 @@ export function ScriptReadyBar({
         )}
         <button
           onClick={onRegenerateScript}
-          className="px-3 py-2 text-sm border border-blue-300 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors flex items-center gap-1.5 min-h-[40px]"
+          className="px-3 py-2 text-sm border border-info/30 text-info rounded-lg hover:bg-info/10 transition-colors flex items-center gap-1.5 min-h-[40px]"
         >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
+          <RefreshCw className="w-4 h-4" />
           Regenerate Script
         </button>
         {/* Image model selector */}
         {imageConfigs.length > 1 && (
           <div className="flex items-center gap-1.5">
-            <label className="text-xs text-blue-600 dark:text-blue-300 whitespace-nowrap">文生图:</label>
+            <label className="text-xs text-info whitespace-nowrap">文生图:</label>
             <select
               value={selectedImageId}
               onChange={(e) => onSelectedImageIdChange(e.target.value)}
@@ -109,16 +110,17 @@ export function ScriptReadyBar({
             </select>
           </div>
         )}
-        <button
-          onClick={onGenerateAll}
-          disabled={generatingAll || pendingPanels === 0}
-          className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2 min-h-[40px]"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-          </svg>
-          {generatingAll ? "生成中..." : pendingPanels > 0 ? `全部生成 (${pendingPanels} 张)` : "全部已生成"}
-        </button>
+        {onGenerateAll && (
+          <button
+            onClick={onGenerateAll}
+            disabled={generatingAll || pendingPanels === 0}
+            className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2 min-h-[40px]"
+          >
+            <ImageIcon className="w-4 h-4" />
+            {generatingAll ? "生成中..." : pendingPanels > 0 ? `全部生成 (${pendingPanels} 张)` : "全部已生成"}
+          </button>
+        )}
+        {actionSlot}
       </div>
     </div>
   );
