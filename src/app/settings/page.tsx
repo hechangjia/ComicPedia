@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useAPIConfig } from "@/hooks/useAPIConfig";
 import { useLLMForm, useImageForm } from "@/hooks/useConfigForm";
-import { AccuracyProviderConfig, UserAPIConfigV2, UserLLMConfig, UserImageConfig } from "@/lib/types";
+import { AccuracyProviderConfig, UserLLMConfig, UserImageConfig } from "@/lib/types";
 import { testLLMConnection, testImageConnection, TestResult } from "@/lib/api/connectionTest";
 import { LLMConfigCard } from "@/components/settings/LLMConfigCard";
 import { ImageConfigCard } from "@/components/settings/ImageConfigCard";
@@ -13,44 +13,13 @@ import { ImageForm } from "@/components/settings/ImageForm";
 import { AccuracyProviderSection } from "@/components/settings/AccuracyProviderSection";
 import { type AccuracyProviderFormFields } from "@/components/settings/AccuracyProviderForm";
 import { MaintenancePanel } from "@/components/settings/MaintenancePanel";
+import { MigratePanel } from "@/components/settings/MigratePanel";
 import { VLM_PRESETS, getVLMPreset } from "@/lib/config/presets";
 import { BackupManager } from "@/components/settings/BackupManager";
+import { ConfigImportExport, exportSingleLLM, exportSingleImage } from "@/components/settings/ConfigImportExport";
 import { getWatermarkText, setWatermarkText } from "@/lib/downloadUtils";
 import { testAccuracyProvider } from "@/lib/api/accuracyProviderTest";
-import { Download, Upload } from "lucide-react";
 
-
-/** 配置导出格式 */
-interface ConfigExportData {
-  app: "comicpedia";
-  type: "config";
-  exportedAt: string;
-  llmConfigs?: UserLLMConfig[];
-  imageConfigs?: UserImageConfig[];
-  activeLLMId?: string | null;
-  activeImageId?: string | null;
-}
-
-/** 触发浏览器下载 */
-function triggerDownload(data: string, filename: string): void {
-  const blob = new Blob([data], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
-/** 判断两个配置是否"实质相同"（同名 + 同地址 + 同模型） */
-function isSameLLM(a: UserLLMConfig, b: UserLLMConfig): boolean {
-  return a.name === b.name && a.apiUrl === b.apiUrl && a.model === b.model;
-}
-function isSameImage(a: UserImageConfig, b: UserImageConfig): boolean {
-  return a.name === b.name && a.apiUrl === b.apiUrl && a.model === b.model;
-}
 
 /** 测试结果 Map：configId → TestResult */
 type TestResultMap = Record<string, TestResult>;
@@ -287,124 +256,15 @@ export default function SettingsPage() {
     }
   };
 
-  // ── 导出/导入 ──
+  // ── Handler helpers ──
 
-  const importFileRef = useRef<HTMLInputElement>(null);
-  const [showExportMenu, setShowExportMenu] = useState(false);
-
-  const exportConfigs = (mode: "all" | "llm" | "image") => {
-    const data: ConfigExportData = {
-      app: "comicpedia",
-      type: "config",
-      exportedAt: new Date().toISOString(),
-    };
-
-    if (mode === "all" || mode === "llm") {
-      data.llmConfigs = config.llmConfigs;
-      data.activeLLMId = config.activeLLMId;
-    }
-    if (mode === "all" || mode === "image") {
-      data.imageConfigs = config.imageConfigs;
-      data.activeImageId = config.activeImageId;
-    }
-
-    const suffix = mode === "llm" ? "-llm" : mode === "image" ? "-image" : "";
-    const filename = `comicpedia-config${suffix}-${new Date().toISOString().slice(0, 10)}.json`;
-    triggerDownload(JSON.stringify(data, null, 2), filename);
-    setShowExportMenu(false);
-
-    const count = (data.llmConfigs?.length || 0) + (data.imageConfigs?.length || 0);
-    setMessage({ type: "success", text: `已导出 ${count} 个配置` });
+  const showMessage = (msg: { type: "success" | "error"; text: string }) => {
+    setMessage(msg);
     setTimeout(() => setMessage(null), 3000);
   };
 
-  const handleImportConfigs = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    try {
-      const text = await file.text();
-      const imported = JSON.parse(text) as Partial<ConfigExportData> & Partial<UserAPIConfigV2>;
-
-      // 兼容两种格式：导出格式 (ConfigExportData) 和 V2 原始格式 (UserAPIConfigV2)
-      const llmList = imported.llmConfigs || [];
-      const imgList = imported.imageConfigs || [];
-
-      if (llmList.length === 0 && imgList.length === 0) {
-        setMessage({ type: "error", text: "文件中没有找到有效的配置数据" });
-        setTimeout(() => setMessage(null), 3000);
-        return;
-      }
-
-      let addedLLM = 0;
-      let addedImg = 0;
-
-      // 合并 LLM 配置（跳过重复）
-      for (const llm of llmList) {
-        if (!llm.apiUrl || !llm.model) continue;
-        const isDuplicate = config.llmConfigs.some((existing) => isSameLLM(existing, llm));
-        if (!isDuplicate) {
-          const { id: _llmId, ...llmRest } = llm;
-          addLLM(llmRest);
-          addedLLM++;
-        }
-      }
-
-      // 合并 Image 配置（跳过重复）
-      for (const img of imgList) {
-        if (!img.apiUrl) continue;
-        const isDuplicate = config.imageConfigs.some((existing) => isSameImage(existing, img));
-        if (!isDuplicate) {
-          const { id: _imgId, ...imgRest } = img;
-          addImage(imgRest);
-          addedImg++;
-        }
-      }
-
-      const total = addedLLM + addedImg;
-      const skipped = (llmList.length + imgList.length) - total;
-      let msg = `已导入 ${total} 个配置`;
-      if (addedLLM > 0) msg += `（LLM: ${addedLLM}`;
-      if (addedImg > 0) msg += `${addedLLM > 0 ? ", " : "（"}文生图: ${addedImg}`;
-      if (addedLLM > 0 || addedImg > 0) msg += "）";
-      if (skipped > 0) msg += `，跳过 ${skipped} 个重复配置`;
-
-      setMessage({ type: "success", text: msg });
-      setTimeout(() => setMessage(null), 4000);
-    } catch (err) {
-      console.error("Import config failed:", err);
-      setMessage({ type: "error", text: "导入失败：文件格式不正确" });
-      setTimeout(() => setMessage(null), 3000);
-    }
-
-    e.target.value = "";
-  };
-
-  /** 导出单个 LLM 配置 */
-  const handleExportSingleLLM = (c: UserLLMConfig) => {
-    const data: ConfigExportData = {
-      app: "comicpedia",
-      type: "config",
-      exportedAt: new Date().toISOString(),
-      llmConfigs: [c],
-    };
-    triggerDownload(JSON.stringify(data, null, 2), `comicpedia-llm-${c.name}.json`);
-    setMessage({ type: "success", text: `已导出 LLM 配置「${c.name}」` });
-    setTimeout(() => setMessage(null), 3000);
-  };
-
-  /** 导出单个文生图配置 */
-  const handleExportSingleImage = (c: UserImageConfig) => {
-    const data: ConfigExportData = {
-      app: "comicpedia",
-      type: "config",
-      exportedAt: new Date().toISOString(),
-      imageConfigs: [c],
-    };
-    triggerDownload(JSON.stringify(data, null, 2), `comicpedia-image-${c.name}.json`);
-    setMessage({ type: "success", text: `已导出文生图配置「${c.name}」` });
-    setTimeout(() => setMessage(null), 3000);
-  };
+  const handleExportSingleLLM = (c: UserLLMConfig) => exportSingleLLM(c, showMessage);
+  const handleExportSingleImage = (c: UserImageConfig) => exportSingleImage(c, showMessage);
 
   if (!isLoaded) {
     return (
@@ -428,58 +288,12 @@ export default function SettingsPage() {
           ← 返回首页
         </Link>
         <h1 className="text-2xl font-bold">API 设置</h1>
-        <div className="flex items-center gap-2">
-          {/* 导出下拉 */}
-          <div className="relative">
-            <button
-              onClick={() => setShowExportMenu(!showExportMenu)}
-              disabled={config.llmConfigs.length === 0 && config.imageConfigs.length === 0}
-              className="px-3 py-1.5 text-sm rounded-lg border hover:bg-accent transition-colors flex items-center gap-1.5 disabled:opacity-40"
-            >
-              <Download className="w-4 h-4" />
-              导出
-            </button>
-            {showExportMenu && (
-              <>
-                {/* 点击外部关闭 */}
-                <div className="fixed inset-0 z-40" onClick={() => setShowExportMenu(false)} />
-                <div className="absolute right-0 mt-1 w-40 py-1 rounded-lg border bg-card shadow-lg z-50">
-                  <button
-                    onClick={() => exportConfigs("all")}
-                    className="w-full px-4 py-2 text-sm text-left hover:bg-accent transition-colors"
-                  >
-                    全部导出
-                  </button>
-                  {config.llmConfigs.length > 0 && (
-                    <button
-                      onClick={() => exportConfigs("llm")}
-                      className="w-full px-4 py-2 text-sm text-left hover:bg-accent transition-colors"
-                    >
-                      仅 LLM ({config.llmConfigs.length})
-                    </button>
-                  )}
-                  {config.imageConfigs.length > 0 && (
-                    <button
-                      onClick={() => exportConfigs("image")}
-                      className="w-full px-4 py-2 text-sm text-left hover:bg-accent transition-colors"
-                    >
-                      仅文生图 ({config.imageConfigs.length})
-                    </button>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-          {/* 导入 */}
-          <input ref={importFileRef} type="file" accept=".json" onChange={handleImportConfigs} className="hidden" />
-          <button
-            onClick={() => importFileRef.current?.click()}
-            className="px-3 py-1.5 text-sm rounded-lg border hover:bg-accent transition-colors flex items-center gap-1.5"
-          >
-            <Upload className="w-4 h-4" />
-            导入
-          </button>
-        </div>
+        <ConfigImportExport
+          config={config}
+          addLLM={addLLM}
+          addImage={addImage}
+          onMessage={showMessage}
+        />
       </div>
 
       {/* 消息提示 */}
@@ -742,6 +556,11 @@ export default function SettingsPage() {
 
       <div className="p-6 rounded-xl border bg-card">
         <MaintenancePanel />
+      </div>
+
+      {/* 数据迁移 */}
+      <div className="p-6 rounded-xl border bg-card">
+        <MigratePanel />
       </div>
 
       {/* 导出署名 */}

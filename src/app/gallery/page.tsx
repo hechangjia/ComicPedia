@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback, useRef, memo } from "react";
+import { useEffect, useState, useMemo, useCallback, memo } from "react";
 import Link from "next/link";
 import { getAllComics } from "@/lib/client/db";
 import { useListCache } from "@/stores/listCache";
@@ -9,10 +9,12 @@ import { GenerateTask, ComicPanel, ComicStyle } from "@/lib/types";
 import { STYLE_DESCRIPTIONS } from "@/lib/config/styles";
 import { formatDate } from "@/lib/utils";
 import type { Series } from "@/lib/series";
+import { GalleryCard } from "@/components/gallery/GalleryCard";
+import { GalleryLightbox } from "@/components/gallery/GalleryLightbox";
 import GalleryFilters, { GalleryFilterValues, DEFAULT_FILTERS } from "@/components/gallery/GalleryFilters";
 import TimelineView from "@/components/gallery/TimelineView";
 import SeriesView from "@/components/gallery/SeriesView";
-import { Check, ChevronLeft, ChevronRight, Image as ImageIcon, Layers, LayoutGrid, List, X } from "lucide-react";
+import { ChevronLeft, Image as ImageIcon, Layers, LayoutGrid, List } from "lucide-react";
 
 
 /** 从 STYLE_DESCRIPTIONS 提取简短中文名称 */
@@ -25,134 +27,6 @@ const styleNames: Record<string, string> = Object.fromEntries(
 
 type SortBy = "newest" | "oldest" | "panels";
 type ViewMode = "grid" | "timeline" | "series";
-
-interface GalleryCardProps {
-  task: GenerateTask;
-  validPanels: ComicPanel[];
-  featured: boolean;
-  onOpen: (task: GenerateTask) => void;
-  batchMode?: boolean;
-  selected?: boolean;
-  onToggleSelect?: () => void;
-  onToggleFavorite?: (e: React.MouseEvent) => void;
-}
-
-const GalleryCard = memo(function GalleryCard({ task, validPanels, featured, onOpen, batchMode, selected, onToggleSelect, onToggleFavorite }: GalleryCardProps) {
-  const panelCount = validPanels.length;
-  const spanClass = featured
-    ? "col-span-2 row-span-2 sm:col-span-4 sm:row-span-2 lg:col-span-4 lg:row-span-2"
-    : "col-span-2 sm:col-span-2 lg:col-span-2";
-
-  return (
-    <div
-      className={`rounded-xl overflow-hidden bg-card group cursor-pointer relative transition-[transform,box-shadow] duration-300 ease-out hover:-translate-y-1 hover:shadow-[0_20px_40px_rgba(0,0,0,0.15)] ${spanClass} ${selected ? "ring-2 ring-primary" : ""}`}
-      onClick={() => batchMode && onToggleSelect ? onToggleSelect() : onOpen(task)}
-    >
-      {/* 批量选择复选框 */}
-      {batchMode && (
-        <div className="absolute top-2 left-2 z-20">
-          <div
-            className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-colors ${
-              selected ? "bg-primary border-primary" : "bg-white/80 border-white/60"
-            }`}
-          >
-            {selected && (
-              <Check className="w-4 h-4 text-primary-foreground" strokeWidth={3} />
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Favorite heart */}
-      {!batchMode && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onToggleFavorite?.(e); }}
-          className="absolute top-2 left-2 z-20 w-8 h-8 flex items-center justify-center rounded-full bg-black/40 hover:bg-black/60 transition-colors opacity-0 group-hover:opacity-100"
-          style={task.favorited ? { opacity: 1 } : undefined}
-          title={task.favorited ? "取消收藏" : "收藏"}
-        >
-          <svg
-            className={`w-4 h-4 ${task.favorited ? "text-error" : "text-white"}`}
-            viewBox="0 0 24 24"
-            fill={task.favorited ? "currentColor" : "none"}
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-          </svg>
-        </button>
-      )}
-
-      <div
-        className={`relative w-full overflow-hidden ${
-          featured ? "aspect-[16/9]" : "aspect-[4/3]"
-        }`}
-      >
-        {featured && panelCount >= 2 ? (
-          <div className="absolute inset-0 grid grid-cols-2 gap-0.5">
-            {validPanels.slice(0, 2).map((p, idx) => (
-              <div key={idx} className="overflow-hidden">
-                <img
-                  src={p.imageUrl}
-                  alt={`Panel ${idx + 1}`}
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-                  loading="lazy"
-                />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <img
-            src={validPanels[0]?.imageUrl}
-            alt={task.script?.title}
-            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-            loading="lazy"
-          />
-        )}
-
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-
-        <div className="absolute top-2 right-2 px-2 py-0.5 text-[10px] bg-black/60 text-white rounded-full">
-          {panelCount} 格
-        </div>
-
-        <div className="absolute bottom-0 left-0 right-0 p-3 sm:p-4">
-          <h3
-            className={`font-bold text-white truncate ${
-              featured ? "text-lg sm:text-xl" : "text-sm"
-            }`}
-          >
-            {task.script?.title || "无标题"}
-          </h3>
-          {featured && task.script?.topic && (
-            <p className="text-white/70 text-xs sm:text-sm mt-1 line-clamp-1">
-              {task.script.topic}
-            </p>
-          )}
-          <div className="flex items-center gap-2 mt-1.5">
-            <span
-              className={`px-1.5 py-0.5 rounded text-white/90 bg-white/25 ${
-                featured ? "text-xs" : "text-[10px]"
-              }`}
-            >
-              {task.script?.style
-                ? styleNames[task.script.style] || task.script.style
-                : ""}
-            </span>
-            <span className={`text-white/50 ${featured ? "text-xs" : "text-[10px]"}`}>
-              {formatDate(task.createdAt)}
-            </span>
-            {task.tags && task.tags.length > 0 && (
-              <span className="text-[10px] text-white/60 truncate max-w-[80px]">
-                {task.tags.slice(0, 2).join(", ")}
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-});
 
 export default function GalleryPage() {
   const { getTasks, setTasks } = useListCache();
@@ -171,7 +45,6 @@ export default function GalleryPage() {
   const [batchMode, setBatchMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [batchDeleting, setBatchDeleting] = useState(false);
-  const lightboxRef = useRef<HTMLDivElement>(null);
 
   const loadGallery = useCallback(async (page: number) => {
     try {
@@ -429,56 +302,6 @@ export default function GalleryPage() {
       Math.min(lightboxPanels.length - 1, i + 1)
     );
   }, [lightboxPanels.length]);
-
-  useEffect(() => {
-    if (!lightboxTask || lightboxPanels.length === 0) return;
-    const preloadIdx = [lightboxPanelIndex - 1, lightboxPanelIndex + 1];
-    preloadIdx.forEach((idx) => {
-      if (idx >= 0 && idx < lightboxPanels.length) {
-        const img = new Image();
-        img.src = lightboxPanels[idx].imageUrl ?? "";
-      }
-    });
-  }, [lightboxPanelIndex, lightboxPanels, lightboxTask]);
-
-  useEffect(() => {
-    if (!lightboxTask) return;
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") handleCloseLightbox();
-      else if (e.key === "ArrowLeft") handleLightboxPrev();
-      else if (e.key === "ArrowRight") handleLightboxNext();
-    };
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [handleCloseLightbox, handleLightboxNext, handleLightboxPrev, lightboxTask]);
-
-  // Focus trap for lightbox
-  useEffect(() => {
-    if (!lightboxTask || !lightboxRef.current) return;
-    const container = lightboxRef.current;
-    const focusableSelector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
-
-    const trapFocus = (e: KeyboardEvent) => {
-      if (e.key !== "Tab") return;
-      const focusable = container.querySelectorAll(focusableSelector);
-      if (focusable.length === 0) return;
-      const first = focusable[0] as HTMLElement;
-      const last = focusable[focusable.length - 1] as HTMLElement;
-
-      if (e.shiftKey) {
-        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
-      } else {
-        if (document.activeElement === last) { e.preventDefault(); first.focus(); }
-      }
-    };
-
-    // Focus the close button on open
-    const closeBtn = container.querySelector("button");
-    closeBtn?.focus();
-
-    document.addEventListener("keydown", trapFocus);
-    return () => document.removeEventListener("keydown", trapFocus);
-  }, [lightboxTask]);
 
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -834,98 +657,15 @@ export default function GalleryPage() {
 
       {/* 灯箱预览 */}
       {lightboxTask && lightboxPanels.length > 0 && (
-        <div
-          ref={lightboxRef}
-          role="dialog"
-          aria-modal="true"
-          aria-label="图片预览"
-          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
-          onClick={() => setLightboxTask(null)}
-        >
-          <button
-            onClick={() => setLightboxTask(null)}
-            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/20 text-white flex items-center justify-center hover:bg-white/30 transition-colors z-10"
-          >
-            <X className="w-6 h-6" />
-          </button>
-
-          <div
-            className="flex flex-col items-center gap-4 max-w-4xl w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-white text-lg font-semibold text-center">
-              {lightboxTask.script?.title}
-            </h2>
-
-            <div className="relative w-full flex items-center justify-center">
-              {lightboxPanelIndex > 0 && (
-                <button
-                  onClick={handleLightboxPrev}
-                  className="absolute left-0 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/20 text-white flex items-center justify-center hover:bg-white/30 transition-colors z-10"
-                >
-                  <ChevronLeft className="w-6 h-6" />
-                </button>
-              )}
-
-              <img
-                src={lightboxPanels[lightboxPanelIndex].imageUrl}
-                alt={lightboxPanels[lightboxPanelIndex].scene}
-                className="max-w-full max-h-[70vh] object-contain rounded-lg"
-              />
-
-              {lightboxPanelIndex < lightboxPanels.length - 1 && (
-                <button
-                  onClick={handleLightboxNext}
-                  className="absolute right-0 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/20 text-white flex items-center justify-center hover:bg-white/30 transition-colors z-10"
-                >
-                  <ChevronRight className="w-6 h-6" />
-                </button>
-              )}
-            </div>
-
-            {lightboxPanels[lightboxPanelIndex].dialogue && (
-              <div className="bg-black/70 rounded-lg px-4 py-2 max-w-lg text-center">
-                <p className="text-white text-sm leading-relaxed">
-                  {lightboxPanels[lightboxPanelIndex].dialogue}
-                </p>
-              </div>
-            )}
-
-            <div className="flex items-center gap-3 text-white/70 text-sm">
-              <span>
-                {lightboxPanelIndex + 1} / {lightboxPanels.length}
-              </span>
-              <div className="flex gap-1.5">
-                {lightboxPanels.map((p, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => setLightboxPanelIndex(idx)}
-                    className={`w-8 h-8 rounded border-2 overflow-hidden transition-all ${
-                      idx === lightboxPanelIndex
-                        ? "border-white scale-110"
-                        : "border-transparent opacity-60 hover:opacity-100"
-                    }`}
-                  >
-                    <img
-                      src={p.imageUrl}
-                      alt={`Panel ${idx + 1}`}
-                      className="w-full h-full object-cover"
-                      loading="lazy"
-                      decoding="async"
-                    />
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <Link
-              href={`/result/${lightboxTask.id}`}
-              className="text-white/60 text-xs hover:text-white transition-colors"
-            >
-              查看完整详情 →
-            </Link>
-          </div>
-        </div>
+        <GalleryLightbox
+          task={lightboxTask}
+          panels={lightboxPanels}
+          currentIndex={lightboxPanelIndex}
+          onClose={handleCloseLightbox}
+          onPrev={handleLightboxPrev}
+          onNext={handleLightboxNext}
+          onJump={setLightboxPanelIndex}
+        />
       )}
     </div>
   );
