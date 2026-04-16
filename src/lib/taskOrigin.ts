@@ -33,20 +33,24 @@ export function inferTaskOrigin(task: {
     return "test";
   }
 
-  // Episode N / Episode N - xxx with topic "Test" or empty topic
+  // origin-explicit-* / origin-default-* fixture IDs
+  if (/^origin-(explicit|default)-/i.test(task.id)) {
+    return "test";
+  }
+
+  // Episode N (any suffix) + topic is "Test" or empty
   if (/^Episode \d+/i.test(title) && (!topic || /^test$/i.test(topic))) {
     return "test";
   }
 
-  // Bare "Test" title or topic
+  // Bare "Test" title or topic-only "Test"
   if (/^test$/i.test(title) || (/^test$/i.test(topic) && !title)) {
     return "test";
   }
 
-  // Tasks with no script at all (zombie / fixture leftovers)
-  if (!task.script?.title && !task.script?.topic) {
-    // Only flag as test if id looks auto-generated (UUID-like but not user-created)
-    // Leave genuinely empty user tasks alone
+  // "Origin Task" fixture records
+  if (/^Origin Task$/i.test(title)) {
+    return "test";
   }
 
   return DEFAULT_TASK_ORIGIN;
