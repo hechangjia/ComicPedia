@@ -11,6 +11,7 @@ import { formatDate } from "@/lib/utils";
 import type { Series } from "@/lib/series";
 import { GalleryCard } from "@/components/gallery/GalleryCard";
 import { GalleryLightbox } from "@/components/gallery/GalleryLightbox";
+import { SectionErrorBoundary } from "@/components/ui/SectionErrorBoundary";
 import GalleryFilters, { GalleryFilterValues, DEFAULT_FILTERS } from "@/components/gallery/GalleryFilters";
 import TimelineView from "@/components/gallery/TimelineView";
 import SeriesView from "@/components/gallery/SeriesView";
@@ -561,6 +562,7 @@ export default function GalleryPage() {
       )}
 
       {/* Grid view */}
+      <SectionErrorBoundary name="作品网格">
       {filteredTasks.length > 0 && viewMode === "grid" && !useVirtual && (
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 sm:gap-4">
           {filteredTasks.map((task, taskIndex) => (
@@ -641,6 +643,7 @@ export default function GalleryPage() {
           validPanelsMap={validPanelsMap}
         />
       )}
+      </SectionErrorBoundary>
 
       {/* 加载更多 */}
       {hasMore && filteredTasks.length > 0 && (

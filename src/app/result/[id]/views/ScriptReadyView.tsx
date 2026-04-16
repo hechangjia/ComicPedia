@@ -17,6 +17,7 @@ import { AccuracySummary } from "@/components/result/AccuracySummary";
 import { DetailTabs } from "@/components/result/DetailTabs";
 import { StickyActionBar } from "@/components/result/StickyActionBar";
 import { ScriptEditor } from "@/components/editor/ScriptEditor";
+import { SectionErrorBoundary } from "@/components/ui/SectionErrorBoundary";
 import { getResultContentSurface, resolveResultViewMode, type ResultViewMode } from "@/app/result/viewMode";
 import { AlertTriangle, RefreshCw, Settings, Sparkles } from "lucide-react";
 
@@ -263,6 +264,7 @@ export function ScriptReadyView({
       )}
 
       {/* 主内容 */}
+      <SectionErrorBoundary name="漫画面板">
       {contentSurface === "play" ? (
         <DynamicPlayer panels={task.script.panels} title={task.script.title} />
       ) : contentSurface === "script-editor" ? (
@@ -284,6 +286,7 @@ export function ScriptReadyView({
           onReorder={actions.handleReorder}
         />
       )}
+      </SectionErrorBoundary>
 
       {/* 底部固定操作栏 */}
       <StickyActionBar

@@ -12,6 +12,7 @@ import type {
 import type { TaskActions } from "@/hooks/useTaskActions";
 import { saveTask } from "@/lib/client/db";
 import { downloadTextFile } from "@/lib/downloadUtils";
+import { SectionErrorBoundary } from "@/components/ui/SectionErrorBoundary";
 import { PanelGrid } from "@/components/result/PanelGrid";
 import { CompositeScore } from "@/components/result/CompositeScore";
 import { PipelineSummary } from "@/components/result/PipelineSummary";
@@ -241,6 +242,7 @@ export function CompletedView({
 
       {/* 高级模式: 详情标签页 */}
       {!isSimpleMode && (
+        <SectionErrorBoundary name="质量详情">
         <DetailTabs tabs={[
           {
             id: "accuracy",
@@ -299,9 +301,11 @@ export function CompletedView({
             visible: !!task.narrativeOutline,
           },
         ]} />
+        </SectionErrorBoundary>
       )}
 
       {/* 主内容区 */}
+      <SectionErrorBoundary name="漫画面板">
       {contentSurface === "play" ? (
         <DynamicPlayer panels={task.script.panels} title={task.script.title} />
       ) : contentSurface === "script-editor" ? (
@@ -327,6 +331,7 @@ export function CompletedView({
           onReorder={actions.handleReorder}
         />
       )}
+      </SectionErrorBoundary>
 
       {/* 知识测验 */}
       {task.script.quiz && (
