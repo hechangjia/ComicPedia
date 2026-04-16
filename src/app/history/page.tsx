@@ -13,6 +13,7 @@ import type { ExportProgress } from "@/lib/exportImport";
 import { StorageIndicator } from "@/components/StorageIndicator";
 import { Spinner } from "@/components/ui/Spinner";
 import { HistoryCard } from "@/components/history/HistoryCard";
+import { TrashPanel } from "@/components/history/TrashPanel";
 import { buildHistoryOverview, filterHistoryItems, type HistoryFilterId } from "./historyCardStatus";
 import { parseHistoryFilter } from "./historyNavigation";
 import { ChevronLeft, Clock, Download, Trash2, Upload } from "lucide-react";
@@ -21,6 +22,9 @@ import { ChevronLeft, Clock, Download, Trash2, Upload } from "lucide-react";
 export default function HistoryPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState<"history" | "trash">(() =>
+    searchParams.get("tab") === "trash" ? "trash" : "history"
+  );
   const {
     getTaskSummaries,
     setTaskSummaries,
@@ -345,7 +349,30 @@ export default function HistoryPage() {
             <ChevronLeft className="w-4 h-4" />
             返回
           </Link>
-          <h1 className="text-2xl font-bold">历史记录</h1>
+          {/* Tab 切换: 历史 / 回收站 */}
+          <div className="flex gap-1 p-1 rounded-lg bg-muted/50">
+            <button
+              onClick={() => setActiveTab("history")}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                activeTab === "history"
+                  ? "bg-background shadow-sm text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              历史记录
+            </button>
+            <button
+              onClick={() => setActiveTab("trash")}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-1.5 ${
+                activeTab === "trash"
+                  ? "bg-background shadow-sm text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              回收站
+            </button>
+          </div>
         </div>
 
         {history.length > 0 && selectionMode ? (
@@ -447,19 +474,18 @@ export default function HistoryPage() {
             >
               {confirmClear ? "确认清空？" : "清空全部"}
             </button>
-            {/* 回收站 */}
-            <Link
-              href="/trash"
-              className="px-3 py-2 text-sm rounded-lg border hover:bg-accent transition-colors flex items-center gap-1.5"
-              title="回收站"
-            >
-              <Trash2 className="w-4 h-4" />
-              <span className="hidden sm:inline">回收站</span>
-            </Link>
           </div>
         ) : null}
       </div>
 
+      {/* ── 回收站 Tab ── */}
+      {activeTab === "trash" && (
+        <TrashPanel />
+      )}
+
+      {/* ── 历史记录 Tab ── */}
+      {activeTab === "history" && (
+      <>
       {history.length > 0 && (
         <div className="flex flex-wrap gap-2">
           <span className="px-2.5 py-1 text-xs rounded-full bg-muted text-muted-foreground">
@@ -588,6 +614,8 @@ export default function HistoryPage() {
       <div className="flex justify-center pt-4">
         <StorageIndicator />
       </div>
+      </>
+      )}
 
       {/* Export/Import progress overlay */}
       {exportProgress && exportProgress.phase !== "done" && (
