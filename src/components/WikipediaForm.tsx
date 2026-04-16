@@ -13,8 +13,13 @@ import { Spinner } from "./ui/Spinner";
 import { QualitySelector } from "./QualitySelector";
 import { GuideCharacterToggle } from "./GuideCharacterToggle";
 import { GenerationPresetSelector } from "./GenerationPresetSelector";
+import dynamic from "next/dynamic";
 import { AdvancedGenerationSettings } from "./AdvancedGenerationSettings";
-import { MathText } from "./MathText";
+
+const MathText = dynamic(() =>
+  import("./MathText").then((m) => ({ default: m.MathText })),
+  { ssr: false }
+);
 import { summarizeWikipediaContent } from "@/lib/llm";
 import { getStoredRequestConfigs } from "@/hooks/useAPIConfig";
 import type { WikipediaContent } from "@/lib/types";

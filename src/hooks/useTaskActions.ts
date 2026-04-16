@@ -170,6 +170,8 @@ function mergeNegativeTermsIntoImageConfig(
  * 所有 handler 均使用 useCallback 避免子组件无谓重渲染。
  * actionError 提供操作失败时的用户可见错误信息。
  */
+export type TaskActions = ReturnType<typeof useTaskActions>;
+
 export function useTaskActions(
   taskId: string,
   setTask: React.Dispatch<React.SetStateAction<GenerateTask | null>>,

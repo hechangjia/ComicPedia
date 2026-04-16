@@ -2,11 +2,16 @@
 
 import { useState, useCallback } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useRelations } from "@/hooks/useRelations";
-import { RelationGraph } from "@/components/characters/RelationGraph";
-import { EpisodeProposalModal } from "@/components/characters/EpisodeProposalModal";
 import { Spinner } from "@/components/ui/Spinner";
+
+const RelationGraph = dynamic(() =>
+  import("@/components/characters/RelationGraph").then((m) => ({ default: m.RelationGraph })),
+  { loading: () => <div className="h-[500px] flex items-center justify-center"><Spinner /></div> }
+);
+import { EpisodeProposalModal } from "@/components/characters/EpisodeProposalModal";
 import { useToast } from "@/components/ui/Toast";
 import { getStoredConfigs, getStoredRequestConfigs } from "@/hooks/useAPIConfig";
 import { ChevronLeft } from "lucide-react";

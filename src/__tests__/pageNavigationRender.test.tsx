@@ -398,9 +398,9 @@ describe("page navigation render", () => {
 
     const html = renderToStaticMarkup(React.createElement(ResultPage));
 
-    expect(html).not.toContain("编辑模式");
-    expect(html).toContain("阅读模式");
-    expect(html).toContain("播放模式");
+    expect(html).not.toContain("shadow-sm text-foreground\">编辑");
+    expect(html).toContain("阅读</button>");
+    expect(html).toContain("播放</button>");
   });
 
   it("defaults image queue paused tasks to read view instead of edit grid", () => {
@@ -429,8 +429,8 @@ describe("page navigation render", () => {
 
     const html = renderToStaticMarkup(React.createElement(ResultPage));
 
-    expect(html).toContain("阅读模式</button>");
-    expect(html).toContain("bg-background shadow-sm text-foreground\">阅读模式");
+    expect(html).toContain("阅读</button>");
+    expect(html).toContain("bg-background shadow-sm text-foreground\">阅读");
   });
 
   it("does not treat image queue paused tasks as script ready workspace copy", () => {
@@ -510,8 +510,8 @@ describe("page navigation render", () => {
 
     expect(html).toContain("绘制漫画图片...");
     expect(html).toContain("图片生成");
-    expect(html).not.toContain("阅读模式");
-    expect(html).not.toContain("播放模式");
+    expect(html).not.toContain("阅读</button>");
+    expect(html).not.toContain("播放</button>");
   });
 
   it("keeps read and play view toggles available while deep review is paused", () => {
@@ -523,9 +523,9 @@ describe("page navigation render", () => {
 
     const html = renderToStaticMarkup(React.createElement(ResultPage));
 
-    expect(html).not.toContain("编辑模式");
-    expect(html).toContain("阅读模式");
-    expect(html).toContain("播放模式");
+    expect(html).not.toContain("shadow-sm text-foreground\">编辑");
+    expect(html).toContain("阅读</button>");
+    expect(html).toContain("播放</button>");
   });
 
   it("defaults deep review paused tasks to read view instead of edit grid", () => {
@@ -537,8 +537,8 @@ describe("page navigation render", () => {
 
     const html = renderToStaticMarkup(React.createElement(ResultPage));
 
-    expect(html).toContain("阅读模式</button>");
-    expect(html).toContain("bg-background shadow-sm text-foreground\">阅读模式");
+    expect(html).toContain("阅读</button>");
+    expect(html).toContain("bg-background shadow-sm text-foreground\">阅读");
   });
 
   it("does not expose empty quality-score tabs while deep review is paused without diagnosis data", () => {
@@ -568,8 +568,8 @@ describe("page navigation render", () => {
 
     expect(html).not.toContain("Regenerate Script");
     expect(html).toContain("暂停队列");
-    expect(html).not.toContain("阅读模式");
-    expect(html).not.toContain("播放模式");
+    expect(html).not.toContain("阅读</button>");
+    expect(html).not.toContain("播放</button>");
   });
 
   it("does not expose read-play toggles while deep review is running", () => {
@@ -581,8 +581,8 @@ describe("page navigation render", () => {
 
     const html = renderToStaticMarkup(React.createElement(ResultPage));
 
-    expect(html).not.toContain("阅读模式");
-    expect(html).not.toContain("播放模式");
+    expect(html).not.toContain("阅读</button>");
+    expect(html).not.toContain("播放</button>");
     expect(html).not.toContain("继续评审");
   });
 
@@ -624,7 +624,9 @@ describe("page navigation render", () => {
 
     const html = renderToStaticMarkup(React.createElement(ResultPage));
 
-    expect((html.match(/Markdown<\/button>/g) ?? []).length).toBe(1);
+    // Markdown 按钮在折叠的"更多操作"区中，初始不渲染；主操作区也不重复
+    expect((html.match(/Markdown<\/button>/g) ?? []).length).toBe(0);
+    expect(html).toContain("更多操作");
   });
 
   it("does not expose empty quality-score tab after completion without any score data", () => {
@@ -901,9 +903,9 @@ describe("page navigation render", () => {
 
     const html = renderToStaticMarkup(React.createElement(ResultPage));
 
-    expect(html).toContain("编辑模式");
-    expect(html).toContain("阅读模式");
-    expect(html).toContain("播放模式");
+    expect(html).toContain("编辑</button>");
+    expect(html).toContain("阅读</button>");
+    expect(html).toContain("播放</button>");
   });
 
   it("does not expose panel reorder affordances after completion", () => {
@@ -969,8 +971,8 @@ describe("page navigation render", () => {
 
     const html = renderToStaticMarkup(React.createElement(ResultPage));
 
-    expect(html).toContain("阅读模式</button>");
-    expect(html).toContain("bg-background shadow-sm text-foreground\">阅读模式");
+    expect(html).toContain("阅读</button>");
+    expect(html).toContain("bg-background shadow-sm text-foreground\">阅读");
     expect(html).not.toContain("确认修改");
   });
 
@@ -1000,8 +1002,8 @@ describe("page navigation render", () => {
 
     const html = renderToStaticMarkup(React.createElement(ResultPage));
 
-    expect(html).toContain("编辑模式");
-    expect(html).toContain("阅读模式");
-    expect(html).toContain("播放模式");
+    expect(html).toContain("编辑</button>");
+    expect(html).toContain("阅读</button>");
+    expect(html).toContain("播放</button>");
   });
 });

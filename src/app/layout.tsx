@@ -33,12 +33,26 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "ComicPedia - AI 漫画生成器",
-  description: "AI 驱动的漫画生成工具：科普、诗词、小说、小红书图文",
+  description: "AI 驱动的漫画生成器：输入任意主题，自动生成完整漫画。支持科普、百科、诗词、小说、小红书，12 种画风自由组合。",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
     title: "ComicPedia",
+  },
+  openGraph: {
+    title: "ComicPedia - AI Comic Generator",
+    description: "Turn any topic into a full comic — AI writes the storyboard, generates the art, and reviews quality automatically.",
+    type: "website",
+    locale: "zh_CN",
+    siteName: "ComicPedia",
+    images: [{ url: "/og-image.png", width: 1200, height: 630, alt: "ComicPedia" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "ComicPedia - AI Comic Generator",
+    description: "Turn any topic into a full comic — AI writes the storyboard, generates the art, and reviews quality automatically.",
+    images: ["/og-image.png"],
   },
 };
 
