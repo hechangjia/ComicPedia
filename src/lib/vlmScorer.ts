@@ -1,3 +1,6 @@
+import type { VisionRuntime } from "./visionRuntime";
+import { modelRequestBody } from "./providers/modelRequestBody";
+import { modelEndpoint } from "./providers/endpoints";
 /**
  * VLM 视觉评分 Agent：使用视觉语言模型评估实际生成的图片质量。
  * 与 qualityScore.ts (文本评分) 互补 — 本模块基于图片像素，而非 prompt 文本。
@@ -170,20 +173,25 @@ export async function callVisionModel(
   prompt: string,
   imageBase64: string,
   vlmConfig: PartialLLMConfig,
+  runtime?: VisionRuntime,
 ): Promise<string> {
   const apiUrl = vlmConfig.apiUrl;
   const apiKey = vlmConfig.apiKey || "";
   if (!apiUrl) throw new Error("未配置 VLM API");
 
-  const normalizedUrl = apiUrl.includes("/chat/completions")
-    ? apiUrl
-    : `${apiUrl.replace(/\/+$/, "")}/chat/completions`;
+  const normalizedUrl = modelEndpoint(apiUrl, vlmConfig.provider === "anthropic" ? "messages" : "chat");
 
   const isAnthropic = vlmConfig.provider === "anthropic";
   const payload = buildMultimodalPayload(prompt, imageBase64, {
     model: vlmConfig.model || "gpt-4o",
     provider: vlmConfig.provider,
   });
+  if (runtime) {
+    runtime.checkpoint();
+    const result = await runtime.request(vlmConfig, payload);
+    runtime.checkpoint();
+    return result;
+  }
   const headers: Record<string, string> = isAnthropic
     ? { "x-api-key": apiKey, "anthropic-version": "2023-06-01" }
     : apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
@@ -191,11 +199,7 @@ export async function callVisionModel(
   const response = await fetch("/api/llm", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      targetUrl: normalizedUrl,
-      headers,
-      payload,
-    }),
+    body: JSON.stringify(modelRequestBody(vlmConfig, normalizedUrl, headers, payload)),
   });
 
   if (!response.ok) {
@@ -216,10 +220,20 @@ export async function evaluatePanel(
   style: string,
   totalPanels: number,
   vlmConfig: PartialLLMConfig,
+  runtime?: VisionRuntime,
 ): Promise<PanelVisualScore> {
   const prompt = buildPanelEvalPrompt(panelIndex, imagePrompt, style, totalPanels);
-  const content = await callVisionModel(prompt, imageBase64, vlmConfig);
+  const content = await callVisionModel(prompt, imageBase64, vlmConfig, runtime);
+  if (runtime?.strict) validateNumericScores(content, ["textImageAlignment", "styleAdherence", "artifactScore", "compositionQuality"]);
   return parsePanelScore(panelIndex, content);
+}
+
+function validateNumericScores(content: string, fields: string[]): void {
+  const parsed = extractJsonObject(content);
+  if (!parsed || fields.some(field => typeof parsed[field] !== "number"
+    || !Number.isFinite(parsed[field]) || (parsed[field] as number) < 1 || (parsed[field] as number) > 10)) {
+    throw new Error("视觉模型未返回有效评分，请检查模型能力或重试");
+  }
 }
 
 /** 解析 VLM 返回的面板评分 JSON */
@@ -261,13 +275,16 @@ export async function evaluateSinglePanelVisualQuality(
   script: ComicScript,
   panelIndex: number,
   vlmConfig: PartialLLMConfig,
+  runtime?: VisionRuntime,
 ): Promise<PanelVisualScore> {
   const panel = script.panels[panelIndex];
   if (!panel?.imageUrl) {
     throw new Error(`Panel ${panelIndex} has no image`);
   }
 
-  const imageBase64 = await resolveImageToBase64(panel.imageUrl);
+  runtime?.checkpoint();
+  const imageBase64 = await (runtime?.resolveImage ?? resolveImageToBase64)(panel.imageUrl);
+  runtime?.checkpoint();
   if (!imageBase64) {
     throw new Error(`Panel ${panelIndex} image could not be resolved`);
   }
@@ -279,6 +296,7 @@ export async function evaluateSinglePanelVisualQuality(
     panel.styleOverride ?? script.style,
     script.panels.length,
     vlmConfig,
+    runtime,
   );
 }
 
@@ -297,6 +315,7 @@ export async function evaluateSinglePanelVisualQuality(
 export async function evaluateVisualQuality(
   script: ComicScript,
   vlmConfig: PartialLLMConfig,
+  runtime?: VisionRuntime,
 ): Promise<VisualQualityScore> {
   const completedPanels = script.panels
     .map((p, i) => ({ panel: p, index: i }))
@@ -313,9 +332,12 @@ export async function evaluateVisualQuality(
   // 串行评估，避免大量 base64 并发
   for (const { panel, index } of completedPanels) {
     try {
+      runtime?.checkpoint();
       // 解析图片为 base64（兼容 file://、/api/images/、data:image）
-      const imageBase64 = await resolveImageToBase64(panel.imageUrl!);
+      const imageBase64 = await (runtime?.resolveImage ?? resolveImageToBase64)(panel.imageUrl!);
+      runtime?.checkpoint();
       if (!imageBase64) {
+        if (runtime?.strict) throw new Error(`第 ${index + 1} 格图片无法读取`);
         console.warn(`[VLM] Panel ${index + 1}: failed to resolve image to base64, skipping`);
         continue;
       }
@@ -328,9 +350,11 @@ export async function evaluateVisualQuality(
         panel.styleOverride ?? script.style,
         script.panels.length,
         vlmConfig,
+        runtime,
       );
       panelScores.push(score);
     } catch (err) {
+      if (runtime?.strict) throw err;
       console.warn(`[VLM] Panel ${index + 1} evaluation failed:`, err);
       panelScores.push({
         panelIndex: index,
@@ -363,7 +387,7 @@ export async function evaluateVisualQuality(
   let crossPanelResult: CrossPanelConsistencyResult | undefined;
   if (completedPanels.length >= 2) {
     try {
-      crossPanelResult = await evaluateCrossPanelConsistency(script, vlmConfig);
+      crossPanelResult = await evaluateCrossPanelConsistency(script, vlmConfig, runtime);
       crossPanelConsistency = crossPanelResult.overall;
 
       // 将跨面板问题也纳入重试建议
@@ -379,6 +403,7 @@ export async function evaluateVisualQuality(
         }
       }
     } catch (err) {
+      if (runtime?.strict) throw err;
       console.warn("[VLM] Cross-panel consistency evaluation failed (non-fatal):", err);
     }
   }
@@ -523,6 +548,7 @@ function buildMultiImagePayload(
 export async function evaluateCrossPanelConsistency(
   script: ComicScript,
   vlmConfig: PartialLLMConfig,
+  runtime?: VisionRuntime,
 ): Promise<CrossPanelConsistencyResult> {
   const completedPanels = script.panels
     .map((p, i) => ({ panel: p, index: i }))
@@ -547,7 +573,10 @@ export async function evaluateCrossPanelConsistency(
   // 解析所有采样图片为 base64
   const resolvedImages: Array<{ index: number; base64: string }> = [];
   for (const { panel, index } of sampled) {
-    const base64 = await resolveImageToBase64(panel.imageUrl!);
+    runtime?.checkpoint();
+    const base64 = await (runtime?.resolveImage ?? resolveImageToBase64)(panel.imageUrl!);
+    runtime?.checkpoint();
+    if (!base64 && runtime?.strict) throw new Error(`第 ${index + 1} 格图片无法读取`);
     if (base64) {
       resolvedImages.push({ index, base64 });
     }
@@ -560,9 +589,7 @@ export async function evaluateCrossPanelConsistency(
   const apiKey = vlmConfig.apiKey || "";
   if (!apiUrl) throw new Error("未配置 VLM API");
 
-  const normalizedUrl = apiUrl.includes("/chat/completions")
-    ? apiUrl
-    : `${apiUrl.replace(/\/+$/, "")}/chat/completions`;
+  const normalizedUrl = modelEndpoint(apiUrl, vlmConfig.provider === "anthropic" ? "messages" : "chat");
 
   const isAnthropic = vlmConfig.provider === "anthropic";
 
@@ -577,6 +604,13 @@ export async function evaluateCrossPanelConsistency(
     provider: vlmConfig.provider,
   });
 
+  if (runtime) {
+    runtime.checkpoint();
+    const content = await runtime.request(vlmConfig, payload);
+    runtime.checkpoint();
+    if (runtime.strict) validateNumericScores(content, ["characterConsistency", "styleDrift", "colorPaletteCoherence"]);
+    return parseCrossPanelScore(content);
+  }
   const headers: Record<string, string> = isAnthropic
     ? { "x-api-key": apiKey, "anthropic-version": "2023-06-01" }
     : apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
@@ -586,7 +620,7 @@ export async function evaluateCrossPanelConsistency(
   const response = await fetch("/api/llm", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ targetUrl: normalizedUrl, headers, payload }),
+    body: JSON.stringify(modelRequestBody(vlmConfig, normalizedUrl, headers, payload)),
   });
 
   if (!response.ok) {
@@ -709,9 +743,7 @@ export async function evaluateCharacterVisual(
   const apiKey = vlmConfig.apiKey || "";
   if (!apiUrl) throw new Error("未配置 VLM API");
 
-  const normalizedUrl = apiUrl.includes("/chat/completions")
-    ? apiUrl
-    : `${apiUrl.replace(/\/+$/, "")}/chat/completions`;
+  const normalizedUrl = modelEndpoint(apiUrl, vlmConfig.provider === "anthropic" ? "messages" : "chat");
 
   const isAnthropic = vlmConfig.provider === "anthropic";
 
@@ -734,7 +766,7 @@ export async function evaluateCharacterVisual(
   const response = await fetch("/api/llm", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ targetUrl: normalizedUrl, headers, payload }),
+    body: JSON.stringify(modelRequestBody(vlmConfig, normalizedUrl, headers, payload)),
   });
 
   if (!response.ok) {

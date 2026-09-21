@@ -1,5 +1,7 @@
 "use client";
 
+import { toSavedLLMRequest } from "@/lib/config/reviewModel";
+
 import { useEffect, useCallback, useSyncExternalStore } from "react";
 import {
   AccuracyProviderConfig,
@@ -11,9 +13,18 @@ import {
   PartialLLMConfig,
   PartialImageGenConfig,
 } from "@/lib/types";
-import { createEmptyAccuracyConfig, normalizeAccuracyConfig } from "@/lib/accuracy/providerConfig";
+import { normalizeAccuracyConfig } from "@/lib/accuracy/providerConfig";
 
-const STORAGE_KEY = "comicpedia_api_config";
+import { createConfigStore, type ConfigDraftMeta, type ConfigSnapshot } from "@/lib/config/configStore";
+
+import { mergeConfigArchive, type MergeOptions, type MergeResult } from "@/lib/config/configTransfer";
+import { validateConfigPayload } from "@/lib/config/configValidation";
+import { createEmptyUserConfig as createEmptyConfig } from "@/lib/config/userConfig";
+import { createConfigCache } from "@/lib/config/configCache";
+let cache: ReturnType<typeof createConfigCache> | undefined;
+function browserCache() {
+  return cache ??= createConfigCache(localStorage, sessionStorage);
+}
 const CONFIG_VERSION = 2;
 
 /** 配置验证结果 */
@@ -35,21 +46,6 @@ export interface RequestConfigs {
 /** 生成唯一 ID */
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
-
-/** 创建空 V2 配置 */
-function createEmptyConfig(): UserAPIConfigV2 {
-  return {
-    version: 2,
-    llmConfigs: [],
-    imageConfigs: [],
-    vlmConfigs: [],
-    accuracyConfig: createEmptyAccuracyConfig(),
-    activeLLMId: null,
-    activeImageId: null,
-    activeVLMId: null,
-    updatedAt: new Date().toISOString(),
-  };
 }
 
 /** v1 → v2 迁移 */
@@ -95,7 +91,7 @@ function loadConfig(): UserAPIConfigV2 {
   }
 
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = browserCache().read();
     if (!stored) {
       return createEmptyConfig();
     }
@@ -106,11 +102,12 @@ function loadConfig(): UserAPIConfigV2 {
     if (parsed.version === 1 || (!parsed.version && (parsed.llm || parsed.image))) {
       console.log("[APIConfig] 检测到 v1 配置，执行迁移");
       const migrated = migrateV1ToV2(parsed as UserAPIConfig);
-      saveConfig(migrated);
       return migrated;
     }
 
     if (parsed.version === CONFIG_VERSION) {
+      delete parsed._sync;
+      if (validateConfigPayload(parsed)) throw new Error("Invalid cached config");
       const cfg = parsed as UserAPIConfigV2;
       // Ensure vlmConfigs exists (backward compat with pre-VLM configs)
       if (!cfg.vlmConfigs) cfg.vlmConfigs = [];
@@ -121,66 +118,10 @@ function loadConfig(): UserAPIConfigV2 {
 
     console.log("[APIConfig] 配置版本不匹配，重置配置");
     return createEmptyConfig();
-  } catch (error) {
-    console.error("[APIConfig] 读取配置失败:", error);
+  } catch {
+    console.error("[APIConfig] 本地配置无法读取；原始缓存将在替换前保留备份。");
     return createEmptyConfig();
   }
-}
-
-/** 保存配置到 localStorage + 异步同步服务端 */
-function saveConfig(config: UserAPIConfigV2): void {
-  if (typeof window === "undefined") return;
-
-  const nextConfig: UserAPIConfigV2 = {
-    ...config,
-    accuracyConfig: normalizeAccuracyConfig(config.accuracyConfig),
-    updatedAt: new Date().toISOString(),
-  };
-
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(nextConfig));
-  } catch (error) {
-    console.error("[APIConfig] 保存配置失败:", error);
-  }
-
-  emitConfigStore({ config: nextConfig, isLoaded: true });
-
-  // 异步同步到服务端 SQLite
-  syncConfigToServer(nextConfig);
-}
-
-/** 异步同步配置到服务端 */
-function syncConfigToServer(config: UserAPIConfigV2): void {
-  fetch("/api/config", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(config),
-  }).catch(() => {
-    // 服务端同步失败不影响本地功能
-  });
-}
-
-/** 从服务端拉取配置（在后台执行，不阻塞渲染） */
-function pullConfigFromServer(onUpdate: (config: UserAPIConfigV2) => void): void {
-  fetch("/api/config")
-    .then((res) => {
-      if (!res.ok) throw new Error("API error");
-      return res.json();
-    })
-    .then((serverConfig: UserAPIConfigV2) => {
-      if (!serverConfig?.updatedAt) return;
-
-      // 对比本地缓存时间
-      const local = loadConfig();
-      if (serverConfig.updatedAt > local.updatedAt) {
-        // 服务端更新 → 写入 localStorage 并通知
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(serverConfig));
-        onUpdate(serverConfig);
-      }
-    })
-    .catch(() => {
-      // 静默降级
-    });
 }
 
 /** 验证 LLM 配置 */
@@ -200,22 +141,17 @@ function validateImageConfig(config: UserImageConfig): string[] {
   return errors;
 }
 
-/** 配置 Store 快照 */
-interface ConfigStoreSnapshot {
-  config: UserAPIConfigV2;
-  isLoaded: boolean;
-}
-
-const EMPTY_CONFIG_SNAPSHOT: ConfigStoreSnapshot = {
+const EMPTY_CONFIG_SNAPSHOT: ConfigSnapshot = {
   config: createEmptyConfig(),
   isLoaded: false,
+  syncStatus: "loading",
 };
 
 let configStoreSnapshot = EMPTY_CONFIG_SNAPSHOT;
-let configStoreInitialized = false;
+let store: ReturnType<typeof createConfigStore> | undefined;
 const configStoreListeners = new Set<() => void>();
 
-function emitConfigStore(snapshot: ConfigStoreSnapshot) {
+function emitConfigStore(snapshot: ConfigSnapshot) {
   configStoreSnapshot = snapshot;
   configStoreListeners.forEach((listener) => listener());
 }
@@ -227,7 +163,7 @@ function subscribeConfigStore(listener: () => void) {
   };
 }
 
-function getConfigStoreSnapshot() {
+function getConfigSnapshot() {
   return configStoreSnapshot;
 }
 
@@ -236,21 +172,36 @@ function getConfigStoreServerSnapshot() {
 }
 
 function ensureConfigStoreLoaded() {
-  if (configStoreInitialized) return;
-  configStoreInitialized = true;
-
-  const loaded = loadConfig();
-  emitConfigStore({ config: loaded, isLoaded: true });
-
-  pullConfigFromServer((serverConfig) => {
-    emitConfigStore({ config: serverConfig, isLoaded: true });
+  if (store || typeof window === "undefined") return;
+  const initial = loadConfig();
+  let meta: ConfigDraftMeta | undefined;
+  let hasLocalConfig = false;
+  try {
+    const raw = browserCache().read();
+    hasLocalConfig = !!raw;
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed?._sync && typeof parsed._sync.dirty === "boolean" && (typeof parsed._sync.revision === "string" || parsed._sync.revision === null)) meta = parsed._sync;
+  } catch { /* preserve a recoverable load failure in the store status */ }
+  store = createConfigStore({
+    initial, meta, hasLocalConfig,
+    request: (url, init) => fetch(url, { ...init, cache: "no-store", signal: AbortSignal.timeout(30_000) }),
+    persist: (config, sync) => browserCache().write(JSON.stringify({ ...config, _sync: sync }), sync.dirty),
   });
+  store.subscribe(() => emitConfigStore(store!.getSnapshot()));
+  void store.load();
 }
 
+function updateStoredConfig(updater: (config: UserAPIConfigV2) => UserAPIConfigV2) {
+  ensureConfigStoreLoaded();
+  store?.edit(prev => {
+    const next = updater(prev);
+    return { ...next, accuracyConfig: normalizeAccuracyConfig(next.accuracyConfig) };
+  });
+}
 function useConfigStore() {
   const snapshot = useSyncExternalStore(
     subscribeConfigStore,
-    getConfigStoreSnapshot,
+    getConfigSnapshot,
     getConfigStoreServerSnapshot,
   );
 
@@ -261,13 +212,20 @@ function useConfigStore() {
   return snapshot;
 }
 
+/** Read-only reactive view for selectors and creation preflight. */
+export const useConfigSnapshot = useConfigStore;
+export function getStoredConfigSnapshot(): ConfigSnapshot {
+  ensureConfigStoreLoaded();
+  return store?.getSnapshot() ?? EMPTY_CONFIG_SNAPSHOT;
+}
+
 /** 完整配置管理 Hook */
 export function useAPIConfig() {
-  const { config, isLoaded } = useConfigStore();
+  const { config, isLoaded, syncStatus, syncError, storageError } = useConfigStore();
 
   const updateConfig = useCallback((updater: (prev: UserAPIConfigV2) => UserAPIConfigV2) => {
-    saveConfig(updater(config));
-  }, [config]);
+    updateStoredConfig(updater);
+  }, []);
 
   // --- LLM CRUD ---
 
@@ -451,8 +409,17 @@ export function useAPIConfig() {
     return (config.vlmConfigs || []).find((c) => c.id === id) ?? null;
   }, [config]);
 
+  const importArchive = useCallback((incoming: UserAPIConfigV2, options: MergeOptions = {}): MergeResult => {
+    let result: MergeResult | undefined;
+    updateStoredConfig(current => {
+      result = mergeConfigArchive(current, incoming, options);
+      return result.config;
+    });
+    if (!result) throw new Error("配置尚未加载，无法导入");
+    return result;
+  }, []);
   const clearAll = useCallback(() => {
-    saveConfig(createEmptyConfig());
+    updateStoredConfig(() => createEmptyConfig());
   }, []);
 
   const validate = useCallback((): ConfigValidation => {
@@ -480,6 +447,10 @@ export function useAPIConfig() {
   return {
     config,
     isLoaded,
+    syncStatus, syncError, storageError,
+    retrySync: () => store?.retry(),
+    reloadFromServer: () => store?.reloadFromServer(),
+    refreshFromServer: () => store?.refresh(),
     addLLM,
     updateLLMById,
     removeLLM,
@@ -501,6 +472,7 @@ export function useAPIConfig() {
     getImageById,
     getVLMById,
     clearAll,
+    importArchive,
     validate,
   };
 }
@@ -523,12 +495,13 @@ export function useConfigCheck() {
 
 /** 获取所有已保存的配置列表（非 Hook） */
 export function getStoredConfigs(): UserAPIConfigV2 {
-  return loadConfig();
+  ensureConfigStoreLoaded();
+  return store?.getSnapshot().config ?? loadConfig();
 }
 
 /** 直接获取请求配置（非 Hook，用于事件处理器） */
 export function getStoredRequestConfigs(llmId?: string, imageId?: string, vlmId?: string): RequestConfigs {
-  const config = loadConfig();
+  const config = getStoredConfigs();
   const result: RequestConfigs = {};
 
   const targetLLMId = llmId ?? config.activeLLMId;
@@ -540,33 +513,24 @@ export function getStoredRequestConfigs(llmId?: string, imageId?: string, vlmId?
   const vlm = targetVLMId ? (config.vlmConfigs || []).find((c) => c.id === targetVLMId) : null;
 
   if (llm) {
-    result.llmConfig = {
-      apiUrl: llm.apiUrl,
-      apiKey: llm.apiKey,
-      model: llm.model,
-      provider: llm.protocolType,
-    };
+    result.llmConfig = toSavedLLMRequest(llm, "llm");
   }
 
   if (image) {
     result.imageConfig = {
       apiUrl: image.apiUrl,
-      apiKey: image.apiKey,
+      configId: image.id,
+      configRole: "image",
       model: image.model,
       size: image.size,
       endpointType: image.endpointType,
-      comfyuiWorkflow: image.comfyuiWorkflow,
+
     };
   }
 
   // VLM config: use dedicated VLM if configured, otherwise fall back to LLM
   if (vlm) {
-    result.vlmConfig = {
-      apiUrl: vlm.apiUrl,
-      apiKey: vlm.apiKey,
-      model: vlm.model,
-      provider: vlm.protocolType,
-    };
+    result.vlmConfig = toSavedLLMRequest(vlm, "vlm");
   } else if (llm) {
     result.vlmConfig = result.llmConfig;
   }

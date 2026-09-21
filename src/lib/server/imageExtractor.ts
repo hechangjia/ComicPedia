@@ -1,5 +1,5 @@
 import type { GenerateTask, Character, ComicPanel, ReferenceImageEntry, ImageVersion } from "@/lib/types";
-import { saveImageFile, saveImageFileAsync, deleteImagesByDir, readImageAsBase64, cleanupOutputDir, moveImagesToTrash, restoreImagesFromTrash, purgeTrashImages } from "./imageStorage";
+import { saveImageFile, saveImageFileAsync, deleteImagesByDir, readImageAsBase64, cleanupOutputDir, moveImagesToTrash, moveImageGroupsToTrash, restoreImageGroupsFromTrash, purgeTrashImages } from "./imageStorage";
 import { registerImage, deleteImagesByPrefix, getImagePath, addToTrash, getTrashItem, removeFromTrash } from "./db";
 
 // ============================================================
@@ -406,8 +406,7 @@ export async function extractCharacterImagesAsync(char: Character): Promise<Char
  */
 export function trashTaskImages(taskId: string, task?: GenerateTask): void {
   // 将图片移到 .trash/
-  moveImagesToTrash(taskId);
-  moveImagesToTrash(`task_${taskId}`);
+  moveImageGroupsToTrash([taskId, `task_${taskId}`]);
   // 清理 public/output/ 中的导出副本（这些不可恢复）
   cleanupOutputDir(taskId);
   // 从 images 表移除记录（恢复时由 API 重建）
@@ -455,7 +454,7 @@ export function restoreFromTrash(id: string): { type: "task" | "character"; data
 
   // 恢复图片文件
   if (item.imageDir) {
-    restoreImagesFromTrash(item.imageDir);
+    restoreImageGroupsFromTrash(item.type === "task" ? [item.imageDir, `task_${id}`] : [item.imageDir]);
     // 重建 images 表记录（通过 extractTaskImages/extractCharacterImages）
     // 调用方需要在恢复后重新 upsert 记录
   }
@@ -475,6 +474,7 @@ export function permanentlyDeleteTrashItem(id: string): boolean {
 
   if (item.imageDir) {
     purgeTrashImages(item.imageDir);
+    if (item.type === "task") purgeTrashImages(`task_${id}`);
   }
 
   removeFromTrash(id);
@@ -510,6 +510,9 @@ export function cleanupCharacterImages(charId: string): void {
  * 注意：仅在需要时调用（如 GET /api/tasks/{id}?withImages=true）
  */
 export function restoreFileRefs(obj: unknown): unknown {
+  // Date has no enumerable fields; preserve it for JSON ISO serialization.
+  if (obj instanceof Date) return obj;
+
   if (typeof obj === "string" && obj.startsWith(FILE_REF_PREFIX)) {
     const key = obj.slice(FILE_REF_PREFIX.length);
     const filePath = getImagePath(key);
@@ -541,6 +544,9 @@ export function restoreFileRefs(obj: unknown): unknown {
  * 适用于列表接口，避免返回体积过大的 base64 数据。
  */
 export function fileRefsToUrls(obj: unknown): unknown {
+  // Date has no enumerable fields; preserve it for JSON ISO serialization.
+  if (obj instanceof Date) return obj;
+
   if (typeof obj === "string" && obj.startsWith(FILE_REF_PREFIX)) {
     const key = obj.slice(FILE_REF_PREFIX.length);
     return `/api/images/${encodeURIComponent(key)}`;

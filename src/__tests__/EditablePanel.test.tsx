@@ -1,4 +1,5 @@
 import React from "react";
+import type { ComicPanel } from "@/lib/types";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { EditablePanel } from "@/components/EditablePanel";
@@ -32,7 +33,7 @@ vi.mock("@/hooks/useUndoRedo", () => ({
   }),
 }));
 
-const basePanel = {
+const basePanel: ComicPanel = {
   id: 1,
   scene: "完成态场景",
   dialogue: "完成态对白",

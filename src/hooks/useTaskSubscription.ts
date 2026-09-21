@@ -143,6 +143,8 @@ export function useTaskSubscription(taskId: string) {
         }
 
         const t = await getTask(taskId);
+        // A state transition or unmount invalidates this polling run.
+        if (stopped) return;
         if (!t) {
           schedulePoll();
           return;
@@ -164,7 +166,9 @@ export function useTaskSubscription(taskId: string) {
       stopped = true;
       clearTimeout(pollTimer);
     };
-  }, [taskId]);
+    // Re-arm after completed -> deep_review_running (or an image retry).
+    // Snapshot-only updates do not restart the timer.
+  }, [taskId, task?.status]);
 
   return { task, setTask, error };
 }

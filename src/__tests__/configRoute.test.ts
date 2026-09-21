@@ -8,13 +8,13 @@ const { getConfigMock, saveConfigMock } = vi.hoisted(() => ({
 
 vi.mock("@/lib/server/db", () => ({
   getConfig: getConfigMock,
-  saveConfig: saveConfigMock,
+  saveConfigIfMatch: saveConfigMock,
 }));
 
 describe("/api/config", () => {
   beforeEach(() => {
     getConfigMock.mockReset();
-    saveConfigMock.mockReset();
+    saveConfigMock.mockReset().mockReturnValue(true);
   });
 
   it("returns a default config payload that includes accuracy settings", async () => {
@@ -124,6 +124,7 @@ describe("/api/config", () => {
 
     const request = new NextRequest("http://localhost:3000/api/config", {
       method: "PUT",
+      headers: { "If-Match": "\"stored\"" },
       body: JSON.stringify({
         version: 2,
         llmConfigs: [],
@@ -165,5 +166,42 @@ describe("/api/config", () => {
     expect(saveConfigMock).toHaveBeenCalledTimes(1);
     expect(saveConfigMock.mock.calls[0][0].accuracyConfig.providers[0].apiKey).toBe("fc_live_secret");
     expect(saveConfigMock.mock.calls[0][0].accuracyConfig.providers[0].baseUrl).toBe("https://api.firecrawl.dev/v2");
+  });
+  it("rejects malformed bodies, old versions and missing preconditions before persistence", async () => {
+    const { PUT } = await import("@/app/api/config/route");
+    for (const [body, status] of [["{", 400], [JSON.stringify({ version: 1 }), 400], [JSON.stringify({ version: 2, llmConfigs: [], imageConfigs: [] }), 428]] as const) {
+      const response = await PUT(new NextRequest("http://localhost/api/config", { method: "PUT", body }));
+      expect(response.status).toBe(status);
+    }
+    expect(saveConfigMock).not.toHaveBeenCalled();
+  });
+  it("returns an opaque revision and no-store on GET", async () => {
+    getConfigMock.mockReturnValue(null);
+    const { GET } = await import("@/app/api/config/route");
+    const response = await GET();
+    expect(response.headers.get("etag")).toBe('"empty"');
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+  it("returns 412 when the atomic database comparison rejects the revision", async () => {
+    saveConfigMock.mockReturnValue(false);
+    const { PUT } = await import("@/app/api/config/route");
+    const response = await PUT(new NextRequest("http://localhost/api/config", {
+      method: "PUT", headers: { "If-Match": '"old"' }, body: JSON.stringify({ version: 2, llmConfigs: [], imageConfigs: [] }),
+    }));
+    expect(response.status).toBe(412);
+  });
+
+  it("redacts all model keys and preserves them through an ordinary GET/edit/PUT", async () => {
+    const { createEmptyUserConfig } = await import("@/lib/config/userConfig");
+    const stored = { ...createEmptyUserConfig(), llmConfigs: [{ id: "a", name: "A", provider: "custom", apiUrl: "http://localhost:8317", apiKey: "private-model-secret", model: "text", protocolType: "openai-compatible" }] };
+    getConfigMock.mockReturnValue(stored);
+    const { GET, PUT } = await import("@/app/api/config/route");
+    const response = await GET(); const raw = await response.text();
+    expect(raw).not.toContain("private-model-secret");
+    const edited = JSON.parse(raw); edited.llmConfigs[0].name = "Rename";
+    const result = await PUT(new NextRequest("http://localhost/api/config", { method: "PUT", headers: { "If-Match": response.headers.get("etag")! }, body: JSON.stringify(edited) }));
+    expect(result.status).toBe(200);
+    expect(saveConfigMock.mock.calls[0][0].llmConfigs[0].apiKey).toBe("private-model-secret");
+    expect(await result.text()).not.toContain("private-model-secret");
   });
 });

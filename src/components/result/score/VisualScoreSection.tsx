@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
+import { diagnosisCoverage } from "@/lib/diagnosisScope";
+import { DiagnosisScopeControls } from "./DiagnosisScopeControls";
 import { Eye } from "lucide-react";
 import type {
   ComicScript,
@@ -38,7 +40,7 @@ export interface VisualScoreSectionProps {
   diagnosisStale?: boolean;
   diagnosisLoading?: boolean;
   diagnosisError?: string;
-  onRunDiagnosis?: () => void;
+  onRunDiagnosis?: (panelIndices?: number[]) => void;
   onExecuteDiagnosisRepair?: (
     panel: VisualDiagnosisPanel,
     params: { mode: "patch" | "rewrite"; confirmedPrompt?: string; includeSuggestedNegativePrompt?: boolean },
@@ -75,25 +77,28 @@ export function VisualScoreSection({
   const [includeSuggestedNegativePrompt, setIncludeSuggestedNegativePrompt] = useState(false);
   const [repairingDiagnosisPanel, setRepairingDiagnosisPanel] = useState(false);
 
+  const modelId = useId();
+  const busy = loading || Boolean(diagnosisLoading) || diagnosisState === "running" || retrying || repairingDiagnosisPanel;
+  const coverage = diagnosisCoverage(script, diagnosisReport, diagnosisStale);
+  const modelSelector = vlmOptions && vlmOptions.length > 0 && onVLMOptionChange ? (
+    <div className="min-w-0 space-y-1">
+      <label htmlFor={modelId} className="block text-sm font-medium">评审模型</label>
+      <select id={modelId} value={selectedVLMOption || ""} disabled={busy}
+        onChange={event => onVLMOptionChange(event.target.value)}
+        className="min-h-11 w-full rounded-lg border bg-background px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50">
+        <option value="">默认 VLM</option>
+        {vlmOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
+      </select>
+    </div>
+  ) : null;
+
   if (!score) {
     return (
       <div className="flex flex-col items-center gap-1">
-        {/* VLM model selector */}
-        {vlmOptions && vlmOptions.length > 0 && onVLMOptionChange && (
-          <select
-            value={selectedVLMOption || ""}
-            onChange={(e) => onVLMOptionChange(e.target.value)}
-            className="px-2 py-1 text-xs border rounded-lg bg-background mb-1 max-w-[200px]"
-          >
-            <option value="">默认 VLM</option>
-            {vlmOptions.map((opt) => (
-              <option key={opt.id} value={opt.id}>{opt.label}</option>
-            ))}
-          </select>
-        )}
+        {modelSelector}
         <button
           onClick={onEvaluate}
-          disabled={loading}
+          disabled={busy}
           className="px-4 py-2 text-sm border rounded-lg hover:bg-accent transition-colors flex items-center gap-2 min-h-[40px] disabled:opacity-50"
         >
           {loading ? (
@@ -111,7 +116,7 @@ export function VisualScoreSection({
             </>
           )}
         </button>
-        <p className="text-[10px] text-muted-foreground/60">需要视觉模型（GPT-4o / Qwen-VL / Claude）</p>
+        <p className="text-xs text-secondary-text">需要支持图片输入的模型，请在设置中验证视觉能力。</p>
         {error && <p className="text-xs text-error">{error}</p>}
       </div>
     );
@@ -217,31 +222,19 @@ export function VisualScoreSection({
         ))}
       </div>
 
-      <div className="pt-2 border-t space-y-1">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-xs font-medium text-muted-foreground">深入诊断</p>
-          <button
-            type="button"
-            disabled={!onRunDiagnosis || diagnosisLoading}
-            onClick={() => onRunDiagnosis?.()}
-            className="px-2 py-1 text-[10px] rounded border hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {diagnosisLoading ? "诊断中..." : "运行深入诊断"}
-          </button>
-        </div>
-        <p className="text-[11px] text-muted-foreground">
-          {diagnosisState === "running"
-            ? "正在生成问题格审计卡..."
-            : diagnosisState === "failed"
-            ? "深入诊断失败，可稍后重试"
-            : diagnosisStale
-              ? "当前诊断已过期，建议重新运行"
-              : diagnosisReport
-                ? "已生成结构化审计卡"
-                : "可针对低分格生成结构化审计卡"}
+      <section aria-label="深入诊断设置" className="space-y-3 border-t pt-3">
+        <h5 className="text-sm font-medium">深入诊断</h5>
+        {modelSelector}
+        <DiagnosisScopeControls script={script} score={score} busy={busy} onRun={onRunDiagnosis} />
+        <p className="text-sm text-secondary-text" role="status">
+          {diagnosisState === "failed" ? "深入诊断失败，请检查模型配置后重试。"
+            : diagnosisStale ? "诊断记录已过期，请重新诊断当前画面。"
+            : diagnosisReport ? `当前画面已有 ${coverage.currentIndices.length} / ${coverage.eligibleIndices.length} 格诊断记录；未诊断不代表没有问题。`
+            : "评分与深入诊断独立：评分完成不代表每格都已检查。"}
         </p>
-        {diagnosisError && <p className="text-xs text-error">{diagnosisError}</p>}
-      </div>
+        {coverage.obsoleteCount > 0 && !diagnosisStale && <p className="text-xs text-secondary-text">{coverage.obsoleteCount} 格旧记录与当前画面不匹配，未计入当前覆盖范围。</p>}
+        {diagnosisError && <p role="alert" className="text-sm text-error">{diagnosisError}</p>}
+      </section>
 
       {/* 每面板评分（可折叠） */}
       {score.panels.length > 0 && (
@@ -379,13 +372,13 @@ export function VisualScoreSection({
           visualScoreOverall={score.overall}
           report={diagnosisReport}
           stale={diagnosisStale}
-          onApplyPatch={onExecuteDiagnosisRepair
+          onApplyPatch={!busy && onExecuteDiagnosisRepair
             ? (panel) => {
                 void runDiagnosisRepair(panel, { mode: "patch" });
               }
             : undefined}
-          onApplyRewrite={onExecuteDiagnosisRepair ? handleOpenRewrite : undefined}
-          onApplyBatchPatch={onExecuteBatchDiagnosisPatch
+          onApplyRewrite={!busy && onExecuteDiagnosisRepair ? handleOpenRewrite : undefined}
+          onApplyBatchPatch={!busy && onExecuteBatchDiagnosisPatch
             ? (panels) => {
                 void handleBatchPatch(panels);
               }
@@ -420,7 +413,7 @@ export function VisualScoreSection({
 
       <button
         onClick={onEvaluate}
-        disabled={loading}
+        disabled={busy}
         className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
       >
         {loading ? "重新评分中..." : "重新视觉评分"}

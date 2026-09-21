@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import type { Character, CharacterVisualScore, ComicStyle, ReferenceImageEntry } from "@/lib/types";
+import { resolveReviewModel } from "@/lib/config/reviewModel";
 import { getStoredRequestConfigs, getStoredConfigs } from "@/hooks/useAPIConfig";
 import { getImageAdapter } from "@/lib/imageGen";
 import { urlToBase64 } from "@/lib/utils";
@@ -577,17 +578,7 @@ export function useCharacterForm({ character, onSave }: UseCharacterFormOptions)
     setVlmLoading(true);
     setVlmError("");
     try {
-      const configs = getStoredConfigs();
-      const vlmConfigs = configs.vlmConfigs || [];
-      const activeVLM = vlmConfigs.find((c) => c.id === configs.activeVLMId) || vlmConfigs[0];
-      let vlmConfig;
-      if (activeVLM) {
-        vlmConfig = { apiUrl: activeVLM.apiUrl, apiKey: activeVLM.apiKey, model: activeVLM.model, provider: activeVLM.protocolType as "openai-compatible" | "anthropic" };
-      } else {
-        const activeLLM = configs.llmConfigs.find((c) => c.id === configs.activeLLMId) || configs.llmConfigs[0];
-        if (!activeLLM) throw new Error("未配置 VLM 或 LLM");
-        vlmConfig = { apiUrl: activeLLM.apiUrl, apiKey: activeLLM.apiKey, model: activeLLM.model, provider: activeLLM.protocolType as "openai-compatible" | "anthropic" };
-      }
+      const vlmConfig = resolveReviewModel(getStoredConfigs(), "vlm");
       const imageUrls = entries.map((e) => e.imageUrl);
       const desc = `${form.name}: ${form.description}. ${form.appearance.gender}, ${form.appearance.age}, hair: ${form.appearance.hair}, eyes: ${form.appearance.eyes}, clothing: ${form.appearance.clothing}`;
       const result = await evaluateCharacterVisual(form.name, desc, imageUrls, vlmConfig);
@@ -657,17 +648,7 @@ export function useCharacterForm({ character, onSave }: UseCharacterFormOptions)
         }),
       });
 
-      const configs = getStoredConfigs();
-      const vlmConfigs = configs.vlmConfigs || [];
-      const activeVLM = vlmConfigs.find((c) => c.id === configs.activeVLMId) || vlmConfigs[0];
-      let vlmConfig;
-      if (activeVLM) {
-        vlmConfig = { apiUrl: activeVLM.apiUrl, apiKey: activeVLM.apiKey, model: activeVLM.model, provider: activeVLM.protocolType as "openai-compatible" | "anthropic" };
-      } else {
-        const activeLLM = configs.llmConfigs.find((c) => c.id === configs.activeLLMId) || configs.llmConfigs[0];
-        if (!activeLLM) throw new Error("未配置 VLM 或 LLM");
-        vlmConfig = { apiUrl: activeLLM.apiUrl, apiKey: activeLLM.apiKey, model: activeLLM.model, provider: activeLLM.protocolType as "openai-compatible" | "anthropic" };
-      }
+      const vlmConfig = resolveReviewModel(getStoredConfigs(), "vlm");
 
       const imageUrls = nextEntries.map((entry) => entry.imageUrl);
       const desc = `${form.name}: ${form.description}. ${form.appearance.gender}, ${form.appearance.age}, hair: ${form.appearance.hair}, eyes: ${form.appearance.eyes}, clothing: ${form.appearance.clothing}`;

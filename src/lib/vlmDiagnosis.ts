@@ -1,3 +1,5 @@
+import { canRepairDiagnosisPanel } from "./diagnosisRepairPolicy";
+import type { VisionRuntime } from "./visionRuntime";
 import type {
   ComicScript,
   PanelVisualScore,
@@ -121,7 +123,7 @@ export function pickDiagnosisCandidates(
   targetPanels?: number[],
 ): number[] {
   const scoredPanels = new Set(visualScore.panels.map((panel) => panel.panelIndex));
-  if (targetPanels?.length) {
+  if (targetPanels !== undefined) {
     return Array.from(new Set(targetPanels.filter((panelIndex) => scoredPanels.has(panelIndex)))).sort((a, b) => a - b);
   }
 
@@ -334,6 +336,9 @@ export function buildDiagnosisRepairExecution(params: {
   confirmedPrompt?: string;
   includeSuggestedNegativePrompt?: boolean;
 }): DiagnosisRepairExecutionPayload {
+  if (!canRepairDiagnosisPanel(params.panel, params.mode)) {
+    throw new Error("当前诊断不支持此修复操作，请先人工确认或重新诊断");
+  }
   if (params.mode === "patch") {
     const patched = applyDiagnosisPatch({
       prompt: params.currentPrompt,
@@ -386,6 +391,7 @@ export async function evaluateVisualDiagnosis(
   visualScore: VisualQualityScore,
   vlmConfig: PartialLLMConfig,
   targetPanels?: number[],
+  runtime?: VisionRuntime,
 ): Promise<VisualDiagnosisReport> {
   const candidateIndices = pickDiagnosisCandidates(visualScore, targetPanels);
   const crossPanelIssuesByIndex = new Map<number, string[]>();
@@ -404,8 +410,13 @@ export async function evaluateVisualDiagnosis(
     const panelScore = visualScore.panels.find((item) => item.panelIndex === panelIndex);
     if (!panel?.imageUrl || !panelScore) continue;
 
-    const imageBase64 = await resolveImageToBase64(panel.imageUrl);
-    if (!imageBase64) continue;
+    runtime?.checkpoint();
+    const imageBase64 = await (runtime?.resolveImage ?? resolveImageToBase64)(panel.imageUrl);
+    runtime?.checkpoint();
+    if (!imageBase64) {
+      if (runtime?.strict) throw new Error(`第 ${panelIndex + 1} 格图片无法读取`);
+      continue;
+    }
 
     const prompt = buildDiagnosisPrompt({
       panelIndex,
@@ -415,7 +426,11 @@ export async function evaluateVisualDiagnosis(
       panelScore,
       crossPanelIssues: crossPanelIssuesByIndex.get(panelIndex),
     });
-    const content = await callVisionModel(prompt, imageBase64, vlmConfig);
+    const content = await callVisionModel(prompt, imageBase64, vlmConfig, runtime);
+    if (runtime?.strict) {
+      const parsed = extractJsonObject(content);
+      if (!parsed || !Array.isArray(parsed.issues)) throw new Error("视觉模型未返回有效诊断");
+    }
     diagnosedPanels.push(parseDiagnosisResponse(panelIndex, content, {
       imageUrl: panel.imageUrl,
       promptSnapshot: panel.imagePrompt,

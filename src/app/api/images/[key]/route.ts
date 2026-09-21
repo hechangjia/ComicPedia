@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readImageByKey, readImageAsBase64 } from "@/lib/server/imageStorage";
+import { readImageByKey, readImageAsBase64, resolveStoredImagePath } from "@/lib/server/imageStorage";
 import { getImagePath } from "@/lib/server/db";
 import path from "path";
 import fs from "fs";
@@ -41,11 +41,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       }
 
       // 默认返回二进制图片
-      const absPath = path.isAbsolute(filePath)
-        ? filePath
-        : path.join(process.cwd(), filePath);
+      const absPath = resolveStoredImagePath(filePath);
 
-      if (!fs.existsSync(absPath)) {
+      if (!absPath || !fs.existsSync(absPath)) {
         return NextResponse.json({ error: "图片文件不存在" }, { status: 404 });
       }
 

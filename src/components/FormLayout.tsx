@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import dynamic from "next/dynamic";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { useConfigCheck } from "@/hooks/useAPIConfig";
 import { OnboardingGuide } from "@/components/OnboardingGuide";
 import { ScienceForm } from "@/components/ScienceForm";
@@ -14,7 +14,7 @@ import type { ComicTemplate } from "@/lib/config/templates";
 import { getSeries } from "@/lib/client/db";
 import { getSeriesContinuationContext, type Series } from "@/lib/series";
 import { STYLE_META } from "@/lib/config/styles";
-import { Layers } from "lucide-react";
+import { Layers, Globe, FlaskConical, ScrollText, BookOpen, Smartphone, type LucideIcon } from "lucide-react";
 
 
 // 非默认 Tab 懒加载，减少首屏 JS 体积
@@ -33,12 +33,12 @@ const WikipediaForm = dynamic(() => import("@/components/WikipediaForm").then((m
 
 export type TabMode = "science" | "poetry" | "xiaohongshu" | "novel" | "wikipedia";
 
-const TABS: { value: TabMode; label: string; icon: string; gradient: string; desc: string }[] = [
-  { value: "wikipedia", label: "百科漫画", icon: "\uD83C\uDF10", gradient: "from-teal to-sky", desc: "从 Wikipedia 优质内容生成科普漫画" },
-  { value: "science", label: "科普漫画", icon: "\uD83D\uDD2C", gradient: "from-lavender to-sky", desc: "输入科普主题，AI 自动生成精美漫画" },
-  { value: "poetry", label: "诗词漫画", icon: "\uD83D\uDCDC", gradient: "from-sky to-teal", desc: "将古诗词、现代诗歌转化为精美漫画" },
-  { value: "novel", label: "小说漫画", icon: "\uD83D\uDCD6", gradient: "from-ochre to-coral", desc: "将经典小说片段转化为分镜漫画" },
-  { value: "xiaohongshu", label: "小红书图文", icon: "\uD83D\uDCF1", gradient: "from-coral to-ochre", desc: "输入内容，AI 生成小红书风格图文" },
+const TABS: { value: TabMode; label: string; icon: LucideIcon; desc: string }[] = [
+  { value: "wikipedia", label: "百科漫画", icon: Globe, desc: "从 Wikipedia 优质内容生成科普漫画" },
+  { value: "science", label: "科普漫画", icon: FlaskConical, desc: "输入科普主题，AI 自动生成精美漫画" },
+  { value: "poetry", label: "诗词漫画", icon: ScrollText, desc: "将古诗词、现代诗歌转化为精美漫画" },
+  { value: "novel", label: "小说漫画", icon: BookOpen, desc: "将经典小说片段转化为分镜漫画" },
+  { value: "xiaohongshu", label: "小红书图文", icon: Smartphone, desc: "输入内容，AI 生成小红书风格图文" },
 ];
 
 function contentTypeToTab(ct: ContentType): TabMode {
@@ -53,6 +53,7 @@ interface FormLayoutProps {
 
 export function FormLayout({ defaultTab = "wikipedia" }: FormLayoutProps) {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const configStatus = useConfigCheck();
 
   const modeParam = searchParams.get("mode") as TabMode | null;
@@ -60,6 +61,12 @@ export function FormLayout({ defaultTab = "wikipedia" }: FormLayoutProps) {
   const requestedTab = modeParam && TABS.some((t) => t.value === modeParam) ? modeParam : null;
   const [selectedTab, setSelectedTab] = useState<TabMode>(requestedTab ?? defaultTab);
   const activeTab = requestedTab ?? selectedTab;
+  const selectTab = useCallback((tab: TabMode) => {
+    setSelectedTab(tab);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("mode", tab);
+    router.replace(`/create?${params.toString()}`, { scroll: false });
+  }, [router, searchParams]);
 
   const [templateTopic, setTemplateTopic] = useState("");
   const [formKey, setFormKey] = useState(0);
@@ -81,10 +88,10 @@ export function FormLayout({ defaultTab = "wikipedia" }: FormLayoutProps) {
   }, [seriesParam]);
 
   const handleTemplateSelect = useCallback((tpl: ComicTemplate) => {
-    setSelectedTab(contentTypeToTab(tpl.contentType));
+    selectTab(contentTypeToTab(tpl.contentType));
     setTemplateTopic(tpl.topic);
     setFormKey((k) => k + 1);
-  }, []);
+  }, [selectTab]);
 
   const handleInspirationSelect = useCallback((topic: string) => {
     setTemplateTopic(topic);
@@ -95,57 +102,35 @@ export function FormLayout({ defaultTab = "wikipedia" }: FormLayoutProps) {
 
   return (
     <div className="relative max-w-2xl mx-auto space-y-8">
-      {/* 背景装饰 — 渐变光晕 */}
-      <div className="absolute inset-0 -z-10 overflow-hidden pointer-events-none">
-        <div className="absolute top-[-40%] left-[-20%] w-[500px] h-[500px] rounded-full bg-teal/10 dark:bg-teal/5 blur-3xl" />
-        <div className="absolute bottom-[-20%] right-[-15%] w-[400px] h-[400px] rounded-full bg-coral/[0.08] dark:bg-coral/[0.03] blur-3xl" />
-      </div>
-
-      <OnboardingGuide
-        hasLLM={configStatus.hasLLM}
-        hasImage={configStatus.hasImage}
-        isLoaded={configStatus.isLoaded}
-      />
-
-      {/* Hero 标题 */}
-      <div className="text-center space-y-3 pt-2">
-        <h1
-          className={`text-4xl sm:text-5xl font-bold bg-gradient-to-r ${currentTab.gradient} bg-clip-text text-transparent animate-gradient-x`}
-        >
-          ComicPedia
-        </h1>
-        <p className="text-lg text-muted-foreground max-w-md mx-auto">{currentTab.desc}</p>
-      </div>
-
-      {/* Tab 切换 */}
-      <div className="flex justify-center gap-1 p-1.5 rounded-xl bg-muted/50 backdrop-blur-sm flex-wrap">
-        {TABS.map((tab) => (
-          <button
-            key={tab.value}
-            onClick={() => setSelectedTab(tab.value)}
-            className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-1.5 ${
-              activeTab === tab.value
-                ? "bg-background shadow-md text-foreground"
-                : "text-muted-foreground hover:text-foreground hover:bg-background/50"
-            }`}
-          >
-            <span className="text-base">{tab.icon}</span>
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* 模板选择 */}
-      <TemplatePanel
-        contentType={activeTab as ContentType}
-        onSelect={handleTemplateSelect}
-      />
-
-      {/* 灵感广场 */}
-      <InspirationSquare
-        contentType={activeTab as BuiltinContentType}
-        onSelect={handleInspirationSelect}
-      />
+      <header className="space-y-3">
+        <h1 className="text-3xl font-semibold tracking-tight text-foreground">开始创作</h1>
+        <p className="max-w-2xl text-base leading-relaxed text-foreground/80">从内容到分镜，再到画面与导出。先选内容类型，准备好后检查本次生成设置。</p>
+        <ol aria-label="创作流程" className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-foreground/80">
+          <li aria-current="step" className="font-semibold text-foreground">1. 准备内容</li>
+          <li>2. 生成与审核分镜</li><li>3. 生成与复审画面</li><li>4. 整理与导出</li>
+        </ol>
+      </header>
+      <nav aria-label="内容类型" className="flex flex-wrap gap-2 border-b pb-4">
+        {TABS.map((tab) => {
+          const Icon = tab.icon;
+          return <button key={tab.value} type="button" onClick={() => selectTab(tab.value)} aria-pressed={activeTab === tab.value}
+            className={`min-h-[44px] px-3 py-2 rounded-lg text-sm font-medium inline-flex items-center gap-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${activeTab === tab.value ? "bg-foreground text-background" : "text-foreground/80 hover:bg-muted"}`}>
+            <Icon aria-hidden="true" className="w-4 h-4" />{tab.label}
+          </button>;
+        })}
+      </nav>
+      <p className="text-sm text-foreground/80">{currentTab.desc}</p>
+      {!configStatus.hasLLM && configStatus.isLoaded && <details className="border-b pb-4">
+        <summary className="cursor-pointer min-h-[44px] py-3 text-sm font-medium">首次使用？查看模型配置指引</summary>
+        <OnboardingGuide hasLLM={configStatus.hasLLM} hasImage={configStatus.hasImage} isLoaded={configStatus.isLoaded} />
+      </details>}
+      <details className="border-b pb-4">
+        <summary className="cursor-pointer min-h-[44px] py-3 text-sm font-medium">需要灵感？从模板或推荐主题开始</summary>
+        <div className="space-y-5 pt-3">
+          <TemplatePanel contentType={activeTab as ContentType} onSelect={handleTemplateSelect} />
+          <InspirationSquare contentType={activeTab as BuiltinContentType} onSelect={handleInspirationSelect} />
+        </div>
+      </details>
 
       {/* 连载上下文提示 */}
       {seriesInfo && (

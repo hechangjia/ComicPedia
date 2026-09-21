@@ -108,9 +108,8 @@ function resolveLLMConfig(
 ): PartialLLMConfig | undefined {
   if (!payload) return undefined;
 
-  if (config && payload.configId) {
-    const matched = config.llmConfigs.find((item) => item.id === payload.configId);
-    if (matched) return buildLLMConfig(matched);
+  if (payload.configId) {
+    return buildLLMConfig(config?.llmConfigs.find((item) => item.id === payload.configId));
   }
 
   if (config && payload.fallback) {
@@ -127,9 +126,8 @@ function resolveImageConfig(
 ): PartialImageGenConfig | undefined {
   if (!payload) return undefined;
 
-  if (config && payload.configId) {
-    const matched = config.imageConfigs.find((item) => item.id === payload.configId);
-    if (matched) return buildImageConfig(matched);
+  if (payload.configId) {
+    return buildImageConfig(config?.imageConfigs.find((item) => item.id === payload.configId));
   }
 
   if (config && payload.fallback) {
@@ -147,19 +145,21 @@ export function buildServerScriptReplayPayload(request: GenerateRequest): Server
   const { llmConfig: _llmConfig, imageConfig: _imageConfig, ...requestWithoutSecrets } = request;
 
   const llmConfigId = request.llmConfigId
+    ?? request.llmConfig?.configId
     ?? (sanitizedLLM ? config?.llmConfigs.find((item) => matchesLLMConfig(item, sanitizedLLM))?.id : undefined);
   const imageConfigId = request.imageConfigId
+    ?? request.imageConfig?.configId
     ?? (sanitizedImage ? config?.imageConfigs.find((item) => matchesImageConfig(item, sanitizedImage))?.id : undefined);
 
   return {
-    request: requestWithoutSecrets,
+    request: { ...requestWithoutSecrets, llmConfigId, imageConfigId },
     llm: llmConfigId || isSafeInlineLLMConfig(request, sanitizedLLM) ? {
       configId: llmConfigId,
-      fallback: isSafeInlineLLMConfig(request, sanitizedLLM) ? sanitizedLLM : undefined,
+      fallback: !llmConfigId && isSafeInlineLLMConfig(request, sanitizedLLM) ? sanitizedLLM : undefined,
     } : undefined,
     image: imageConfigId || isSafeInlineImageConfig(request, sanitizedImage) ? {
       configId: imageConfigId,
-      fallback: isSafeInlineImageConfig(request, sanitizedImage) ? sanitizedImage : undefined,
+      fallback: !imageConfigId && isSafeInlineImageConfig(request, sanitizedImage) ? sanitizedImage : undefined,
     } : undefined,
   };
 }
@@ -184,6 +184,8 @@ export function hydrateReplayRequest(payload: ServerScriptReplayPayload): Genera
 
   return {
     ...payload.request,
+    llmConfigId: payload.llm?.configId ?? payload.request.llmConfigId,
+    imageConfigId: payload.image?.configId ?? payload.request.imageConfigId,
     llmConfig: resolveLLMConfig(payload.llm, config),
     imageConfig: resolveImageConfig(payload.image, config),
   };

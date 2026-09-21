@@ -1,12 +1,12 @@
 import { APIProvider, ImageEndpointType } from "@/lib/types";
 import { IMAGE_PRESETS } from "@/lib/config/presets";
-import { PasswordInput } from "@/components/ui/PasswordInput";
+import { ModelCredentialInput, type ModelCredentialFields } from "./ModelCredentialInput";
 import { useModelDiscovery } from "@/hooks/useModelDiscovery";
 import { useEffect } from "react";
 import { RefreshCw } from "lucide-react";
 
 
-export interface ImageFormFields {
+export interface ImageFormFields extends ModelCredentialFields {
   name: string;
   provider: APIProvider;
   apiUrl: string;
@@ -20,13 +20,14 @@ export interface ImageFormFields {
 interface ImageFormProps {
   fields: ImageFormFields;
   isEditing: boolean;
+  editingId?: string | null;
   onChange: (fields: Partial<ImageFormFields>) => void;
   onProviderChange: (provider: APIProvider) => void;
   onSave: () => void;
   onCancel: () => void;
 }
 
-export function ImageForm({ fields, isEditing, onChange, onProviderChange, onSave, onCancel }: ImageFormProps) {
+export function ImageForm({ fields, isEditing, editingId, onChange, onProviderChange, onSave, onCancel }: ImageFormProps) {
   const discovery = useModelDiscovery();
   const clearModels = discovery.clearModels;
   const isComfyUI = fields.endpointType === "comfyui";
@@ -41,6 +42,7 @@ export function ImageForm({ fields, isEditing, onChange, onProviderChange, onSav
       apiUrl: fields.apiUrl,
       apiKey: fields.apiKey,
       protocolType: "openai-compatible",
+      ...(editingId && fields.hasApiKey && !fields.apiKey && !fields.clearApiKey ? { modelRef: { id: editingId, role: "image" as const } } : {}),
     });
     if (models.length > 0 && !models.includes(fields.model)) {
       onChange({ model: models[0] });
@@ -95,13 +97,9 @@ export function ImageForm({ fields, isEditing, onChange, onProviderChange, onSav
             className="w-full rounded-lg border bg-background p-3 text-sm"
           />
         </div>
-        <div className="space-y-1">
-          <label className="text-sm text-muted-foreground">API Key</label>
-          <PasswordInput
-            value={fields.apiKey}
-            onChange={(v) => onChange({ apiKey: v })}
-          />
-        </div>
+        <ModelCredentialInput value={fields.apiKey} hasApiKey={fields.hasApiKey}
+          clearApiKey={fields.clearApiKey} apiKeyInputRequired={fields.apiKeyInputRequired}
+          onChange={onChange} />
 
         {/* 模型 + 尺寸 */}
         <div className="space-y-1">

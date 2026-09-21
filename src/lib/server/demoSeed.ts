@@ -1,8 +1,9 @@
 import fs from "fs";
+import { getDataDirectory } from "./dataDirectory";
 import path from "path";
 import type { GenerateTask } from "@/lib/types";
 
-const SEED_PATH = path.join(process.cwd(), "data", "demo-seed.json");
+const SEED_PATH = path.join(getDataDirectory(), "demo-seed.json");
 
 interface DemoSeedFile {
   exportedAt: string;

@@ -1,11 +1,13 @@
 import {
+  claimTaskScriptRun,
+  finishTaskScriptRun,
+  hasTaskScriptRun,
+  updateTaskForScriptRun,
   getAllRelations,
   getCharacterById,
   getConfig,
   getEpisodeArcSnapshots,
   getSeriesById,
-  getTaskById,
-  upsertTask,
 } from "@/lib/server/db";
 import { runAccuracyResearch } from "@/lib/accuracy/research";
 import { repairAccuracyIssues } from "@/lib/accuracy/repair";
@@ -33,27 +35,15 @@ import type {
   PipelineStageTrace,
 } from "@/lib/types";
 
-function persistTask(task: GenerateTask): void {
-  task.updatedAt = new Date();
-  upsertTask(task);
+class ScriptRunSuperseded extends Error {}
+
+function assertCurrentRun(task: GenerateTask, runId: string): void {
+  if (!hasTaskScriptRun(task.id, runId)) throw new ScriptRunSuperseded();
 }
 
-export async function patchTask(
-  taskId: string,
-  patch: Partial<GenerateTask>,
-): Promise<GenerateTask> {
-  const task = getTaskById(taskId);
-  if (!task) {
-    throw new Error(`Task not found: ${taskId}`);
-  }
-
-  const updatedTask: GenerateTask = {
-    ...task,
-    ...patch,
-    updatedAt: new Date(),
-  };
-  upsertTask(updatedTask);
-  return updatedTask;
+function persistTask(task: GenerateTask, runId: string): void {
+  task.updatedAt = new Date();
+  if (!updateTaskForScriptRun(task, runId)) throw new ScriptRunSuperseded();
 }
 
 function initTrace(task: GenerateTask): void {
@@ -99,17 +89,22 @@ function traceSkip(task: GenerateTask, stage: PipelineStageTrace["stage"]): void
 async function maybeEnrichResearchFromWikipedia(
   request: GenerateRequest,
   research: Awaited<ReturnType<typeof generateTopicResearch>>,
+  task: GenerateTask,
+  runId: string,
 ): Promise<void> {
   try {
     const isEnglishTopic = /^[\x00-\x7F]+$/.test(request.topic.trim());
     const wikiLang = isEnglishTopic ? "en" : "zh";
+    assertCurrentRun(task, runId);
     const results = await searchWikipedia(request.topic, wikiLang);
+    assertCurrentRun(task, runId);
     const topResult = results[0];
     if (!topResult) {
       return;
     }
 
     const summary = await getWikipediaSummary(topResult.title, wikiLang);
+    assertCurrentRun(task, runId);
     if (!summary?.extract) {
       return;
     }
@@ -128,11 +123,13 @@ async function maybeEnrichResearchFromWikipedia(
       }
     }
   } catch (error) {
+    assertCurrentRun(task, runId);
     console.warn("[TaskScriptRunner] Wikipedia enrichment failed (non-fatal):", error);
   }
 }
 
-async function runResearchPhase(task: GenerateTask, request: GenerateRequest): Promise<string> {
+async function runResearchPhase(task: GenerateTask, request: GenerateRequest, runId: string): Promise<string> {
+  assertCurrentRun(task, runId);
   let enhancedTopic = request.topic;
   const qualityLevel = request.quality || "standard";
 
@@ -144,7 +141,9 @@ async function runResearchPhase(task: GenerateTask, request: GenerateRequest): P
   if (shouldResearch) {
     try {
       const research = await generateTopicResearch(request.topic, request.llmConfig);
-      await maybeEnrichResearchFromWikipedia(request, research);
+      assertCurrentRun(task, runId);
+      await maybeEnrichResearchFromWikipedia(request, research, task, runId);
+      assertCurrentRun(task, runId);
 
       task.topicResearch = {
         expandedDescription: research.expandedDescription,
@@ -155,12 +154,14 @@ async function runResearchPhase(task: GenerateTask, request: GenerateRequest): P
       };
       task.progress = 10;
       enhancedTopic = buildEnhancedTopicFromResearch(research);
-      persistTask(task);
+      persistTask(task, runId);
     } catch (error) {
+      assertCurrentRun(task, runId);
       console.warn("[TaskScriptRunner] Topic research failed, using original topic:", error);
     }
   }
 
+  assertCurrentRun(task, runId);
   const shouldRunAccuracyResearch =
     qualityLevel !== "fast"
     && (request.contentType === "science" || request.contentType === "wikipedia");
@@ -178,13 +179,15 @@ async function runResearchPhase(task: GenerateTask, request: GenerateRequest): P
         });
         task.factPack = accuracyResearch.factPack;
         task.researchBrief = accuracyResearch.researchBrief;
-        persistTask(task);
+        persistTask(task, runId);
       }
     } catch (error) {
+      assertCurrentRun(task, runId);
       console.warn("[TaskScriptRunner] Accuracy research failed (non-fatal):", error);
     }
   }
 
+  assertCurrentRun(task, runId);
   if (qualityLevel === "fine") {
     traceStart(task, "director");
     try {
@@ -196,12 +199,14 @@ async function runResearchPhase(task: GenerateTask, request: GenerateRequest): P
         request.contentType,
         task.topicResearch?.expandedDescription,
       );
+      assertCurrentRun(task, runId);
       if (outline) {
         task.narrativeOutline = outline;
-        persistTask(task);
+        persistTask(task, runId);
       }
       traceEnd(task, "director");
     } catch (error) {
+      assertCurrentRun(task, runId);
       traceEnd(task, "director", error instanceof Error ? error.message : "Director failed");
       console.warn("[TaskScriptRunner] Outline generation failed (non-fatal):", error);
     }
@@ -268,7 +273,9 @@ async function runScriptPhase(
   task: GenerateTask,
   request: GenerateRequest,
   enhancedTopic: string,
+  runId: string,
 ): Promise<void> {
+  assertCurrentRun(task, runId);
   const qualityPreset = QUALITY_PRESETS[request.quality || "standard"];
   const finalTopic = qualityPreset.promptHint
     ? `${enhancedTopic}\n\n[Generation quality requirement: ${qualityPreset.promptHint}]`
@@ -299,6 +306,7 @@ async function runScriptPhase(
     : finalTopic;
 
   const onChunk: StreamChunkCallback = (_chunk, accumulated) => {
+    assertCurrentRun(task, runId);
     task.streamText = accumulated;
     task.progress = Math.min(25, 10 + Math.floor(accumulated.length / 80));
   };
@@ -323,6 +331,7 @@ async function runScriptPhase(
       task.factPack,
     );
   } catch (error) {
+    assertCurrentRun(task, runId);
     console.warn("[TaskScriptRunner] Stream generation failed, falling back to non-stream:", error);
     script = await generateScript(
       topicWithCharacters,
@@ -341,6 +350,7 @@ async function runScriptPhase(
     );
   }
 
+  assertCurrentRun(task, runId);
   task.streamText = undefined;
 
   if (request.allowGuideCharacter === false && !character) {
@@ -391,6 +401,7 @@ async function runScriptPhase(
           contentType: request.contentType,
           narrativeOutline: task.narrativeOutline,
         });
+        assertCurrentRun(task, runId);
         if (!repaired) {
           break;
         }
@@ -404,6 +415,7 @@ async function runScriptPhase(
           (warning) => warning.severity === "critical" || warning.severity === "warning",
         );
       } catch (error) {
+        assertCurrentRun(task, runId);
         console.warn("[TaskScriptRunner] Script repair failed, keeping current script:", error);
         break;
       }
@@ -428,6 +440,7 @@ async function runScriptPhase(
     while (accuracyReview.status === "repair_required" && accuracyRepairRounds < 2) {
       accuracyRepairRounds += 1;
       const repaired = await repairAccuracyIssues(script, accuracyReview, task.factPack, request.llmConfig);
+      assertCurrentRun(task, runId);
       if (!repaired) {
         break;
       }
@@ -450,7 +463,7 @@ async function runScriptPhase(
         generatedAt: new Date().toISOString(),
         sourceCoverage: accuracyReview.sourceCoverage,
       };
-      persistTask(task);
+      persistTask(task, runId);
       return;
     }
 
@@ -462,19 +475,36 @@ async function runScriptPhase(
   task.script = script;
   task.status = "script_ready";
   task.error = undefined;
-  persistTask(task);
+  persistTask(task, runId);
 }
 
 export async function runResearchAndScriptTask(
   taskId: string,
   request: GenerateRequest,
 ): Promise<void> {
-  const task = getTaskById(taskId);
-  if (!task) {
-    throw new Error(`Task not found: ${taskId}`);
-  }
+  const claimed = claimTaskScriptRun(taskId);
+  if (!claimed) return;
+  const { task, runId } = claimed;
 
   try {
+    // Resolve references for both newly queued requests and resumed scripts.
+    const llmId = request.llmConfigId ?? request.llmConfig?.configId;
+    const imageId = request.imageConfigId ?? request.imageConfig?.configId;
+    if (llmId || imageId) {
+      const config = getConfig();
+      const llm = llmId ? config?.llmConfigs.find((item) => item.id === llmId) : undefined;
+      const image = imageId ? config?.imageConfigs.find((item) => item.id === imageId) : undefined;
+      if ((llmId && !llm) || (imageId && !image)) {
+        throw new Error("所选模型配置已删除或不可用，请重新选择配置");
+      }
+      request = {
+        ...request,
+        llmConfigId: llmId,
+        imageConfigId: imageId,
+        llmConfig: llm ? { apiUrl: llm.apiUrl, apiKey: llm.apiKey, model: llm.model, provider: llm.protocolType } : request.llmConfig,
+        imageConfig: image ? { configId: image.id, configRole: "image", apiUrl: image.apiUrl, apiKey: image.apiKey, model: image.model, endpointType: image.endpointType, size: image.size, comfyuiWorkflow: image.comfyuiWorkflow } : request.imageConfig,
+      };
+    }
     task.status = "research_running";
     task.progress = 5;
     task.error = undefined;
@@ -494,12 +524,13 @@ export async function runResearchAndScriptTask(
       task.presetSnapshot = request.presetSnapshot;
     }
     initTrace(task);
-    persistTask(task);
+    persistTask(task, runId);
 
     traceStart(task, "research");
+    persistTask(task, runId);
     let enhancedTopic: string;
     try {
-      enhancedTopic = await runResearchPhase(task, request);
+      enhancedTopic = await runResearchPhase(task, request, runId);
       traceEnd(task, "research");
     } catch (error) {
       traceEnd(task, "research", error instanceof Error ? error.message : "Unknown error");
@@ -507,13 +538,14 @@ export async function runResearchAndScriptTask(
     }
 
     task.status = "script_running";
-    persistTask(task);
+    persistTask(task, runId);
 
     traceStart(task, "script");
+    persistTask(task, runId);
     try {
-      await runScriptPhase(task, request, enhancedTopic);
+      await runScriptPhase(task, request, enhancedTopic, runId);
       traceEnd(task, "script");
-      persistTask(task);
+      persistTask(task, runId);
     } catch (error) {
       traceEnd(task, "script", error instanceof Error ? error.message : "Unknown error");
       throw error;
@@ -524,28 +556,28 @@ export async function runResearchAndScriptTask(
       try {
         // Lazy import to avoid circular dependency (runtime.ts imports scriptRunner.ts)
         const { getTaskRuntime } = await import("./runtime");
+        assertCurrentRun(task, runId);
         const runtime = getTaskRuntime();
-        console.log(`[TaskScriptRunner] Auto-continuing to image generation for task ${task.id}`);
-        // Avoid nested event loop blocking by deferring to next tick
-        setTimeout(() => {
-          try {
-            runtime.enqueueImageQueue(task.id, {
-              llmConfig: request.llmConfig,
-              imageConfig: request.imageConfig,
-            });
-          } catch (err) {
-            console.error(`[TaskScriptRunner] Deferred auto-enqueue failed for ${task.id}:`, err);
-          }
-        }, 0);
+        // enqueueImageQueue already schedules work on a microtask. Check ownership
+        // after the dynamic import, then hand off without an unguarded timer.
+        runtime.enqueueImageQueue(task.id, {
+          llmConfig: request.llmConfig,
+          imageConfig: request.imageConfig,
+        });
       } catch (error) {
+        assertCurrentRun(task, runId);
         console.error(`[TaskScriptRunner] Failed to auto-enqueue image queue for ${task.id}:`, error);
         // Task stays at script_ready; user can manually continue
       }
     }
   } catch (error) {
+    if (error instanceof ScriptRunSuperseded || !hasTaskScriptRun(taskId, runId)) return;
     task.status = "failed";
     task.error = error instanceof Error ? error.message : "Unknown error";
     task.streamText = undefined;
-    persistTask(task);
+    // A deletion in another process may win even between the check and write.
+    updateTaskForScriptRun({ ...task, updatedAt: new Date() }, runId);
+  } finally {
+    finishTaskScriptRun(taskId, runId);
   }
 }

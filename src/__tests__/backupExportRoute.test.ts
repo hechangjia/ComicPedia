@@ -113,3 +113,12 @@ describe("/api/backup/export GET", () => {
     ]);
   });
 });
+
+it("protects legacy read-only export with ADMIN_TOKEN too", async () => {
+  process.env.ADMIN_TOKEN="legacy-fixture";
+  try {
+    const { GET } = await import("@/app/api/backup/export/route");
+    const response = await GET(new Request("http://localhost/api/backup/export"));
+    expect(response.status).toBe(401);
+  } finally { delete process.env.ADMIN_TOKEN; }
+});

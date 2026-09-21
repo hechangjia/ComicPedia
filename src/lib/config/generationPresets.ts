@@ -8,7 +8,7 @@ type GenerationPresetDefinition = Omit<GenerationPresetSnapshot, "presetId"> & {
 export const GENERATION_PRESETS = {
   "one-click-full": {
     id: "one-click-full",
-    label: "一键生成（推荐）",
+    label: "连续生成（直接出图）",
     pauseAfterScript: false,
     calibrationMode: "disabled" as const,
     imageConcurrency: 2,
@@ -18,7 +18,7 @@ export const GENERATION_PRESETS = {
   },
   "balanced-auto": {
     id: "balanced-auto",
-    label: "平衡自动流",
+    label: "先审分镜（推荐）",
     pauseAfterScript: true,
     calibrationMode: "disabled" as const,
     imageConcurrency: 2,

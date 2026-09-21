@@ -1,3 +1,4 @@
+import { createServerVisionRuntime } from "../visionRuntime";
 import type { GenerateTask, PanelReview, PartialLLMConfig } from "@/lib/types";
 import { invalidateDiagnosis } from "@/lib/vlmDiagnosisState";
 import { evaluateSinglePanelVisualQuality } from "@/lib/vlmScorer";
@@ -15,12 +16,15 @@ export async function runPanelLightCheck(
   task: GenerateTask,
   panelIndex: number,
   vlmConfig: PartialLLMConfig,
+  checkpoint: () => void = () => {},
 ): Promise<GenerateTask> {
   if (!task.script) {
     throw new Error("Task script missing");
   }
 
-  const score = await evaluateSinglePanelVisualQuality(task.script, panelIndex, vlmConfig);
+  const vision = createServerVisionRuntime(checkpoint);
+  const score = await evaluateSinglePanelVisualQuality(task.script, panelIndex, vlmConfig, vision);
+  await vision.verifyImages();
   const nextReview: PanelReview = {
     panelIndex,
     score: score.overall,
@@ -34,4 +38,15 @@ export async function runPanelLightCheck(
   task.lastReviewAt = new Date().toISOString();
   invalidateDiagnosis(task);
   return task;
+}
+
+/** Merge only this panel's score into authoritative state, never an awaited task snapshot. */
+export function mergePanelLightCheck(current: GenerateTask, checked: GenerateTask, panelIndex: number): void {
+  const review = checked.panelReview?.find(item => item.panelIndex === panelIndex);
+  if (!review) return;
+  current.panelReview = [...(current.panelReview ?? []).filter(item => item.panelIndex !== panelIndex), review]
+    .sort((left, right) => left.panelIndex - right.panelIndex);
+  current.reviewStatus = buildLightCheckTaskReviewStatus(current, current.panelReview);
+  current.lastReviewAt = checked.lastReviewAt;
+  invalidateDiagnosis(current);
 }

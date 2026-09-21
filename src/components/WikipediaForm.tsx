@@ -8,6 +8,7 @@ import { PanelCountSelector } from "./PanelCountSelector";
 import { ReferenceImagePanel } from "./ReferenceImagePanel";
 import { ModelSelector } from "./ModelSelector";
 import { CharacterPicker } from "./CharacterPicker";
+import { CreationReview } from "./CreationReview";
 import { ErrorAlert } from "./ErrorAlert";
 import { Spinner } from "./ui/Spinner";
 import { QualitySelector } from "./QualitySelector";
@@ -482,8 +483,8 @@ export function WikipediaForm({ initialTopic = "" }: { initialTopic?: string }) 
                   <ModelSelector type="image" value={form.selectedImageId} onChange={form.setSelectedImageId} disabled={form.isLoading} />
 
                   <AdvancedGenerationSettings
-                    value={form.advancedSettings}
-                    onChange={form.setAdvancedSettings}
+                    value={form.effectivePreset}
+                    onChange={(patch) => form.setAdvancedSettings((previous) => ({ ...previous, ...patch }))}
                     disabled={form.isLoading}
                   />
 
@@ -535,20 +536,22 @@ export function WikipediaForm({ initialTopic = "" }: { initialTopic?: string }) 
           </div>
         )}
 
+        <CreationReview plan={form.preflight} />
+
         <ErrorAlert message={form.error} onClose={() => form.setError("")} />
 
         <button
           onClick={handleGenerate}
-          disabled={form.isLoading || !selectedArticle}
-          className="w-full py-3 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-medium hover:from-blue-700 hover:to-indigo-700 hover:shadow-lg hover:shadow-blue-500/25 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+          disabled={form.isLoading || !form.preflight.canSubmit || !selectedArticle}
+          className="w-full min-h-[48px] px-4 py-3 rounded-lg bg-foreground text-background font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 transition-opacity"
         >
           {form.isLoading ? (
             <span className="flex items-center justify-center gap-2">
               <Spinner />
-              生成中...
+              正在创建任务…
             </span>
           ) : (
-            "一键生成百科漫画"
+            form.preflight.submitLabel
           )}
         </button>
       </div>

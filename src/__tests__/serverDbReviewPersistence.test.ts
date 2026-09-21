@@ -8,14 +8,19 @@ import type { Character, GenerateTask } from "@/lib/types";
 type ServerDbModule = typeof import("@/lib/server/db");
 
 let tempDir: string | undefined;
+let ownedDb: typeof import("@/lib/server/db") | undefined;
+let previousDataDirectory: string | undefined;
 let cwdSpy: ReturnType<typeof vi.spyOn> | undefined;
 
 async function loadIsolatedDb(): Promise<ServerDbModule> {
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "comicpedia-db-test-"));
+  previousDataDirectory = process.env.COMICPEDIA_DATA_DIR;
+  process.env.COMICPEDIA_DATA_DIR = path.join(tempDir, "data");
   vi.resetModules();
   cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
 
   const dbModule = await import("@/lib/server/db");
+  ownedDb = dbModule;
   dbModule.clearAllTasks();
   dbModule.clearAllCharacters();
 
@@ -229,7 +234,7 @@ function makeTask(): GenerateTask {
           hardClaims: [
             {
               claimType: "date",
-              rawText: "1642年",
+              rawText: "1642å¹´",
               normalizedValue: "1642",
               matchedFactId: "fact-1",
               matchStatus: "conflicting",
@@ -243,7 +248,7 @@ function makeTask(): GenerateTask {
         {
           panelIndex: 0,
           claimType: "date",
-          rawText: "1642年",
+          rawText: "1642å¹´",
           reason: "conflicts with fact pack",
           matchedFactId: "fact-1",
         },
@@ -261,7 +266,7 @@ function makeTask(): GenerateTask {
         {
           panelIndex: 0,
           claimType: "date",
-          rawText: "1642年",
+          rawText: "1642å¹´",
           reason: "conflicts with fact pack",
           matchedFactId: "fact-1",
         },
@@ -309,6 +314,10 @@ function makeCharacter(): Character {
 }
 
 afterEach(() => {
+  ownedDb?.closeDatabase();
+  ownedDb = undefined;
+  if (previousDataDirectory === undefined) delete process.env.COMICPEDIA_DATA_DIR;
+  else process.env.COMICPEDIA_DATA_DIR = previousDataDirectory;
   cwdSpy?.mockRestore();
   cwdSpy = undefined;
 

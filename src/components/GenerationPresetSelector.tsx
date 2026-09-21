@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import { GENERATION_PRESETS, type GenerationPresetId } from "@/lib/config/generationPresets";
 
 export function GenerationPresetSelector({
@@ -11,10 +12,11 @@ export function GenerationPresetSelector({
   onChange: (value: GenerationPresetId) => void;
   disabled?: boolean;
 }) {
+  const id = useId();
   return (
     <div className="space-y-2">
-      <label className="text-sm font-medium">生成预设</label>
-      <select
+      <label htmlFor={id} className="text-sm font-medium">生成预设</label>
+      <select id={id}
         value={value}
         onChange={(event) => onChange(event.target.value as GenerationPresetId)}
         disabled={disabled}

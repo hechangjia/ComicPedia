@@ -1,3 +1,4 @@
+import { resolveProxyModelBody, ModelReferenceError } from "@/lib/server/modelRequest";
 import { NextRequest } from "next/server";
 import { isUrlSafe, sanitizeProxyError, PROXY_TIMEOUT_MS } from "@/lib/security";
 
@@ -8,7 +9,7 @@ import { isUrlSafe, sanitizeProxyError, PROXY_TIMEOUT_MS } from "@/lib/security"
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const body = await resolveProxyModelBody(await request.json(), ["llm", "vlm"]);
     const { targetUrl, headers: clientHeaders, payload } = body;
 
     if (!targetUrl) {
@@ -49,6 +50,7 @@ export async function POST(request: NextRequest) {
 
     const upstreamResponse = await fetch(targetUrl, {
       method: "POST",
+      redirect: "error",
       headers: forwardHeaders,
       body: JSON.stringify(streamPayload),
       signal: AbortSignal.timeout(PROXY_TIMEOUT_MS * 2), // 流式请求给更长超时
@@ -80,7 +82,8 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("[LLM Stream Proxy] Error:", error);
+    if (error instanceof ModelReferenceError) return Response.json({ error: error.message }, { status: error.status });
+    console.error("[LLM Stream Proxy] Request failed");
 
     if (error instanceof Error && error.name === "TimeoutError") {
       return new Response(JSON.stringify({ error: "请求超时，请稍后重试" }), {

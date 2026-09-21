@@ -5,7 +5,6 @@ import type {
   ComicScript,
   GenerateTask,
   PartialLLMConfig,
-  UserLLMConfig,
   VisualDiagnosisPanel,
   VisualDiagnosisReport,
   VisualDiagnosisState,
@@ -16,6 +15,8 @@ import type {
 import { evaluateQuality, type QualityScore } from "@/lib/qualityScore";
 import { evaluateVisualQuality } from "@/lib/vlmScorer";
 import { buildDiagnosisRepairExecution, classifyRepairOutcome, runVisualDiagnosisFlow } from "@/lib/vlmDiagnosis";
+import { assertDiagnosisRepairCurrent, canBatchPatchDiagnosisPanel } from "@/lib/diagnosisRepairPolicy";
+import { resolveReviewModel } from "@/lib/config/reviewModel";
 import { getStoredConfigs } from "@/hooks/useAPIConfig";
 import { type PromptPatch } from "@/lib/vlmRetry";
 import { TextScoreSection } from "./score/TextScoreSection";
@@ -82,22 +83,7 @@ export function QualityScorePanel({
   useEffect(() => { setVisualDiagnosisState(cachedVisualDiagnosisState); }, [cachedVisualDiagnosisState]);
   useEffect(() => { setVisualDiagnosisStale(Boolean(cachedVisualDiagnosisStale)); }, [cachedVisualDiagnosisStale]);
 
-  const getActiveLLM = () => {
-    const configs = getStoredConfigs();
-    const activeLLM = configs.llmConfigs.find((c) => c.id === configs.activeLLMId) || configs.llmConfigs[0];
-    if (!activeLLM) throw new Error("未配置 LLM");
-    return { apiUrl: activeLLM.apiUrl, apiKey: activeLLM.apiKey, model: activeLLM.model, provider: activeLLM.protocolType };
-  };
-
-  const getActiveVLM = (): PartialLLMConfig => {
-    const configs = getStoredConfigs();
-    const vlmConfigs = configs.vlmConfigs || [];
-    const activeVLM = vlmConfigs.find((c) => c.id === configs.activeVLMId) || vlmConfigs[0];
-    if (activeVLM) {
-      return { apiUrl: activeVLM.apiUrl, apiKey: activeVLM.apiKey, model: activeVLM.model, provider: activeVLM.protocolType };
-    }
-    return getActiveLLM();
-  };
+  const getActiveLLM = () => resolveReviewModel(getStoredConfigs(), "llm");
 
   const getVLMOptions = (): Array<{ id: string; label: string }> => {
     const configs = getStoredConfigs();
@@ -112,21 +98,8 @@ export function QualityScorePanel({
     return options;
   };
 
-  const resolveSelectedVLM = (): PartialLLMConfig => {
-    if (selectedVLMOption) {
-      const configs = getStoredConfigs();
-      const [type, id] = selectedVLMOption.split(":");
-      let found: UserLLMConfig | undefined;
-      if (type === "vlm") {
-        found = (configs.vlmConfigs || []).find((c) => c.id === id);
-      } else {
-        found = configs.llmConfigs.find((c) => c.id === id);
-      }
-      if (!found) throw new Error("所选配置不存在");
-      return { apiUrl: found.apiUrl, apiKey: found.apiKey, model: found.model, provider: found.protocolType };
-    }
-    return getActiveVLM();
-  };
+  const resolveSelectedVLM = (): PartialLLMConfig =>
+    resolveReviewModel(getStoredConfigs(), "vlm", selectedVLMOption);
 
   const handleTextEvaluate = async () => {
     setLoadingText(true);
@@ -172,13 +145,17 @@ export function QualityScorePanel({
     }
   };
 
-  const handleRunDiagnosis = async () => {
+  const handleRunDiagnosis = async (panelIndices?: number[]) => {
+    if (panelIndices && panelIndices.length === 0) {
+      setErrorDiagnosis("请至少选择一格后再运行");
+      return;
+    }
     if (onStartDeepReview) {
       setLoadingDiagnosis(true);
       setErrorDiagnosis("");
       setVisualDiagnosisState("running");
       try {
-        await onStartDeepReview(resolveSelectedVLM());
+        await onStartDeepReview(resolveSelectedVLM(), panelIndices);
       } catch (err) {
         setVisualDiagnosisState("failed");
         setErrorDiagnosis(err instanceof Error ? err.message : "深度复审启动失败");
@@ -195,7 +172,7 @@ export function QualityScorePanel({
     try {
       const vlm = resolveSelectedVLM();
       const report = await runVisualDiagnosisFlow({
-        script, visualScore, vlmConfig: vlm,
+        script, visualScore, vlmConfig: vlm, targetPanels: panelIndices,
         saveReport: onSaveVisualDiagnosisReport,
         saveFailure: onSaveVisualDiagnosisFailure,
       });
@@ -219,7 +196,7 @@ export function QualityScorePanel({
       throw new Error("诊断修复执行链路尚未配置");
     }
     const currentPanel = script.panels[panel.panelIndex];
-    if (!currentPanel) throw new Error(`Panel ${panel.panelIndex + 1} 不存在`);
+    assertDiagnosisRepairCurrent(panel, params.mode, currentPanel, visualDiagnosisStale);
 
     const execution = buildDiagnosisRepairExecution({
       panel, currentPrompt: currentPanel.imagePrompt, mode: params.mode,
@@ -257,6 +234,10 @@ export function QualityScorePanel({
       throw new Error("诊断修复执行链路尚未配置");
     }
     if (panels.length === 0) throw new Error("没有可批量修复的面板");
+    for (const panel of panels) {
+      assertDiagnosisRepairCurrent(panel, "patch", script.panels[panel.panelIndex], visualDiagnosisStale);
+      if (!canBatchPatchDiagnosisPanel(panel)) throw new Error("批量修复仅支持可直接执行且无需人工确认的问题");
+    }
 
     const startedAt = new Date().toISOString();
     const panelIndices = panels.map((panel) => panel.panelIndex);
@@ -298,10 +279,10 @@ export function QualityScorePanel({
   const vlmOptions = getVLMOptions();
 
   const visualSectionProps = {
-    score: visualScore, loading: loadingVisual, error: errorVisual, onEvaluate: handleVisualEvaluate,
+    score: visualScore, loading: loadingVisual || visualDiagnosisState === "running", error: errorVisual, onEvaluate: handleVisualEvaluate,
     onRetryLowPanels: onRetryPanels, script, vlmOptions, selectedVLMOption, onVLMOptionChange: setSelectedVLMOption,
     diagnosisReport: visualDiagnosisReport, diagnosisState: visualDiagnosisState, diagnosisStale: visualDiagnosisStale,
-    diagnosisLoading: loadingDiagnosis, diagnosisError: errorDiagnosis, onRunDiagnosis: handleRunDiagnosis,
+    diagnosisLoading: loadingDiagnosis || visualDiagnosisState === "running", diagnosisError: errorDiagnosis, onRunDiagnosis: handleRunDiagnosis,
     onExecuteDiagnosisRepair: executeDiagnosisRepair, onExecuteBatchDiagnosisPatch: executeBatchDiagnosisPatch,
   };
 

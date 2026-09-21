@@ -1,3 +1,4 @@
+import { modelEndpoint } from "@/lib/providers/endpoints";
 import { getStyleModifier, getStyleNegativePrompt } from "@/lib/config/styles";
 import { getAllTasks, getConfig, getTaskById, registerImage, upsertTask, upsertTaskJob } from "@/lib/server/db";
 import { forwardImageGenerationRequest } from "@/lib/server/imageGenerationService";
@@ -16,7 +17,7 @@ import type {
   UserImageConfig,
   UserLLMConfig,
 } from "@/lib/types";
-import { runPanelLightCheck } from "./lightCheck";
+import { runPanelLightCheck, mergePanelLightCheck } from "./lightCheck";
 import { countRecoverableComfyJobs, hasReplayableComfyPrompt } from "./queueMeta";
 import { createTaskJob, listTaskJobsByTaskId, summarizeTaskJobs } from "./store";
 
@@ -145,6 +146,10 @@ function resolveLightCheckConfig(
       return buildLLMConfig(matched);
     }
   }
+  if (fallback?.configId) {
+    const candidates = fallback.configRole === "vlm" ? config?.vlmConfigs : config?.llmConfigs;
+    return buildLLMConfig(candidates?.find((item) => item.id === fallback.configId));
+  }
   if (fallback?.apiUrl && fallback.model && fallback.provider) {
     return fallback;
   }
@@ -161,11 +166,14 @@ function buildDurableImageJobPayload(input: EnqueuePanelImageJobsInput): StoredI
   const sanitizedImageConfig = sanitizeImageConfigForPayload(input.imageConfig);
   const config = getConfig();
   const resolvedConfigId = input.imageConfigId
+    ?? input.imageConfig?.configId
     ?? (sanitizedImageConfig ? config?.imageConfigs.find((candidate) => matchesImageConfig(candidate, sanitizedImageConfig))?.id : undefined);
   const safeFallback = isSafeInlineImageConfig(input.imageConfig)
     ? sanitizedImageConfig
     : undefined;
-  const overlay = resolvedConfigId ? sanitizedImageConfig : undefined;
+  const overlay = resolvedConfigId && sanitizedImageConfig
+    ? { size: sanitizedImageConfig.size, extraBody: sanitizedImageConfig.extraBody }
+    : undefined;
 
   if (!resolvedConfigId && !safeFallback) {
     throw new Error("缺少可重放的图片配置，请重新选择有效的图片模型配置后再试");
@@ -190,7 +198,8 @@ function mergeImageConfig(
 
   return {
     ...baseConfig,
-    ...overlay,
+    // Old persisted jobs may contain transport fields: never overlay those.
+    ...(overlay.size ? { size: overlay.size } : {}),
     extraBody: {
       ...baseConfig.extraBody,
       ...overlay.extraBody,
@@ -205,11 +214,10 @@ function resolveJobImageConfig(
 ): PartialImageGenConfig | undefined {
   let resolved: PartialImageGenConfig | undefined;
 
-  if (config && payload?.configId) {
-    const matched = config.imageConfigs.find((candidate) => candidate.id === payload.configId);
-    if (matched) {
-      resolved = buildImageConfig(matched);
-    }
+  if (payload?.configId) {
+    const matched = config?.imageConfigs.find((candidate) => candidate.id === payload.configId);
+    const saved = buildImageConfig(matched);
+    return saved ? mergeImageConfig(saved, payload.overlay) : undefined;
   }
 
   if (!resolved && config && payload?.fallback) {
@@ -309,12 +317,13 @@ function buildTaskProgress(task: GenerateTask): number {
 }
 
 async function persistQueueState(taskId: string): Promise<GenerateTask> {
+  const jobs = await listTaskJobsByTaskId(taskId);
+  // Read the task after the await: another panel may have attached meanwhile.
   const task = getTaskById(taskId);
   if (!task) {
     throw new Error(`Task not found: ${taskId}`);
   }
 
-  const jobs = await listTaskJobsByTaskId(taskId);
   const queueSummary = summarizeTaskJobs(jobs);
   const nextTask: GenerateTask = {
     ...task,
@@ -605,9 +614,7 @@ async function generatePanelImage(
   const baseUrl = mergedConfig.apiUrl.replace(/\/+$/, "");
   const useChatEndpoint = mergedConfig.endpointType === "chat"
     || (mergedConfig.endpointType !== "images" && baseUrl.includes("/chat/completions"));
-  const targetUrl = useChatEndpoint
-    ? (baseUrl.includes("/chat/completions") ? baseUrl : `${baseUrl}/chat/completions`)
-    : (baseUrl.includes("/images/") ? baseUrl : `${baseUrl}/images/generations`);
+  const targetUrl = modelEndpoint(baseUrl, useChatEndpoint ? "chat" : "images");
   const payload = useChatEndpoint
     ? buildChatPayload(`${getStyleModifier(style)}, ${prompt}`, mergedConfig)
     : buildImagesPayload(`${getStyleModifier(style)}, ${prompt}`, style, mergedConfig, seed);
@@ -687,6 +694,7 @@ async function generateOrResumeComfyPanelImage(
       height: height || 1024,
       seed,
     });
+    if (!getTaskById(task.id)) throw new Error(`Task not found: ${task.id}`);
     promptId = submitted.promptId;
     promptSeed = submitted.seed;
     nextJob = updateStoredComfyJobState(nextJob, {
@@ -751,6 +759,7 @@ async function attachPersistedImage(taskId: string, job: TaskJobRecord): Promise
 
 async function markRemainingJobsCalibrating(taskId: string, remainingJobIds: Set<string>): Promise<void> {
   const jobs = await listTaskJobsByTaskId(taskId);
+  if (!getTaskById(taskId)) return;
   for (const job of jobs) {
     if (!remainingJobIds.has(job.id)) {
       continue;
@@ -779,6 +788,13 @@ export async function enqueuePanelImageJobs(
     .sort((left, right) => left - right);
   const existingJobs = await listTaskJobsByTaskId(taskId);
   const latestJobsByPanel = getLatestJobsByPanel(existingJobs);
+  // Validate the entire batch before changing any job (including force-all requests).
+  for (const panelIndex of uniquePanelIndices) {
+    const existing = latestJobsByPanel.get(panelIndex);
+    if (existing && ["generating", "persisting", "light_check"].includes(existing.status)) {
+      throw new Error(`分镜 ${panelIndex + 1} 正在执行，请等待当前任务完成后再重绘`);
+    }
+  }
   const durableImagePayload = input.imageConfig || input.imageConfigId
     ? buildDurableImageJobPayload(input)
     : undefined;
@@ -858,185 +874,219 @@ export async function approveTaskCalibration(taskId: string): Promise<GenerateTa
   return persistQueueState(taskId);
 }
 
-export async function runTaskImageQueue(taskId: string, fallbackInput?: RunTaskImageQueueInput): Promise<void> {
-  let task = getTaskById(taskId);
-  if (!task || !task.script) {
-    return;
-  }
+async function runPanelImageJob(taskId: string, liveJob: TaskJobRecord, fallbackInput?: RunTaskImageQueueInput): Promise<"remote_pending" | void> {
+  const task = getTaskById(taskId);
+  if (!task?.script || typeof liveJob.panelIndex !== "number") return;
+  const panelIndex = liveJob.panelIndex;
+  const panel = getPanel(task, panelIndex);
+  const previousPanelState = {
+    imageUrl: panel.imageUrl,
+    status: panel.status,
+    imageVersions: panel.imageVersions ? structuredClone(panel.imageVersions) : undefined,
+    activeVersionIndex: panel.activeVersionIndex,
+    enhancementLog: panel.enhancementLog ? structuredClone(panel.enhancementLog) : undefined,
+  };
+  panel.status = "generating";
+  const enhancement = buildEnhancedPromptWithLog(
+    panel.imagePrompt,
+    panelIndex,
+    task.script.characterDescription,
+    panel.styleOverride ?? task.script.style,
+    task.script.panels.length,
+    task.narrativeOutline?.panels[panelIndex]?.suggestedComposition,
+  );
+  panel.enhancementLog = enhancement;
+  task.updatedAt = new Date();
+  upsertTask(task);
 
-  let calibrationGatePending = isCalibrationRequired(task) && !isCalibrationApproved(task);
-
-  while (true) {
-    task = getTaskById(taskId);
-    if (!task || !task.script) {
-      return;
-    }
-
-    let liveJob = (await listTaskJobsByTaskId(taskId)).find((candidate) =>
-      isProcessablePanelImageJob(candidate),
-    );
-    if (!liveJob || typeof liveJob.panelIndex !== "number") {
-      break;
-    }
-
-    const panelIndex = liveJob.panelIndex;
-    const liveJobId = liveJob.id;
-    const panel = getPanel(task, panelIndex);
-    const previousPanelState = {
-      imageUrl: panel.imageUrl,
-      status: panel.status,
-      imageVersions: panel.imageVersions ? structuredClone(panel.imageVersions) : undefined,
-      activeVersionIndex: panel.activeVersionIndex,
-      enhancementLog: panel.enhancementLog ? structuredClone(panel.enhancementLog) : undefined,
-    };
-    panel.status = "generating";
-    const enhancement = buildEnhancedPromptWithLog(
-      panel.imagePrompt,
-      panelIndex,
-      task.script.characterDescription,
-      panel.styleOverride ?? task.script.style,
-      task.script.panels.length,
-      task.narrativeOutline?.panels[panelIndex]?.suggestedComposition,
-    );
-    panel.enhancementLog = enhancement;
-    task.updatedAt = new Date();
-    upsertTask(task);
-
-    try {
-      if (liveJob.outputFileKey && readImageByKey(liveJob.outputFileKey)) {
-        liveJob = updateJob(liveJob, { status: "persisting" });
-        upsertTaskJob(liveJob);
-        await persistQueueState(taskId);
-        await attachPersistedImage(taskId, liveJob);
-      } else {
-        liveJob = updateJob(liveJob, {
-          status: "generating",
-          attemptCount: liveJob.attemptCount + 1,
-          lastError: undefined,
-        });
-        upsertTaskJob(liveJob);
-        await persistQueueState(taskId);
-
-        const imageConfig = getJobImageConfig(liveJob, fallbackInput?.imageConfig);
-        if (!imageConfig) {
-          throw new Error(`Job ${liveJob.id} is missing imageConfig`);
-        }
-
-        let generated: { image: string; promptSnapshot: string };
-        if (imageConfig.endpointType === "comfyui") {
-          const comfyGenerated = await generateOrResumeComfyPanelImage(
-            task,
-            panelIndex,
-            imageConfig,
-            liveJob,
-            async (nextJob) => {
-              liveJob = nextJob;
-              await persistQueueState(taskId);
-            },
-          );
-          liveJob = comfyGenerated.job;
-          generated = comfyGenerated;
-        } else {
-          generated = await generatePanelImage(task, panelIndex, imageConfig);
-        }
-        liveJob = updateJob(liveJob, {
-          status: "persisting",
-          promptSnapshot: generated.promptSnapshot,
-        });
-        upsertTaskJob(liveJob);
-        await persistQueueState(taskId);
-
-        const outputFileKey = await persistGeneratedImage(taskId, panelIndex, liveJob.id, generated.image);
-        liveJob = updateJob(liveJob, {
-          status: "light_check",
-          outputFileKey,
-        });
-        upsertTaskJob(liveJob);
-        await persistQueueState(taskId);
-        await attachPersistedImage(taskId, liveJob);
-      }
-
-      const lightCheckConfig = resolveLightCheckConfig(getConfig(), fallbackInput?.llmConfig);
-      if (lightCheckConfig?.apiUrl && lightCheckConfig.model && lightCheckConfig.provider) {
-        try {
-          const latestTask = getTaskById(taskId);
-          if (latestTask) {
-            const checkedTask = await runPanelLightCheck(latestTask, panelIndex, lightCheckConfig);
-            checkedTask.updatedAt = new Date();
-            upsertTask(checkedTask);
-          }
-        } catch (error) {
-          console.warn(`[TaskImageQueue] Light check failed for ${taskId} panel ${panelIndex}:`, error);
-        }
-      }
-
-      upsertTaskJob(updateJob(liveJob, {
-        status: "completed",
+  try {
+    if (liveJob.outputFileKey && readImageByKey(liveJob.outputFileKey)) {
+      liveJob = updateJob(liveJob, { status: "persisting" });
+      upsertTaskJob(liveJob);
+      await persistQueueState(taskId);
+      await attachPersistedImage(taskId, liveJob);
+    } else {
+      liveJob = updateJob(liveJob, {
+        status: "generating",
+        attemptCount: liveJob.attemptCount + 1,
         lastError: undefined,
-      }));
+      });
+      upsertTaskJob(liveJob);
       await persistQueueState(taskId);
 
-      if (calibrationGatePending) {
-        const remainingJobs = (await listTaskJobsByTaskId(taskId)).filter((job) =>
-          job.kind === "panel_image"
-          && job.id !== liveJobId
-          && PROCESSABLE_JOB_STATUSES.has(job.status),
+      const imageConfig = getJobImageConfig(liveJob, fallbackInput?.imageConfig);
+      if (!imageConfig) {
+        throw new Error(`Job ${liveJob.id} is missing imageConfig`);
+      }
+
+      let generated: { image: string; promptSnapshot: string };
+      if (imageConfig.endpointType === "comfyui") {
+        const comfyGenerated = await generateOrResumeComfyPanelImage(
+          task,
+          panelIndex,
+          imageConfig,
+          liveJob,
+          async (nextJob) => {
+            liveJob = nextJob;
+            await persistQueueState(taskId);
+          },
         );
-        if (remainingJobs.length > 0) {
-          await markRemainingJobsCalibrating(taskId, new Set(remainingJobs.map((job) => job.id)));
-          return;
-        }
-        calibrationGatePending = false;
+        liveJob = comfyGenerated.job;
+        generated = comfyGenerated;
+      } else {
+        generated = await generatePanelImage(task, panelIndex, imageConfig);
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown image queue error";
-      const shouldKeepWaitingOnRemotePrompt = !liveJob.outputFileKey
-        && hasReplayableComfyPrompt(liveJob)
-        && isRecoverableComfyWaitError(error);
+      if (!getTaskById(taskId)) return;
+      liveJob = updateJob(liveJob, {
+        status: "persisting",
+        promptSnapshot: generated.promptSnapshot,
+      });
+      upsertTaskJob(liveJob);
+      await persistQueueState(taskId);
 
-      if (shouldKeepWaitingOnRemotePrompt) {
-        upsertTaskJob(updateJob(liveJob, {
-          status: "generating",
-          lastError: message,
-        }));
-        await persistQueueState(taskId);
-        return;
-      }
+      const outputFileKey = await persistGeneratedImage(taskId, panelIndex, liveJob.id, generated.image);
+      if (!getTaskById(taskId)) return;
+      liveJob = updateJob(liveJob, {
+        status: "light_check",
+        outputFileKey,
+      });
+      upsertTaskJob(liveJob);
+      await persistQueueState(taskId);
+      await attachPersistedImage(taskId, liveJob);
+    }
 
-      const failedStatus: TaskJobRecord["status"] = liveJob.outputFileKey ? "attach_failed" : "failed";
-      if (failedStatus === "attach_failed" && previousPanelState.status === "completed" && previousPanelState.imageUrl) {
+    const lightCheckConfig = getTaskById(taskId)?.presetSnapshot?.lightCheckMode === "off"
+      ? undefined
+      : resolveLightCheckConfig(getConfig(), fallbackInput?.llmConfig);
+    if (lightCheckConfig?.apiUrl && lightCheckConfig.model && lightCheckConfig.provider) {
+      try {
         const latestTask = getTaskById(taskId);
-        if (latestTask?.script) {
-          const latestPanel = getPanel(latestTask, panelIndex);
-          latestPanel.imageUrl = previousPanelState.imageUrl;
-          latestPanel.status = previousPanelState.status;
-          latestPanel.imageVersions = previousPanelState.imageVersions;
-          latestPanel.activeVersionIndex = previousPanelState.activeVersionIndex;
-          latestPanel.enhancementLog = previousPanelState.enhancementLog;
-          latestTask.updatedAt = new Date();
-          upsertTask(latestTask);
+        if (latestTask) {
+          const checkedTask = await runPanelLightCheck(latestTask, panelIndex, lightCheckConfig, () => {
+            const current = getTaskById(taskId)?.script?.panels[panelIndex];
+            const source = latestTask.script?.panels[panelIndex];
+            if (!current || current.imageUrl !== source?.imageUrl || current.imagePrompt !== source?.imagePrompt) {
+              throw new Error("轻量复审输入已删除或变更");
+            }
+          });
+          const currentTask = getTaskById(taskId);
+          if (currentTask?.script && currentTask.script.panels[panelIndex]?.imageUrl === latestTask.script?.panels[panelIndex]?.imageUrl
+            && currentTask.script.panels[panelIndex]?.imagePrompt === latestTask.script?.panels[panelIndex]?.imagePrompt) {
+            mergePanelLightCheck(currentTask, checkedTask, panelIndex);
+            currentTask.updatedAt = new Date();
+            upsertTask(currentTask);
+          }
         }
-      } else if (failedStatus === "attach_failed") {
-        const latestTask = getTaskById(taskId);
-        if (latestTask?.script) {
-          const latestPanel = getPanel(latestTask, panelIndex);
-          latestPanel.imageUrl = undefined;
-          latestPanel.status = "failed";
-          latestPanel.activeVersionIndex = previousPanelState.activeVersionIndex;
-          latestTask.updatedAt = new Date();
-          upsertTask(latestTask);
-        }
+      } catch (error) {
+        console.warn(`[TaskImageQueue] Light check failed for ${taskId} panel ${panelIndex}:`, error);
       }
+    }
+
+    if (!getTaskById(taskId)) return;
+    upsertTaskJob(updateJob(liveJob, {
+      status: "completed",
+      lastError: undefined,
+    }));
+    await persistQueueState(taskId);
+  } catch (error) {
+    if (!getTaskById(taskId)) return;
+    const message = error instanceof Error ? error.message : "Unknown image queue error";
+    const shouldKeepWaitingOnRemotePrompt = !liveJob.outputFileKey
+      && hasReplayableComfyPrompt(liveJob)
+      && isRecoverableComfyWaitError(error);
+
+    if (shouldKeepWaitingOnRemotePrompt) {
       upsertTaskJob(updateJob(liveJob, {
-        status: failedStatus,
+        status: "generating",
         lastError: message,
       }));
       await persistQueueState(taskId);
+      return "remote_pending";
     }
-  }
 
-  await persistQueueState(taskId);
+    const failedStatus: TaskJobRecord["status"] = liveJob.outputFileKey ? "attach_failed" : "failed";
+    if (previousPanelState.status === "completed" && previousPanelState.imageUrl) {
+      const latestTask = getTaskById(taskId);
+      if (latestTask?.script) {
+        const latestPanel = getPanel(latestTask, panelIndex);
+        latestPanel.imageUrl = previousPanelState.imageUrl;
+        latestPanel.status = previousPanelState.status;
+        latestPanel.imageVersions = previousPanelState.imageVersions;
+        latestPanel.activeVersionIndex = previousPanelState.activeVersionIndex;
+        latestPanel.enhancementLog = previousPanelState.enhancementLog;
+        latestTask.updatedAt = new Date();
+        upsertTask(latestTask);
+      }
+    } else {
+      const latestTask = getTaskById(taskId);
+      if (latestTask?.script) {
+        const latestPanel = getPanel(latestTask, panelIndex);
+        latestPanel.imageUrl = undefined;
+        latestPanel.status = "failed";
+        latestPanel.activeVersionIndex = previousPanelState.activeVersionIndex;
+        latestTask.updatedAt = new Date();
+        upsertTask(latestTask);
+      }
+    }
+    upsertTaskJob(updateJob(liveJob, {
+      status: failedStatus,
+      lastError: message,
+    }));
+    await persistQueueState(taskId);
+  }
 }
+
+/** A task owns at most four slots; old tasks without a setting retain serial execution. */
+function imageConcurrency(task: GenerateTask): number {
+  const requested = task.presetSnapshot?.imageConcurrency ?? task.presetSnapshot?.imageQueue?.imageConcurrency ?? 1;
+  return typeof requested === "number" && Number.isInteger(requested) ? Math.max(1, Math.min(4, requested)) : 1;
+}
+
+export async function runTaskImageQueue(taskId: string, fallbackInput?: RunTaskImageQueueInput): Promise<void> {
+  const active = new Map<string, Promise<void>>();
+  const attempted = new Set<string>();
+  let firstError: unknown;
+  let remotePending = false;
+  try {
+    while (true) {
+      const jobs = await listTaskJobsByTaskId(taskId);
+      const task = getTaskById(taskId);
+      if (!task?.script) break;
+      const calibrationPending = isCalibrationRequired(task) && !isCalibrationApproved(task);
+      const limit = calibrationPending ? 1 : imageConcurrency(task);
+      const candidates = jobs.filter(job => isProcessablePanelImageJob(job) && !attempted.has(job.id));
+      for (const job of candidates) {
+        if (active.size >= limit || firstError || remotePending) break;
+        // Reserve before invoking the worker; generating jobs are replayable, not new slots.
+        attempted.add(job.id);
+        const run = runPanelImageJob(taskId, job, fallbackInput)
+          .then(outcome => { if (outcome === "remote_pending") remotePending = true; })
+          .catch(error => { firstError ??= error; })
+          .finally(() => { active.delete(job.id); });
+        active.set(job.id, run);
+      }
+      if (active.size === 0) break;
+      await Promise.race(active.values());
+      if (firstError || remotePending) break;
+      if (calibrationPending) {
+        const latestJobs = await listTaskJobsByTaskId(taskId);
+        const completedProbe = latestJobs.some(job => attempted.has(job.id) && job.status === "completed");
+        if (completedProbe) {
+          const remaining = latestJobs.filter(job => !attempted.has(job.id) && isProcessablePanelImageJob(job));
+          if (remaining.length) await markRemainingJobsCalibrating(taskId, new Set(remaining.map(job => job.id)));
+        }
+        // A failed or remotely pending probe must not release the remaining batch.
+        break;
+      }
+    }
+  } finally {
+    // Never return while paid work admitted by this run can still mutate task state.
+    await Promise.all(active.values());
+  }
+  if (firstError && getTaskById(taskId)) throw firstError;
+  if (getTaskById(taskId)) await persistQueueState(taskId);
+}
+
 
 export async function listReplayableImageTasks(): Promise<Array<{
   taskId: string;

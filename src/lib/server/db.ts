@@ -1,4 +1,8 @@
-import Database from "better-sqlite3";
+import { randomUUID } from "node:crypto";
+import { configRevision } from "./configRevision";
+import { openDatabase, enableWalMode } from "./databaseConnection";
+import { getDataDirectory } from "./dataDirectory";
+import { loadDemoSeed } from "./demoSeed";
 import path from "path";
 import fs from "fs";
 import type { GenerateTask, Character, CharacterRelation, UserAPIConfigV2, ComicScript, TaskJobRecord, TaskListItem, TaskOrigin } from "@/lib/types";
@@ -10,13 +14,23 @@ import { DEFAULT_TASK_ORIGIN, inferTaskOrigin, normalizeTaskOrigin } from "@/lib
 // SQLite 数据库初始化（单例）
 // ============================================================
 
-const DB_DIR = path.join(process.cwd(), "data");
+const DB_DIR = getDataDirectory();
 const DB_PATH = path.join(DB_DIR, "comicpedia.db");
 
 fs.mkdirSync(DB_DIR, { recursive: true });
 
-const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
+const db = openDatabase(DB_PATH);
+
+/** Close the owned connection before disposing a workspace or test fixture. */
+export function closeDatabase(): void {
+  if (db.open) db.close();
+}
+try {
+  enableWalMode(db);
+} catch (error) {
+  db.close();
+  throw error;
+}
 db.pragma("synchronous = NORMAL");
 db.pragma("foreign_keys = ON");
 db.pragma("busy_timeout = 5000");
@@ -276,6 +290,8 @@ function taskToRow(task: GenerateTask & { serverScriptReplay?: ServerScriptRepla
   if (task.queueSummary !== undefined) metadata.queueSummary = task.queueSummary;
   if (task.comfyuiRemotePendingCount !== undefined) metadata.comfyuiRemotePendingCount = task.comfyuiRemotePendingCount;
   if (task.presetSnapshot !== undefined) metadata.presetSnapshot = task.presetSnapshot;
+  if (task.pipelineTrace !== undefined) metadata.pipelineTrace = task.pipelineTrace;
+  if (task.streamText !== undefined) metadata.streamText = task.streamText;
 
   return {
     id: task.id,
@@ -526,6 +542,7 @@ function parseVisualDiagnosisReport(value: unknown): GenerateTask["visualDiagnos
   if (panels.length !== candidate.panels.length) return undefined;
 
   return {
+    sourceFingerprint: typeof candidate.sourceFingerprint === "string" ? candidate.sourceFingerprint : undefined,
     schemaVersion: candidate.schemaVersion,
     generatedAt: candidate.generatedAt,
     sourceEvaluatedAt: candidate.sourceEvaluatedAt,
@@ -583,6 +600,8 @@ function rowToTask(row: Record<string, unknown>): GenerateTask {
       ? meta.comfyuiRemotePendingCount
       : undefined,
     presetSnapshot: meta.presetSnapshot as GenerateTask["presetSnapshot"],
+    pipelineTrace: meta.pipelineTrace as GenerateTask["pipelineTrace"],
+    streamText: typeof meta.streamText === "string" ? meta.streamText : undefined,
     tags: safeJsonParse<string[]>(row.tags as string | null) ?? [],
     favorited: (row.favorited as number) === 1,
     createdAt: new Date(row.created_at as string),
@@ -654,6 +673,65 @@ function rowToTaskSummary(row: TaskSummaryRow): TaskListItem {
 
 export function upsertTask(task: GenerateTask): void {
   stmtInsertTask.run(taskToRow(task));
+}
+
+// Server-only execution fencing. Generic upserts intentionally omit this token:
+// replacing/importing/restoring a task invalidates every in-flight script result.
+const stmtClaimScriptRun = db.prepare(`
+  UPDATE tasks SET metadata = json_set(COALESCE(metadata, '{}'), '$.serverScriptRunId', @runId)
+  WHERE id = @id AND status IN ('created', 'research_running', 'script_running', 'pending', 'scripting')
+`);
+const stmtHasScriptRun = db.prepare(`
+  SELECT 1 FROM tasks WHERE id = ? AND json_extract(metadata, '$.serverScriptRunId') = ?
+`);
+const stmtFinishScriptRun = db.prepare(`
+  UPDATE tasks SET metadata = json_remove(metadata, '$.serverScriptRunId')
+  WHERE id = ? AND json_extract(metadata, '$.serverScriptRunId') = ?
+`);
+const stmtUpdateScriptRun = db.prepare(`
+  UPDATE tasks SET status=@status, progress=@progress, script=@script, character=@character,
+    error=@error, metadata=@metadata, updated_at=@updated_at
+  WHERE id=@id AND json_extract(metadata, '$.serverScriptRunId')=@runId
+`);
+const SCRIPT_METADATA_FIELDS = [
+  'topicResearch', 'factPack', 'researchBrief', 'narrativeOutline', 'generationConfig',
+  'presetSnapshot', 'scriptValidation', 'scriptRepairRounds', 'accuracyReview',
+  'accuracyErrorSummary', 'pipelineTrace', 'streamText',
+] as const;
+
+/** A recovery/new execution supersedes the previous token, including across processes. */
+export function claimTaskScriptRun(id: string): { runId: string; task: GenerateTask } | null {
+  return db.transaction(() => {
+    const runId = randomUUID();
+    if (stmtClaimScriptRun.run({ id, runId }).changes !== 1) return null;
+    const row = stmtGetTask.get(id) as Record<string, unknown>;
+    return { runId, task: rowToTask(row) };
+  }).immediate();
+}
+
+export function hasTaskScriptRun(id: string, runId: string): boolean {
+  return !!stmtHasScriptRun.get(id, runId);
+}
+
+/** UPDATE-only: never resurrect a row or replace concurrent tags/replay/review metadata. */
+export function updateTaskForScriptRun(task: GenerateTask, runId: string): boolean {
+  return db.transaction(() => {
+    const row = stmtGetTask.get(task.id) as Record<string, unknown> | undefined;
+    if (!row) return false;
+    const metadata = safeJsonParse<Record<string, unknown>>(row.metadata as string | null) ?? {};
+    if (metadata.serverScriptRunId !== runId) return false;
+    const next = taskToRow(task);
+    const scriptMetadata = safeJsonParse<Record<string, unknown>>(next.metadata) ?? {};
+    for (const key of SCRIPT_METADATA_FIELDS) {
+      if (key in scriptMetadata) metadata[key] = scriptMetadata[key];
+      else delete metadata[key];
+    }
+    return stmtUpdateScriptRun.run({ ...next, metadata: JSON.stringify(metadata), runId }).changes === 1;
+  }).immediate();
+}
+
+export function finishTaskScriptRun(id: string, runId: string): void {
+  stmtFinishScriptRun.run(id, runId);
 }
 
 export function getTaskById(id: string): GenerateTask | null {
@@ -805,12 +883,78 @@ function rowToTaskJob(row: Record<string, unknown>): TaskJobRecord {
 }
 
 export function upsertTaskJob(job: TaskJobRecord): void {
-  stmtUpsertTaskJob.run(taskJobToRow(job));
+  // Imported/replaced job payloads never restore ownership of an old execution.
+  const { reviewExecutionId: _runId, ...payload } = job.payload;
+  stmtUpsertTaskJob.run(taskJobToRow({ ...job, payload }));
 }
 
 export function listTaskJobsByTaskId(taskId: string): TaskJobRecord[] {
   const rows = stmtListTaskJobsByTaskId.all(taskId) as Record<string, unknown>[];
   return rows.map(rowToTaskJob);
+}
+
+const REVIEW_METADATA_FIELDS = [
+  "visualQualityScore", "panelReview", "reviewStatus", "lastReviewAt", "visualDiagnosisReport",
+  "visualDiagnosisState", "visualDiagnosisStale", "lastDiagnosisAt", "queueSummary", "comfyuiRemotePendingCount",
+] as const;
+const stmtUpdateQueueTask = db.prepare(`
+  UPDATE tasks SET status=@status, progress=@progress, script=@script, metadata=@metadata, updated_at=@updated_at WHERE id=@id
+`);
+const stmtUpdateReviewTask = db.prepare(`
+  UPDATE tasks SET status=@status, metadata=@metadata, updated_at=@updated_at WHERE id=@id
+`);
+
+/** Synchronous review-only mutation, atomic with job creation/transitions. No await in callback. */
+function mutateTaskJobs<T>(
+  id: string,
+  mutate: (task: GenerateTask, jobs: TaskJobRecord[]) => T,
+  scope: "review" | "queue",
+): T | null {
+  return db.transaction(() => {
+    const row = stmtGetTask.get(id) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    const task = rowToTask(row);
+    const jobs = listTaskJobsByTaskId(id);
+    const before = new Map(jobs.map(job => [job.id, JSON.stringify(job)]));
+    const result = mutate(task, jobs);
+    if (result && typeof result === "object" && "then" in result) {
+      throw new Error("Review mutations must be synchronous");
+    }
+    const metadata = safeJsonParse<Record<string, unknown>>(row.metadata as string | null) ?? {};
+    const reviewMetadata = safeJsonParse<Record<string, unknown>>(taskToRow(task).metadata) ?? {};
+    const fields = scope === "review" ? REVIEW_METADATA_FIELDS
+      : ["queueSummary", "comfyuiRemotePendingCount", "visualDiagnosisState"] as const;
+    for (const key of fields) {
+      if (key in reviewMetadata) metadata[key] = reviewMetadata[key];
+      else delete metadata[key];
+    }
+    const encoded = JSON.stringify(metadata);
+    if (scope === "review") {
+      if (encoded !== row.metadata || task.status !== row.status) {
+        stmtUpdateReviewTask.run({ id, status: task.status, metadata: encoded, updated_at: new Date().toISOString() });
+      }
+    } else {
+      const script = task.script ? JSON.stringify(task.script) : null;
+      if (encoded !== row.metadata || task.status !== row.status || task.progress !== row.progress || script !== row.script) {
+        stmtUpdateQueueTask.run({ id, status: task.status, progress: task.progress, script,
+          metadata: encoded, updated_at: new Date().toISOString() });
+      }
+    }
+    for (const job of jobs) {
+      if (JSON.stringify(job) === before.get(job.id)) continue;
+      if (job.taskId !== id || (scope === "review" && job.kind !== "deep_review")) throw new Error("Invalid task job mutation");
+      stmtUpsertTaskJob.run(taskJobToRow(job));
+    }
+    return result;
+  }).immediate();
+}
+
+export function mutateTaskReviewState<T>(id: string, mutate: (task: GenerateTask, jobs: TaskJobRecord[]) => T): T | null {
+  return mutateTaskJobs(id, mutate, "review");
+}
+
+export function mutateTaskQueueState<T>(id: string, mutate: (task: GenerateTask, jobs: TaskJobRecord[]) => T): T | null {
+  return mutateTaskJobs(id, mutate, "queue");
 }
 
 export function clearTaskJobsByTaskId(taskId: string): number {
@@ -1028,6 +1172,14 @@ export function saveConfig(config: UserAPIConfigV2): void {
   });
 }
 
+/** Compare and write under one SQLite write transaction (also across server processes). */
+export function saveConfigIfMatch(config: UserAPIConfigV2, expectedRevision: string): boolean {
+  return db.transaction(() => {
+    if (configRevision(getConfig()) !== expectedRevision) return false;
+    saveConfig(config);
+    return true;
+  }).immediate();
+}
 // ============================================================
 // Images registry
 // ============================================================
@@ -1064,8 +1216,8 @@ export function deleteImage(key: string): boolean {
 }
 
 export function deleteImagesByPrefix(prefix: string): number {
-  const stmt = db.prepare("DELETE FROM images WHERE key LIKE ?");
-  const result = stmt.run(`${prefix}%`);
+  const stmt = db.prepare("DELETE FROM images WHERE key = ? OR substr(key, 1, length(?) + 1) = ? || '_'");
+  const result = stmt.run(prefix, prefix, prefix);
   return result.changes;
 }
 
@@ -1163,8 +1315,6 @@ function autoSeedDemo(): void {
     const count = db.prepare("SELECT COUNT(*) as cnt FROM tasks").get() as { cnt: number };
     if (count.cnt > 0) return;
 
-    // Lazy import to avoid circular dependency at module load
-    const { loadDemoSeed } = require("./demoSeed");
     const demoTasks = loadDemoSeed();
     if (demoTasks.length === 0) return;
 

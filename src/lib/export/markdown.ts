@@ -1,5 +1,7 @@
 import { ComicPanel } from "../types";
-import { getValidPanels, imageToBlob, triggerBlobDownload, dateSuffix } from "./shared";
+import { triggerBlobDownload, dateSuffix } from "./shared";
+import { buildPublicationArchive } from "./zip";
+import { defaultExportOptions, safeExportFilename, type ExportOptions } from "./options";
 
 // ============================================================
 // Markdown + 图片打包导出
@@ -46,28 +48,8 @@ export function generateMarkdownContent(panels: ComicPanel[], title: string): st
 
 /** 导出 Markdown + 图片打包为 ZIP */
 export async function downloadMarkdownWithImages(
-  panels: ComicPanel[],
-  title: string
+  panels: ComicPanel[], title: string, options: ExportOptions = defaultExportOptions("markdown"),
 ): Promise<void> {
-  const JSZip = (await import("jszip")).default;
-  const zip = new JSZip();
-  const validPanels = getValidPanels(panels);
-  if (validPanels.length === 0) throw new Error("没有可用的图片");
-
-  const imagesFolder = zip.folder("images");
-  if (!imagesFolder) throw new Error("创建 images 文件夹失败");
-
-  for (let i = 0; i < validPanels.length; i++) {
-    const panel = validPanels[i];
-    if (!panel.imageUrl) continue;
-    const blob = await imageToBlob(panel.imageUrl);
-    if (blob) {
-      imagesFolder.file(`panel_${String(i + 1).padStart(2, "0")}.png`, blob);
-    }
-  }
-
-  zip.file("README.md", generateMarkdownContent(validPanels, title));
-
-  const content = await zip.generateAsync({ type: "blob" });
-  triggerBlobDownload(content, `${title}_完整版_${dateSuffix()}.zip`);
+  const blob = await buildPublicationArchive(panels, title, { ...options, format: "markdown" });
+  triggerBlobDownload(blob, `${safeExportFilename(title)}_完整版_${dateSuffix()}.zip`);
 }

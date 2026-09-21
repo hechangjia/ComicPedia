@@ -92,6 +92,15 @@ const state = vi.hoisted(() => {
 });
 
 vi.mock("@/lib/server/db", () => ({
+  mutateTaskQueueState: vi.fn((id: string, mutate: (task: GenerateTask, jobs: TaskJobRecord[]) => unknown) => {
+    const task = state.getTask(id);
+    if (!task) return null;
+    const jobs = state.listJobs(id);
+    const result = mutate(task, jobs);
+    state.upsertTask(task);
+    state.setJobs(id, jobs);
+    return result;
+  }),
   getTaskById: vi.fn((taskId: string) => state.getTask(taskId)),
   upsertTask: vi.fn((task: GenerateTask) => state.upsertTask(task)),
   upsertTaskJob: vi.fn((job: TaskJobRecord) => state.upsertTaskJob(job)),

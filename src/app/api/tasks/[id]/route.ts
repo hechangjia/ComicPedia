@@ -106,10 +106,8 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
     const { id } = await params;
     // 先读取完整数据用于 trash 记录
     const task = getTaskById(id);
-    const existed = deleteTask(id);
-    if (existed) {
-      trashTaskImages(id, task ?? undefined);
-    }
+    if (task) trashTaskImages(id, task);
+    const existed = task ? deleteTask(id) : false;
     return NextResponse.json({ success: true, deleted: existed });
   } catch (error) {
     console.error("[API /tasks/[id] DELETE]", error);

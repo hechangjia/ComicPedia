@@ -1,10 +1,12 @@
+import { modelRequestBody } from "../providers/modelRequestBody";
+import { modelEndpoint } from "../providers/endpoints";
 import { ComicStyle, ImageEndpointType, ImageGeneratorAdapter, PartialImageGenConfig, ZImageExtraBody } from "../types";
 import { withRetry } from "../retryQueue";
 import { AppError } from "../errors";
 import { getStyleModifier, getStyleNegativePrompt } from "../config/styles";
 
 /** 文生图配置 */
-interface ImageGenConfig {
+interface ImageGenConfig extends PartialImageGenConfig {
   apiUrl: string;
   apiKey?: string;
   model?: string;
@@ -54,6 +56,7 @@ function getImageGenConfig(overrides?: PartialImageGenConfig): ImageGenConfig | 
     endpointType: overrides?.endpointType || "auto",
     extraBody: overrides?.extraBody,
     comfyuiWorkflow: overrides?.comfyuiWorkflow,
+    ...(overrides?.configId ? { configId: overrides.configId, configRole: overrides.configRole ?? "image" } : {}),
   };
 }
 
@@ -93,36 +96,9 @@ class ChatImageAdapter implements ImageGeneratorAdapter {
       authHeaders["Authorization"] = `Bearer ${this.config.apiKey}`;
     }
 
-    const base = this.config.apiUrl.replace(/\/+$/, "");
-
-    // 端点类型判断：优先使用用户显式配置，其次根据 URL 自动推断
-    let useChatEndpoint: boolean;
-    let normalizedUrl: string;
-
-    if (this.config.endpointType === "chat") {
-      useChatEndpoint = true;
-      normalizedUrl = base.includes("/chat/completions")
-        ? base
-        : `${base}/chat/completions`;
-    } else if (this.config.endpointType === "images") {
-      useChatEndpoint = false;
-      normalizedUrl = base.includes("/images/")
-        ? base
-        : `${base}/images/generations`;
-    } else {
-      // auto 模式：根据 URL 路径推断
-      if (base.includes("/chat/completions")) {
-        useChatEndpoint = true;
-        normalizedUrl = base;
-      } else if (base.includes("/images/")) {
-        useChatEndpoint = false;
-        normalizedUrl = base;
-      } else {
-        // 默认使用 images API（向后兼容）
-        useChatEndpoint = false;
-        normalizedUrl = `${base}/images/generations`;
-      }
-    }
+    const useChatEndpoint = this.config.endpointType === "chat"
+      || (this.config.endpointType !== "images" && this.config.apiUrl.includes("/chat/completions"));
+    const normalizedUrl = modelEndpoint(this.config.apiUrl, useChatEndpoint ? "chat" : "images");
 
     const useImageEndpoint = !useChatEndpoint;
 
@@ -136,11 +112,7 @@ class ChatImageAdapter implements ImageGeneratorAdapter {
       const response = await fetch("/api/image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          targetUrl: normalizedUrl,
-          headers: authHeaders,
-          payload: body,
-        }),
+        body: JSON.stringify(modelRequestBody(this.config, normalizedUrl, authHeaders, body)),
         signal,
       });
 
@@ -494,7 +466,7 @@ class ComfyUIAdapter implements ImageGeneratorAdapter {
   async generate(prompt: string, style: ComicStyle, seed?: number, signal?: AbortSignal): Promise<string> {
     const styledPrompt = `${getStyleModifier(style)}, ${prompt}`;
 
-    if (!this.config.comfyuiWorkflow) {
+    if (!this.config.configId && !this.config.comfyuiWorkflow) {
       throw new AppError({
         code: "COMFYUI_NO_WORKFLOW",
         message: "未配置 ComfyUI Workflow JSON",
@@ -504,7 +476,7 @@ class ComfyUIAdapter implements ImageGeneratorAdapter {
 
     let workflow: Record<string, unknown>;
     try {
-      workflow = JSON.parse(this.config.comfyuiWorkflow);
+      workflow = this.config.configId ? {} : JSON.parse(this.config.comfyuiWorkflow!);
     } catch {
       throw new AppError({
         code: "COMFYUI_INVALID_WORKFLOW",
@@ -528,8 +500,7 @@ class ComfyUIAdapter implements ImageGeneratorAdapter {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        comfyuiUrl: this.config.apiUrl,
-        workflow,
+        ...(this.config.configId ? { modelRef: { id: this.config.configId, role: "image" } } : { comfyuiUrl: this.config.apiUrl, workflow }),
         prompt: styledPrompt,
         negativePrompt: negativePrompt || undefined,
         referenceImage: typeof referenceImage === "string" && referenceImage.startsWith("data:image") ? referenceImage : undefined,

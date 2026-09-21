@@ -1,3 +1,4 @@
+import { resolveProxyModelBody, ModelReferenceError } from "@/lib/server/modelRequest";
 import { NextRequest, NextResponse } from "next/server";
 import {
   forwardImageGenerationRequest,
@@ -19,7 +20,7 @@ function isForwardRawImageGenerationResponse(
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const body = await resolveProxyModelBody(await request.json(), ["image"]);
     const { targetUrl, headers: clientHeaders, payload } = body;
 
     if (!targetUrl) {
@@ -41,6 +42,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(result);
   } catch (error) {
+    if (error instanceof ModelReferenceError) return Response.json({ error: error.message }, { status: error.status });
     if (error instanceof ImageGenerationServiceError) {
       return NextResponse.json(
         { error: error.message, status: error.status },

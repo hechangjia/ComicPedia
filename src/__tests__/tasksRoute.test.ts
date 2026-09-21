@@ -8,6 +8,7 @@ const {
   upsertTaskMock,
   clearAllTasksMock,
   getAllTaskIdsMock,
+  getTaskByIdMock,
   deleteTasksByIdsMock,
   extractTaskImagesAsyncMock,
   fileRefsToUrlsMock,
@@ -27,6 +28,7 @@ const {
   upsertTaskMock: vi.fn(),
   clearAllTasksMock: vi.fn(),
   getAllTaskIdsMock: vi.fn(),
+  getTaskByIdMock: vi.fn(),
   deleteTasksByIdsMock: vi.fn(),
   extractTaskImagesAsyncMock: vi.fn(),
   fileRefsToUrlsMock: vi.fn((value) => value),
@@ -52,6 +54,7 @@ vi.mock("@/lib/server/db", () => ({
   upsertTask: upsertTaskMock,
   clearAllTasks: clearAllTasksMock,
   getAllTaskIds: getAllTaskIdsMock,
+  getTaskById: getTaskByIdMock,
   deleteTasksByIds: deleteTasksByIdsMock,
 }));
 
@@ -92,6 +95,7 @@ describe("/api/tasks routes", () => {
     upsertTaskMock.mockReset();
     clearAllTasksMock.mockReset();
     getAllTaskIdsMock.mockReset();
+    getTaskByIdMock.mockReset();
     deleteTasksByIdsMock.mockReset();
     extractTaskImagesAsyncMock.mockReset();
     fileRefsToUrlsMock.mockReset();
@@ -592,4 +596,28 @@ describe("/api/tasks routes", () => {
     expect(clearAllTasksMock).not.toHaveBeenCalled();
     expect(deleteTasksByIdsMock).not.toHaveBeenCalled();
   });
+  it.each(["../escape", "..", "C:\\escape", "", "NUL"])("rejects unsafe delete id %j without side effects", async (id) => {
+    const { DELETE } = await import("@/app/api/tasks/route");
+    const response = await DELETE(new NextRequest("http://localhost/api/tasks", {
+      method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: ["safe", id] }),
+    }));
+    expect(response.status).toBe(400);
+    expect(trashTaskImagesMock).not.toHaveBeenCalled();
+    expect(deleteTasksByIdsMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves metadata and ignores missing/duplicate IDs during bulk deletion", async () => {
+    const task = { id: "task-existing", script: { title: "Keep me" } };
+    getTaskByIdMock.mockImplementation((id) => id === task.id ? task : null);
+    deleteTasksByIdsMock.mockReturnValue(1);
+    const { DELETE } = await import("@/app/api/tasks/route");
+    const response = await DELETE(new NextRequest("http://localhost/api/tasks", {
+      method: "DELETE", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: [task.id, "missing", task.id] }),
+    }));
+    expect(response.status).toBe(200);
+    expect(trashTaskImagesMock).toHaveBeenCalledExactlyOnceWith(task.id, task);
+    expect(deleteTasksByIdsMock).toHaveBeenCalledWith([task.id]);
+  });
+
 });

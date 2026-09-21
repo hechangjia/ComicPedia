@@ -15,6 +15,11 @@ if ! command -v pnpm >/dev/null 2>&1; then
   exit 1
 fi
 
+if [[ -z "${SMOKE_CONFIG_PATH:-}" || ! -f "${SMOKE_CONFIG_PATH}" ]]; then
+  echo "Set SMOKE_CONFIG_PATH to a private v2 config JSON file (do not commit credentials)."
+  exit 1
+fi
+
 BASE_URL="${SMOKE_BASE_URL:-}"
 SERVER_PID=""
 SERVER_LOG=""

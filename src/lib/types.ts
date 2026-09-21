@@ -13,6 +13,8 @@ export interface PanelVisualScore {
 
 /** VLM 视觉质量评分（基于实际生成图片） */
 export interface VisualQualityScore {
+  /** Structured source identity for safe durable review reuse. */
+  sourceFingerprint?: string;
   overall: number;
   panels: PanelVisualScore[];
   /** 跨面板一致性总分 (P3) */
@@ -92,6 +94,8 @@ export interface VisualDiagnosisSummary {
 
 /** Persisted result of the VLM diagnosis pass */
 export interface VisualDiagnosisReport {
+  /** Identity of structured inputs, media bytes and the scoring model. */
+  sourceFingerprint?: string;
   schemaVersion: number;
   generatedAt: string;
   sourceEvaluatedAt: string;
@@ -746,8 +750,13 @@ export interface ImageGeneratorAdapter {
   generate(prompt: string, style: ComicStyle, seed?: number, signal?: AbortSignal): Promise<string>; // 返回图片URL
 }
 
+/** Saved model identity, resolved only by the server. */
+export interface ModelConfigReference {
+  configId?: string;
+  configRole?: "llm" | "vlm" | "image";
+}
 /** LLM 可覆盖配置（来自前端） */
-export interface PartialLLMConfig {
+export interface PartialLLMConfig extends ModelConfigReference {
   apiUrl?: string;
   apiKey?: string;
   model?: string;
@@ -773,7 +782,7 @@ export interface ZImageExtraBody {
 export type ImageEndpointType = "chat" | "images" | "comfyui" | "auto";
 
 /** 文生图可覆盖配置（来自前端） */
-export interface PartialImageGenConfig {
+export interface PartialImageGenConfig extends ModelConfigReference {
   apiUrl?: string;
   apiKey?: string;
   model?: string;
@@ -963,6 +972,10 @@ export interface UserLLMConfig {
   provider: APIProvider;
   apiUrl: string;
   apiKey: string;
+  /** Only a new unsaved input; accepted secrets are represented by hasApiKey. */
+  hasApiKey?: boolean;
+  clearApiKey?: boolean;
+  apiKeyInputRequired?: boolean;
   model: string;
   protocolType: "openai-compatible" | "anthropic";
 }
@@ -974,6 +987,10 @@ export interface UserImageConfig {
   provider: APIProvider;
   apiUrl: string;
   apiKey: string;
+  /** Only a new unsaved input; accepted secrets are represented by hasApiKey. */
+  hasApiKey?: boolean;
+  clearApiKey?: boolean;
+  apiKeyInputRequired?: boolean;
   model: string;
   size: string;
   endpointType: ImageEndpointType;

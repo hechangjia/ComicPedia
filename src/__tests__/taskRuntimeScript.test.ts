@@ -59,6 +59,10 @@ const {
 }));
 
 vi.mock("@/lib/server/db", () => ({
+  claimTaskScriptRun: vi.fn((id: string) => ({runId: "unit-run", task: getTaskByIdMock(id)})),
+  hasTaskScriptRun: vi.fn((id: string) => !!getTaskByIdMock(id)),
+  updateTaskForScriptRun: vi.fn((task: GenerateTask) => { upsertTaskMock(task); return true; }),
+  finishTaskScriptRun: vi.fn(),
   getTasksPaginated: vi.fn(),
   upsertTask: upsertTaskMock,
   clearAllTasks: vi.fn(),
@@ -568,4 +572,28 @@ describe("runResearchAndScriptTask", () => {
       quality: "standard",
     });
   });
+  it("stops deleted saved script references before any generation", async () => {
+    const task = { id: "deleted-ref", status: "created", progress: 0, createdAt: new Date(), updatedAt: new Date() };
+    getTaskByIdMock.mockReturnValue(task);
+    getConfigMock.mockReturnValue(null);
+    const { runResearchAndScriptTask } = await import("@/lib/server/taskOrchestrator/scriptRunner");
+    await runResearchAndScriptTask(task.id, makeRequest({ llmConfigId: "deleted", llmConfig: undefined, quality: "fast" }));
+    expect(generateScriptStreamMock).not.toHaveBeenCalled();
+    expect(generateScriptMock).not.toHaveBeenCalled();
+    expect(task.status).toBe("failed");
+    expect(upsertTaskMock).toHaveBeenLastCalledWith(expect.objectContaining({ error: expect.stringContaining("配置") }));
+  });
+
+  it("hydrates nested script references without trusting browser transport fields", async () => {
+    const task = { id: "saved-ref", status: "created", progress: 0, createdAt: new Date(), updatedAt: new Date() };
+    getTaskByIdMock.mockReturnValue(task);
+    getConfigMock.mockReturnValue({ llmConfigs: [{ id: "llm", apiUrl: "https://saved.example/v1", apiKey: "server-secret", model: "saved-model", protocolType: "openai-compatible" }], imageConfigs: [] });
+    generateScriptStreamMock.mockRejectedValue(new Error("intentional stop after call"));
+    generateScriptMock.mockRejectedValue(new Error("intentional stop after call"));
+    const { runResearchAndScriptTask } = await import("@/lib/server/taskOrchestrator/scriptRunner");
+    await runResearchAndScriptTask(task.id, makeRequest({ quality: "fast", characterIds: [], llmConfig: { configId: "llm", configRole: "llm", apiUrl: "https://wrong.example/v1", model: "wrong" } }));
+    expect(generateScriptStreamMock).toHaveBeenCalled();
+    expect(generateScriptStreamMock.mock.calls[0][3]).toMatchObject({ apiKey: "server-secret", apiUrl: "https://saved.example/v1", model: "saved-model" });
+  });
+
 });

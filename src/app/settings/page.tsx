@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { ConfigSyncBanner } from "@/components/settings/ConfigSyncBanner";
 import { useAPIConfig } from "@/hooks/useAPIConfig";
 import { useLLMForm, useImageForm } from "@/hooks/useConfigForm";
 import { AccuracyProviderConfig, UserLLMConfig, UserImageConfig } from "@/lib/types";
-import { testLLMConnection, testImageConnection, TestResult } from "@/lib/api/connectionTest";
+import { testLLMConnection, testImageConnection, testVLMConnection, TestResult } from "@/lib/api/connectionTest";
 import { LLMConfigCard } from "@/components/settings/LLMConfigCard";
 import { ImageConfigCard } from "@/components/settings/ImageConfigCard";
 import { LLMForm } from "@/components/settings/LLMForm";
@@ -16,7 +17,7 @@ import { MaintenancePanel } from "@/components/settings/MaintenancePanel";
 import { MigratePanel } from "@/components/settings/MigratePanel";
 import { VLM_PRESETS, getVLMPreset } from "@/lib/config/presets";
 import { BackupManager } from "@/components/settings/BackupManager";
-import { ConfigImportExport, exportSingleLLM, exportSingleImage } from "@/components/settings/ConfigImportExport";
+import { ConfigImportExport, exportSingleLLM, exportSingleImage, exportSingleVLM } from "@/components/settings/ConfigImportExport";
 import { getWatermarkText, setWatermarkText } from "@/lib/downloadUtils";
 import { testAccuracyProvider } from "@/lib/api/accuracyProviderTest";
 
@@ -70,12 +71,12 @@ function WatermarkInput() {
 
 export default function SettingsPage() {
   const {
-    config, isLoaded,
+    config, isLoaded, syncStatus, syncError, storageError, retrySync, reloadFromServer, refreshFromServer,
     addLLM, updateLLMById, removeLLM, setActiveLLM,
     addImage, updateImageById, removeImage, setActiveImage,
     addVLM, updateVLMById, removeVLM, setActiveVLM,
     addAccuracyProvider, updateAccuracyProviderById, removeAccuracyProvider, assignAccuracySlot, setAccuracyWhitelistDomains,
-    clearAll, validate,
+    clearAll, validate, importArchive,
   } = useAPIConfig();
   const validation = validate();
 
@@ -100,7 +101,7 @@ export default function SettingsPage() {
   const handleSaveLLM = () => {
     const result = llmForm.save();
     if (result === true) {
-      setMessage({ type: "success", text: llmForm.editingId ? "LLM 配置已更新" : "LLM 配置已添加" });
+      setMessage({ type: "success", text: llmForm.editingId ? "LLM 本地草稿已更新" : "LLM 本地草稿已添加" });
     } else {
       setMessage({ type: "error", text: result });
     }
@@ -111,7 +112,7 @@ export default function SettingsPage() {
   const handleSaveImage = () => {
     const result = imgForm.save();
     if (result === true) {
-      setMessage({ type: "success", text: imgForm.editingId ? "文生图配置已更新" : "文生图配置已添加" });
+      setMessage({ type: "success", text: imgForm.editingId ? "文生图本地草稿已更新" : "文生图本地草稿已添加" });
     } else {
       setMessage({ type: "error", text: result });
     }
@@ -122,7 +123,7 @@ export default function SettingsPage() {
   const handleSaveVLM = () => {
     const result = vlmForm.save();
     if (result === true) {
-      setMessage({ type: "success", text: vlmForm.editingId ? "VLM 配置已更新" : "VLM 配置已添加" });
+      setMessage({ type: "success", text: vlmForm.editingId ? "VLM 本地草稿已更新" : "VLM 本地草稿已添加" });
     } else {
       setMessage({ type: "error", text: result });
     }
@@ -131,22 +132,25 @@ export default function SettingsPage() {
 
   // 测试 LLM 连接
   const handleTestLLM = async (c: UserLLMConfig) => {
+    if (syncStatus !== "saved") { setMessage({ type: "error", text: "请先将配置保存到服务器，再进行能力测试。" }); return; }
     setLlmTests((prev) => ({ ...prev, [c.id]: { status: "testing" } }));
-    const result = await testLLMConnection(c);
+    const result = await testLLMConnection(c, true);
     setLlmTests((prev) => ({ ...prev, [c.id]: result }));
   };
 
   // 测试文生图连接
   const handleTestImage = async (c: UserImageConfig) => {
+    if (syncStatus !== "saved") { setMessage({ type: "error", text: "请先将配置保存到服务器，再进行能力测试。" }); return; }
     setImgTests((prev) => ({ ...prev, [c.id]: { status: "testing" } }));
-    const result = await testImageConnection(c);
+    const result = await testImageConnection(c, true);
     setImgTests((prev) => ({ ...prev, [c.id]: result }));
   };
 
-  // 测试 VLM 连接（复用 LLM 测试，因为 VLM = LLM with vision）
+  // 发送真实测试图，独立验证 VLM 的视觉能力
   const handleTestVLM = async (c: UserLLMConfig) => {
+    if (syncStatus !== "saved") { setMessage({ type: "error", text: "请先将配置保存到服务器，再进行能力测试。" }); return; }
     setVlmTests((prev) => ({ ...prev, [c.id]: { status: "testing" } }));
-    const result = await testLLMConnection(c);
+    const result = await testVLMConnection(c, true);
     setVlmTests((prev) => ({ ...prev, [c.id]: result }));
   };
 
@@ -210,10 +214,10 @@ export default function SettingsPage() {
 
     if (accuracyEditingId) {
       updateAccuracyProviderById(accuracyEditingId, providerData);
-      setMessage({ type: "success", text: "Accuracy Provider 已更新" });
+      setMessage({ type: "success", text: "检索服务本地草稿已更新" });
     } else {
       addAccuracyProvider(providerData);
-      setMessage({ type: "success", text: "Accuracy Provider 已添加" });
+      setMessage({ type: "success", text: "检索服务本地草稿已添加" });
     }
 
     resetAccuracyForm();
@@ -234,14 +238,14 @@ export default function SettingsPage() {
   };
 
   const handleTestAccuracyProvider = async (providerId: string) => {
+    if (syncStatus !== "saved") {
+      setMessage({ type: "error", text: "请先将配置保存到服务器，再测试检索服务。" });
+      return;
+    }
     setAccuracyTests((prev) => ({ ...prev, [providerId]: { status: "testing" } }));
     const result = await testAccuracyProvider(providerId);
     setAccuracyTests((prev) => ({ ...prev, [providerId]: result }));
-    updateAccuracyProviderById(providerId, {
-      healthStatus: result.healthStatus,
-      lastCheckedAt: result.lastCheckedAt,
-      lastError: result.lastError,
-    });
+    await refreshFromServer();
   };
 
   // 清除配置
@@ -251,7 +255,7 @@ export default function SettingsPage() {
       llmForm.cancel();
       imgForm.cancel();
       vlmForm.cancel();
-      setMessage({ type: "success", text: "所有配置已清除" });
+      setMessage({ type: "success", text: "本地配置已清空，正在同步到服务器" });
       setTimeout(() => setMessage(null), 3000);
     }
   };
@@ -290,11 +294,20 @@ export default function SettingsPage() {
         <h1 className="text-2xl font-bold">API 设置</h1>
         <ConfigImportExport
           config={config}
-          addLLM={addLLM}
-          addImage={addImage}
+          onImport={importArchive}
           onMessage={showMessage}
         />
       </div>
+
+      <ConfigSyncBanner
+        status={syncStatus}
+        error={syncError}
+        storageError={storageError}
+        onRetry={() => { void retrySync(); }}
+        onReload={() => {
+          if (window.confirm("读取服务器版本会替换当前本地草稿。请先备份需要保留的内容，确定继续？")) void reloadFromServer();
+        }}
+      />
 
       {/* 消息提示 */}
       {message && (
@@ -321,7 +334,7 @@ export default function SettingsPage() {
             ></span>
             <span className="text-sm">
               LLM: {config.llmConfigs.length} 个配置
-              {validation.hasLLM ? "（已就绪）" : "（未配置）"}
+              {validation.hasLLM ? "（字段完整）" : "（未配置）"}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -332,7 +345,7 @@ export default function SettingsPage() {
             ></span>
             <span className="text-sm">
               文生图: {config.imageConfigs.length} 个配置
-              {validation.hasImage ? "（已就绪）" : "（未配置）"}
+              {validation.hasImage ? "（字段完整）" : "（未配置）"}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -343,7 +356,7 @@ export default function SettingsPage() {
             ></span>
             <span className="text-sm">
               VLM: {(config.vlmConfigs || []).length} 个配置
-              {validation.hasVLM ? "（已就绪）" : "（未配置）"}
+              {validation.hasVLM ? "（字段完整）" : "（未配置）"}
             </span>
           </div>
         </div>
@@ -429,6 +442,7 @@ export default function SettingsPage() {
           <LLMForm
             fields={llmForm.fields}
             isEditing={!!llmForm.editingId}
+            editingId={llmForm.editingId}
             onChange={llmForm.updateFields}
             onProviderChange={llmForm.handleProviderChange}
             onSave={handleSaveLLM}
@@ -485,6 +499,7 @@ export default function SettingsPage() {
           <ImageForm
             fields={imgForm.fields}
             isEditing={!!imgForm.editingId}
+            editingId={imgForm.editingId}
             onChange={imgForm.updateFields}
             onProviderChange={imgForm.handleProviderChange}
             onSave={handleSaveImage}
@@ -524,6 +539,7 @@ export default function SettingsPage() {
                 onTest={handleTestVLM}
                 onEdit={vlmForm.startEdit}
                 onDelete={removeVLM}
+                onExport={(c) => exportSingleVLM(c, showMessage)}
               />
             ))}
           </div>
@@ -539,6 +555,7 @@ export default function SettingsPage() {
           <LLMForm
             fields={vlmForm.fields}
             isEditing={!!vlmForm.editingId}
+            editingId={vlmForm.editingId}
             onChange={vlmForm.updateFields}
             onProviderChange={vlmForm.handleProviderChange}
             onSave={handleSaveVLM}

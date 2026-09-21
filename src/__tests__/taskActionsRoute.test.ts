@@ -626,4 +626,15 @@ describe("/api/tasks/[id]/actions POST", () => {
     await expect(response.json()).resolves.toEqual({ error: "缺少视觉评审配置" });
     expect(startDeepReviewMock).not.toHaveBeenCalled();
   });
+  it("returns 409 for re-enqueue of an executing panel without starting another runtime", async () => {
+    getTaskByIdMock.mockReturnValue({ id: "task-actions", script: { panels: [{ status: "generating" }] } });
+    enqueuePanelImageJobsMock.mockRejectedValue(new Error("分镜 1 正在执行，请等待当前任务完成后再重绘"));
+    const { POST } = await import("@/app/api/tasks/[id]/actions/route");
+    const response = await POST(new NextRequest("http://localhost:3000/api/tasks/task-actions/actions", {
+      method: "POST", body: JSON.stringify({ action: "queue_panel_images", panelIndices: [0] }),
+    }), { params: Promise.resolve({ id: "task-actions" }) });
+    expect(response.status).toBe(409);
+    expect(enqueueImageQueueMock).not.toHaveBeenCalled();
+  });
+
 });

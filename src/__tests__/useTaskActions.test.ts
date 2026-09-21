@@ -494,11 +494,11 @@ describe("useTaskActions queue helpers", () => {
     getTaskMock.mockResolvedValue(makeTask());
     const { hook } = renderTaskActionsHook();
 
-    await hook.handleChangeStyle("ink");
+    await hook.handleChangeStyle("inkwash");
 
     expect(changeStyleAndRegenerateMock).toHaveBeenCalledWith(
       "task-actions-queue",
-      "ink",
+      "inkwash",
       { model: "img-1-model", quality: "fine" },
       "img-1",
     );
