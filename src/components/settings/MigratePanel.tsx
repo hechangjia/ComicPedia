@@ -1,4 +1,5 @@
 "use client";
+import { createConfigCache } from "@/lib/config/configCache";
 
 import { useState, useCallback } from "react";
 import { getIDBAllComics, getIDBAllCharacters, getIDBAllSeries } from "@/lib/client/db";
@@ -127,7 +128,7 @@ export function MigratePanel() {
       ]);
       let config: UserAPIConfigV2 | null = null;
       try {
-        const raw = localStorage.getItem("comicpedia_api_config");
+        const raw = createConfigCache(localStorage, sessionStorage).read();
         if (raw) config = JSON.parse(raw);
       } catch { addLog("⚠ localStorage 配置读取失败，跳过"); }
 

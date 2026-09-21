@@ -1,8 +1,11 @@
+import { hasMissingCredentialInput } from "@/lib/config/modelCredentials";
+import { normalizeUserConfig } from "@/lib/config/userConfig";
+import { validateConfigPayload } from "@/lib/config/configValidation";
 import { NextRequest, NextResponse } from "next/server";
 import {
   upsertTask,
   upsertCharacter,
-  saveConfig,
+  saveConfigIfMatch,
   batchUpsertSeries,
 } from "@/lib/server/db";
 import type { GenerateTask, Character, UserAPIConfigV2 } from "@/lib/types";
@@ -57,8 +60,13 @@ export async function POST(request: NextRequest) {
       }
 
       case "config": {
-        const config = data as UserAPIConfigV2;
-        saveConfig(config);
+        const error = validateConfigPayload(data);
+        if (error) return NextResponse.json({ error }, { status: 400 });
+        const config = normalizeUserConfig(data as UserAPIConfigV2);
+        if (hasMissingCredentialInput(config)) return NextResponse.json({ error: "草稿密钥未缓存，请重新输入后再迁移" }, { status: 400 });
+        if (!saveConfigIfMatch(config, '"empty"')) {
+          return NextResponse.json({ error: "服务器已有配置，已跳过旧配置迁移；请在设置页合并需要的条目" }, { status: 409 });
+        }
         count = 1;
         break;
       }

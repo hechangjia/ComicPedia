@@ -154,4 +154,22 @@ describe("server script replay payload", () => {
       provider: "openai-compatible",
     });
   });
+  it("resolves nested request config IDs and refuses deleted references", async () => {
+    getConfigMock.mockReturnValue(makeConfig());
+    const { buildServerScriptReplayPayload, hydrateReplayRequest } = await import("@/lib/server/taskOrchestrator/replay");
+    const payload = buildServerScriptReplayPayload({ topic: "QA", style: "flat", llmConfig: { configId: "llm-1", configRole: "llm" }, imageConfig: { configId: "img-1", configRole: "image" } });
+    expect(payload.llm?.configId).toBe("llm-1"); expect(payload.image?.configId).toBe("img-1");
+    expect(hydrateReplayRequest(payload).llmConfig?.apiKey).toBe("llm-secret");
+    getConfigMock.mockReturnValue(null);
+    expect(hydrateReplayRequest({ ...payload, llm: { configId: "llm-1", fallback: { apiUrl: "http://localhost:1234" } } }).llmConfig).toBeUndefined();
+  });
+
+  it("retains legacy stored reference IDs when hydration cannot find a model", async () => {
+    getConfigMock.mockReturnValue(null);
+    const { hydrateReplayRequest } = await import("@/lib/server/taskOrchestrator/replay");
+    const request = hydrateReplayRequest({ request: { topic: "legacy replay", style: "anime" }, llm: { configId: "deleted-text" }, image: { configId: "deleted-image" } });
+    // The script runner needs these IDs to fail rather than use environment defaults.
+    expect(request.llmConfigId).toBe("deleted-text");
+    expect(request.imageConfigId).toBe("deleted-image");
+  });
 });

@@ -286,8 +286,10 @@ export function CompletedView({
                 onRunDiagnosisRepair={actions.handleRunDiagnosisRepair}
               />
             ),
+            // Evaluation is an action, not only a viewer for already cached scores.
             visible: !!(
-              task.qualityScore
+              (task.status === "completed" && task.script?.panels.length)
+              || task.qualityScore
               || task.visualQualityScore
               || task.visualDiagnosisReport
               || task.visualDiagnosisState

@@ -41,7 +41,7 @@ interface PanelGridProps {
 }
 
 const PANEL_REVIEW_LABELS: Record<PanelReviewStatus, string> = {
-  reviewed: "已通过",
+  reviewed: "评分达标",
   needs_repair: "待修复",
   retrying: "修复中",
   failed: "修复失败",
@@ -56,7 +56,7 @@ const PANEL_REVIEW_BADGES: Record<PanelReviewStatus, string> = {
 
 const TASK_REVIEW_LABELS: Record<ReviewStatus, string> = {
   unreviewed: "未评审",
-  reviewed: "已评审",
+  reviewed: "已评分",
   needs_repair: "需修复",
 };
 
@@ -155,7 +155,7 @@ export function PanelGrid({
           <div className="flex flex-wrap items-center gap-2">
             {reviewStatus && (
               <span className={`px-2 py-1 rounded-full text-xs font-medium ${TASK_REVIEW_BADGES[reviewStatus]}`}>
-                任务评审：{TASK_REVIEW_LABELS[reviewStatus]}
+                视觉评分状态：{TASK_REVIEW_LABELS[reviewStatus]}
               </span>
             )}
             {visualRetrySummary && (
@@ -175,10 +175,12 @@ export function PanelGrid({
             )}
           </div>
 
+          <p className="text-xs text-secondary-text">评分状态不代表已逐格深入诊断；诊断覆盖范围请查看质量评分中的记录。</p>
+
           {reviews.length > 0 && (
             <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-              <span className="px-2 py-1 rounded-full bg-muted/70">已评审 {reviews.length}/{panels.length}</span>
-              {reviewedCount > 0 && <span className="px-2 py-1 rounded-full bg-success/10 text-success">通过 {reviewedCount}</span>}
+              <span className="px-2 py-1 rounded-full bg-muted/70">已评分 {reviews.length}/{panels.length}</span>
+              {reviewedCount > 0 && <span className="px-2 py-1 rounded-full bg-success/10 text-success">评分达标 {reviewedCount}</span>}
               {needsRepairCount > 0 && <span className="px-2 py-1 rounded-full bg-warning/10 text-warning">待修复 {needsRepairCount}</span>}
               {retryingCount > 0 && <span className="px-2 py-1 rounded-full bg-info/10 text-info">修复中 {retryingCount}</span>}
               {failedCount > 0 && <span className="px-2 py-1 rounded-full bg-error/10 text-error">失败 {failedCount}</span>}

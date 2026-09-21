@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   ComicStyle,
@@ -13,13 +13,15 @@ import {
   ReferenceGenMode,
   Character,
 } from "@/lib/types";
-import { useConfigCheck, getStoredConfigs, getStoredRequestConfigs } from "@/hooks/useAPIConfig";
+import { useConfigCheck, useConfigSnapshot, getStoredConfigSnapshot, getStoredConfigs, getStoredRequestConfigs } from "@/hooks/useAPIConfig";
 import { startGeneration } from "@/lib/client/generator";
 import { generateReferenceImagePrompt, generateCharacterPrompts } from "@/lib/llm";
 import { getImageAdapter } from "@/lib/imageGen";
 import { extractReferenceEntries } from "@/components/CharacterPicker";
 import { urlToBase64, createReferenceEntry } from "@/lib/utils";
 import { buildGenerationSnapshot, type GenerationPresetId } from "@/lib/config/generationPresets";
+
+import { buildCreationPreflight, type CreationPreflight } from "@/lib/creation/preflight";
 
 // ============================================================
 // 类型定义
@@ -47,6 +49,8 @@ export interface ContentFormState {
   router: ReturnType<typeof useRouter>;
   configStatus: ReturnType<typeof useConfigCheck>;
 
+  preflight: CreationPreflight;
+  effectivePreset: GenerationPresetSnapshot;
   // 共享状态
   style: ComicStyle;
   setStyle: (s: ComicStyle) => void;
@@ -132,6 +136,8 @@ export function useContentForm(
 ): ContentFormState {
   const router = useRouter();
   const configStatus = useConfigCheck();
+  const configSnapshot = useConfigSnapshot();
+  const submissionPending = useRef(false);
 
   // 共享状态
   const [style, setStyle] = useState<ComicStyle>(config.defaultStyle);
@@ -141,7 +147,7 @@ export function useContentForm(
   const [error, setError] = useState("");
   const [selectedLLMId, setSelectedLLMId] = useState<string | null>(null);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
-  const [selectedPresetId, setSelectedPresetId] = useState<GenerationPresetId>("one-click-full");
+  const [selectedPresetId, setSelectedPresetId] = useState<GenerationPresetId>("balanced-auto");
   const [advancedSettings, setAdvancedSettings] = useState<Partial<GenerationPresetSnapshot>>({});
   const [quality, setQuality] = useState<GenerationQuality>("standard");
   const [difficulty, setDifficulty] = useState<DifficultyLevel>("medium");
@@ -217,6 +223,7 @@ export function useContentForm(
 
   /** 清除草稿（提交成功后调用） */
   const clearDraft = useCallback(() => {
+    if (draftTimer.current) clearTimeout(draftTimer.current);
     try { localStorage.removeItem(DRAFT_KEY); } catch { /* noop */ }
   }, [DRAFT_KEY]);
 
@@ -359,29 +366,37 @@ export function useContentForm(
     });
   }, []);
 
+  const preflightInput = useMemo(() => ({
+    selectedLLMId, selectedImageId, panelCount, customPanelCount,
+    maxPanelCount: config.maxPanelCount ?? 30,
+    preset: buildGenerationSnapshot(selectedPresetId, advancedSettings),
+  }), [selectedLLMId, selectedImageId, panelCount, customPanelCount, config.maxPanelCount, selectedPresetId, advancedSettings]);
+  const preflight = buildCreationPreflight({ ...preflightInput, config: configSnapshot.config, syncStatus: configSnapshot.syncStatus });
+
   const handleSubmit = useCallback(async (
     inputText: string,
     extraPayload?: Partial<GenerateRequest>,
   ) => {
+    if (submissionPending.current) return;
     if (!inputText.trim()) {
       setError(config.emptyInputMessage);
       return;
     }
-    if (!configStatus.hasLLM) {
-      setError("请先配置 LLM API，点击上方横幅前往设置页面");
-      return;
-    }
+    const current = getStoredConfigSnapshot();
+    const checked = buildCreationPreflight({ ...preflightInput, config: current.config, syncStatus: current.syncStatus });
+    if (!checked.canSubmit) { setError(checked.errors.join(" ")); return; }
+    submissionPending.current = true;
 
     setIsLoading(true);
     setError("");
 
     try {
-      const storedConfigs = getStoredConfigs();
+      const storedConfigs = current.config;
       const { llmConfig, imageConfig } = getStoredRequestConfigs(
         selectedLLMId ?? undefined,
         selectedImageId ?? undefined,
       );
-      const finalPanelCount = customPanelCount ? parseInt(customPanelCount, 10) : panelCount;
+      const finalPanelCount = checked.panelCount;
 
       const payload: GenerateRequest = {
         topic: inputText,
@@ -390,8 +405,8 @@ export function useContentForm(
         quality,
         difficulty,
         allowGuideCharacter,
-        presetSnapshot: buildGenerationSnapshot(selectedPresetId, advancedSettings),
         ...extraPayload,
+        presetSnapshot: buildGenerationSnapshot(selectedPresetId, advancedSettings),
       };
 
       if (finalPanelCount !== null && finalPanelCount > 0) {
@@ -421,18 +436,17 @@ export function useContentForm(
     } catch (err) {
       setError(err instanceof Error ? err.message : "生成失败，请重试");
       setIsLoading(false);
+      submissionPending.current = false;
     }
   }, [
     clearDraft,
     config.contentType,
     config.emptyInputMessage,
-    configStatus.hasLLM,
+    preflightInput,
     controlMode,
     allowGuideCharacter,
     advancedSettings,
-    customPanelCount,
     difficulty,
-    panelCount,
     quality,
     referenceEntries,
     referenceImage,
@@ -446,7 +460,7 @@ export function useContentForm(
   ]);
 
   return {
-    router, configStatus,
+    router, configStatus, preflight, effectivePreset: preflightInput.preset,
     style, setStyle,
     panelCount, setPanelCount,
     customPanelCount, setCustomPanelCount,

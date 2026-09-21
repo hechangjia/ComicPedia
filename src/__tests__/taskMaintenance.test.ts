@@ -1,3 +1,4 @@
+import type { GenerateTask } from "@/lib/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getAllTasksMock = vi.fn();
@@ -22,7 +23,7 @@ vi.mock("@/lib/server/imageStorage", () => ({
 
 const taskModule = await import("@/lib/server/taskMaintenance");
 
-function makeTask(overrides: Record<string, unknown> = {}) {
+function makeTask(overrides: Partial<GenerateTask> = {}): GenerateTask {
   return {
     id: "task-1",
     origin: "user",
@@ -69,7 +70,7 @@ describe("task maintenance scan and lookup", () => {
           title: "神农尝百草",
           topic: "Topic",
           style: "flat",
-          panels: [{ id: 1, scene: "Scene", dialogue: "Line", status: "completed", imageUrl: "file://real-1_panel0_cur" }],
+          panels: [{ id: 1, scene: "Scene", dialogue: "Line", imagePrompt: "test prompt", status: "completed", imageUrl: "file://real-1_panel0_cur" }],
         },
       }),
     ]);
@@ -90,7 +91,7 @@ describe("task maintenance scan and lookup", () => {
           title: "神农尝百草：从传说到医药文明",
           topic: "神农尝百草",
           style: "flat",
-          panels: [{ id: 1, scene: "Scene", dialogue: "Line", imageUrl: "file://real-1_panel0_cur", status: "completed" }],
+          panels: [{ id: 1, scene: "Scene", dialogue: "Line", imagePrompt: "test prompt", imageUrl: "file://real-1_panel0_cur", status: "completed" }],
         },
       }),
       makeTask({

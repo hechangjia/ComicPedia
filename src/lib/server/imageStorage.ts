@@ -1,14 +1,17 @@
 import path from "path";
 import fs from "fs";
 import { promises as fsp } from "fs";
+import { getDataDirectory } from "./dataDirectory";
+import { assertStorageSegment, isStorageSegment, isSafeStoragePath } from "./storageBoundary";
 
 // ============================================================
 // 图片文件系统存储
 // 将 base64 图片保存到 data/images/ 目录，返回相对路径引用
 // ============================================================
 
-const IMAGE_BASE = path.join(process.cwd(), "data", "images");
-const TRASH_BASE = path.join(process.cwd(), "data", ".trash");
+const DATA_BASE = getDataDirectory();
+const IMAGE_BASE = path.join(DATA_BASE, "images");
+const TRASH_BASE = path.join(DATA_BASE, ".trash");
 const OUTPUT_BASE = path.join(process.cwd(), "public", "output");
 
 /** 从 base64 data URI 提取 MIME 类型和扩展名 */
@@ -32,57 +35,68 @@ function extractDirName(key: string): string {
 
 /**
  * 保存 base64 图片到文件系统。
- * @returns 相对于项目根目录的路径
+ * @returns 可迁移的 data/images/ 逻辑路径
  */
 export function saveImageFile(key: string, base64Data: string): { filePath: string; size: number } | null {
+  assertStorageSegment(key);
   const parsed = parseDataUri(base64Data);
   if (!parsed) return null;
 
   const dirName = extractDirName(key);
   const dir = path.join(IMAGE_BASE, dirName);
-  fs.mkdirSync(dir, { recursive: true });
-
   const fileName = `${key}.${parsed.ext}`;
   const fullPath = path.join(dir, fileName);
 
   // Path traversal 防护
   const resolved = path.resolve(fullPath);
-  if (!resolved.startsWith(path.resolve(IMAGE_BASE) + path.sep)) {
+  if (!isSafeStoragePath(IMAGE_BASE, resolved)) {
     throw new Error("Invalid image path");
   }
 
+  fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(fullPath, parsed.buffer);
+  _keyPathCache.delete(key);
 
-  // 返回相对于项目根的路径
-  const relativePath = path.relative(process.cwd(), fullPath).replace(/\\/g, "/");
+  // 逻辑引用不暴露物理存储位置，允许迁移整个 data 目录
+  const relativePath = `data/images/${path.relative(IMAGE_BASE, fullPath).replace(/\\/g, "/")}`;
   return { filePath: relativePath, size: parsed.buffer.length };
 }
 
 /**
  * 异步版本：保存 base64 图片到文件系统，不阻塞事件循环。
- * @returns 相对于项目根目录的路径
+ * @returns 可迁移的 data/images/ 逻辑路径
  */
 export async function saveImageFileAsync(key: string, base64Data: string): Promise<{ filePath: string; size: number } | null> {
+  assertStorageSegment(key);
   const parsed = parseDataUri(base64Data);
   if (!parsed) return null;
 
   const dirName = extractDirName(key);
   const dir = path.join(IMAGE_BASE, dirName);
-  await fsp.mkdir(dir, { recursive: true });
-
   const fileName = `${key}.${parsed.ext}`;
   const fullPath = path.join(dir, fileName);
 
   // Path traversal 防护
   const resolved = path.resolve(fullPath);
-  if (!resolved.startsWith(path.resolve(IMAGE_BASE) + path.sep)) {
+  if (!isSafeStoragePath(IMAGE_BASE, resolved)) {
     throw new Error("Invalid image path");
   }
 
+  await fsp.mkdir(dir, { recursive: true });
   await fsp.writeFile(fullPath, parsed.buffer);
+  _keyPathCache.delete(key);
 
-  const relativePath = path.relative(process.cwd(), fullPath).replace(/\\/g, "/");
+  const relativePath = `data/images/${path.relative(IMAGE_BASE, fullPath).replace(/\\/g, "/")}`;
   return { filePath: relativePath, size: parsed.buffer.length };
+}
+
+/** Resolve logical data/images references against the configured storage root. */
+export function resolveStoredImagePath(filePath: string): string | null {
+  const normalized = filePath.replace(/\\/g, "/");
+  const candidate = normalized.startsWith("data/images/")
+    ? path.resolve(DATA_BASE, normalized.slice("data/".length))
+    : path.resolve(process.cwd(), filePath);
+  return isSafeStoragePath(IMAGE_BASE, candidate) ? candidate : null;
 }
 
 /**
@@ -90,15 +104,8 @@ export async function saveImageFileAsync(key: string, base64Data: string): Promi
  */
 export function readImageAsBase64(filePath: string): string | null {
   try {
-    const absPath = path.isAbsolute(filePath)
-      ? filePath
-      : path.join(process.cwd(), filePath);
-
-    // Path traversal 防护
-    const resolved = path.resolve(absPath);
-    if (!resolved.startsWith(path.resolve(IMAGE_BASE))) {
-      return null;
-    }
+    const resolved = resolveStoredImagePath(filePath);
+    if (!resolved) return null;
 
     if (!fs.existsSync(resolved)) return null;
 
@@ -119,14 +126,15 @@ const _keyPathCache = new Map<string, { absPath: string; mime: string } | null>(
 const _KEY_CACHE_MAX = 2000;
 
 export function readImageByKey(key: string): { absPath: string; mime: string } | null {
+  if (!isStorageSegment(key)) return null;
   const cached = _keyPathCache.get(key);
-  if (cached !== undefined) return cached;
+  if (cached && isSafeStoragePath(IMAGE_BASE, cached.absPath) && fs.existsSync(cached.absPath)) return cached;
+  _keyPathCache.delete(key);
 
   const dirName = extractDirName(key);
   const dir = path.join(IMAGE_BASE, dirName);
 
-  if (!fs.existsSync(dir)) {
-    _keyPathCache.set(key, null);
+  if (!isSafeStoragePath(IMAGE_BASE, dir) || !fs.existsSync(dir)) {
     return null;
   }
 
@@ -135,11 +143,11 @@ export function readImageByKey(key: string): { absPath: string; mime: string } |
     const files = fs.readdirSync(dir);
     const match = files.find((f) => f.startsWith(key + "."));
     if (!match) {
-      _keyPathCache.set(key, null);
       return null;
     }
 
     const absPath = path.join(dir, match);
+    if (!isSafeStoragePath(IMAGE_BASE, absPath)) return null;
     const ext = path.extname(match).slice(1);
     const mime = `image/${ext === "jpg" ? "jpeg" : ext}`;
     const result = { absPath, mime };
@@ -161,15 +169,12 @@ export function readImageByKey(key: string): { absPath: string; mime: string } |
  */
 export function deleteImageFile(filePath: string): boolean {
   try {
-    const absPath = path.isAbsolute(filePath)
-      ? filePath
-      : path.join(process.cwd(), filePath);
-
-    const resolved = path.resolve(absPath);
-    if (!resolved.startsWith(path.resolve(IMAGE_BASE))) return false;
+    const resolved = resolveStoredImagePath(filePath);
+    if (!resolved) return false;
 
     if (fs.existsSync(resolved)) {
       fs.unlinkSync(resolved);
+      _keyPathCache.clear();
       return true;
     }
     return false;
@@ -184,6 +189,8 @@ export function deleteImageFile(filePath: string): boolean {
  * @returns 删除的文件数
  */
 export function deleteImagesByDir(dirName: string): number {
+  assertStorageSegment(dirName);
+  _keyPathCache.clear();
   let count = 0;
 
   // 精确匹配：删除 IMAGE_BASE/{dirName}/ 目录
@@ -215,89 +222,30 @@ export function deleteImagesByDir(dirName: string): number {
  * @returns 移动的文件数
  */
 export function moveImagesToTrash(dirName: string): number {
-  fs.mkdirSync(TRASH_BASE, { recursive: true });
-  let count = 0;
-
-  // 精确匹配 + 前缀匹配（与 deleteImagesByDir 保持一致）
-  const dirsToMove: string[] = [];
-  const exactDir = path.join(IMAGE_BASE, dirName);
-  if (fs.existsSync(exactDir)) dirsToMove.push(dirName);
-
-  try {
-    if (fs.existsSync(IMAGE_BASE)) {
-      const entries = fs.readdirSync(IMAGE_BASE, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.isDirectory() && entry.name.startsWith(dirName + "_")) {
-          dirsToMove.push(entry.name);
-        }
-      }
-    }
-  } catch { /* 静默 */ }
-
-  for (const name of dirsToMove) {
-    const src = path.join(IMAGE_BASE, name);
-    const dest = path.join(TRASH_BASE, name);
-    try {
-      // 如果 .trash 中已存在同名目录，先删除
-      if (fs.existsSync(dest)) {
-        const files = fs.readdirSync(dest);
-        for (const f of files) fs.unlinkSync(path.join(dest, f));
-        fs.rmdirSync(dest);
-      }
-      fs.renameSync(src, dest);
-      count += fs.readdirSync(dest).length;
-    } catch {
-      // rename 跨盘时会失败，降级为复制+删除
-      try {
-        count += copyDir(src, dest);
-        removeDirWithin(IMAGE_BASE, src);
-      } catch { /* 静默 */ }
-    }
-  }
-
-  return count;
+  return moveImageGroupsToTrash([dirName]);
 }
 
-/**
- * 从 .trash/ 恢复图片目录到 data/images/。
- * @returns 恢复的文件数
- */
+export function moveImageGroupsToTrash(prefixes: string[]): number {
+  return transferImageDirectories(IMAGE_BASE, TRASH_BASE, collectImageDirectories(IMAGE_BASE, prefixes));
+}
+
+/** Restore canonical and migrated groups together, after one complete preflight. */
 export function restoreImagesFromTrash(dirName: string): number {
-  let count = 0;
-  const dirsToRestore: string[] = [];
+  return restoreImageGroupsFromTrash([dirName]);
+}
 
-  // 精确匹配
-  const exactDir = path.join(TRASH_BASE, dirName);
-  if (fs.existsSync(exactDir)) dirsToRestore.push(dirName);
+export function restoreImageGroupsFromTrash(prefixes: string[]): number {
+  return transferImageDirectories(TRASH_BASE, IMAGE_BASE, collectImageDirectories(TRASH_BASE, prefixes));
+}
 
-  // 前缀匹配
-  try {
-    if (fs.existsSync(TRASH_BASE)) {
-      const entries = fs.readdirSync(TRASH_BASE, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.isDirectory() && entry.name.startsWith(dirName + "_")) {
-          dirsToRestore.push(entry.name);
-        }
-      }
-    }
-  } catch { /* 静默 */ }
-
-  for (const name of dirsToRestore) {
-    const src = path.join(TRASH_BASE, name);
-    const dest = path.join(IMAGE_BASE, name);
-    try {
-      fs.mkdirSync(dest, { recursive: true });
-      fs.renameSync(src, dest);
-      count += fs.readdirSync(dest).length;
-    } catch {
-      try {
-        count += copyDir(src, dest);
-        removeDirSafe(src, TRASH_BASE);
-      } catch { /* 静默 */ }
-    }
-  }
-
-  return count;
+function collectImageDirectories(base: string, prefixes: string[]): string[] {
+  prefixes.forEach(assertStorageSegment);
+  _keyPathCache.clear();
+  if (!fs.existsSync(base)) return [];
+  return fs.readdirSync(base, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && prefixes.some((prefix) =>
+      entry.name === prefix || entry.name.startsWith(`${prefix}_`)))
+    .map((entry) => entry.name);
 }
 
 /**
@@ -305,6 +253,8 @@ export function restoreImagesFromTrash(dirName: string): number {
  * @returns 删除的文件数
  */
 export function purgeTrashImages(dirName: string): number {
+  assertStorageSegment(dirName);
+  _keyPathCache.clear();
   let count = 0;
 
   const exactDir = path.join(TRASH_BASE, dirName);
@@ -342,20 +292,39 @@ export function purgeAllTrash(): { dirs: number; files: number } {
   return { dirs, files };
 }
 
-/** 复制目录（rename 跨盘降级方案） */
-function copyDir(src: string, dest: string): number {
-  fs.mkdirSync(dest, { recursive: true });
-  const files = fs.readdirSync(src);
-  for (const file of files) {
-    fs.copyFileSync(path.join(src, file), path.join(dest, file));
+/** Preflight the entire transfer; never overwrite an existing recoverable copy. */
+function transferImageDirectories(sourceBase: string, destinationBase: string, names: string[]): number {
+  const transfers = [...new Set(names)].map((name) => ({
+    source: path.join(sourceBase, name),
+    destination: path.join(destinationBase, name),
+  })).filter(({ source, destination }) =>
+    isSafeStoragePath(sourceBase, source) && isSafeStoragePath(destinationBase, destination));
+  for (const { destination } of transfers) {
+    if (fs.existsSync(destination)) throw new Error("Image destination already exists; no files were overwritten");
   }
-  return files.length;
+  if (transfers.length === 0) return 0;
+  fs.mkdirSync(destinationBase, { recursive: true });
+  let count = 0;
+  const moved: typeof transfers = [];
+  try {
+    for (const transfer of transfers) {
+      const files = fs.readdirSync(transfer.source).length;
+      fs.renameSync(transfer.source, transfer.destination);
+      moved.push(transfer);
+      count += files;
+    }
+  } catch (error) {
+    // Both locations share DATA_BASE. A failed rename must not become a lossy copy.
+    for (const { source, destination } of moved.reverse()) fs.renameSync(destination, source);
+    throw error;
+  }
+  return count;
 }
 
 /** 安全删除目录（检查在 base 范围内） */
 function removeDirSafe(dir: string, base: string): number {
   const resolved = path.resolve(dir);
-  if (!resolved.startsWith(path.resolve(base))) return 0;
+  if (!isSafeStoragePath(base, resolved)) return 0;
   if (!fs.existsSync(resolved)) return 0;
   try {
     const files = fs.readdirSync(resolved);
@@ -374,8 +343,7 @@ function removeDirSafe(dir: string, base: string): number {
 /** 递归删除单个目录及其内容 */
 function removeDirWithin(rootDir: string, dir: string): number {
   const resolved = path.resolve(dir);
-  const resolvedRoot = path.resolve(rootDir);
-  if (!resolved.startsWith(resolvedRoot + path.sep)) return 0;
+  if (!isSafeStoragePath(rootDir, resolved)) return 0;
   if (!fs.existsSync(resolved)) return 0;
 
   try {
@@ -397,6 +365,7 @@ function removeDirWithin(rootDir: string, dir: string): number {
  * 仅用于兼容旧导出路径；canonical 存储已迁移到 data/images + images registry。
  */
 export function cleanupOutputDir(taskId: string): void {
+  assertStorageSegment(taskId);
   const outputBase = path.join(process.cwd(), "public", "output");
   const mapFile = path.join(outputBase, ".dirmap.json");
 
@@ -411,7 +380,7 @@ export function cleanupOutputDir(taskId: string): void {
     const resolved = path.resolve(targetDir);
 
     // 安全检查：确保在 outputBase 内
-    if (!resolved.startsWith(path.resolve(outputBase) + path.sep)) return;
+    if (!isSafeStoragePath(outputBase, resolved)) return;
 
     if (fs.existsSync(resolved)) {
       const files = fs.readdirSync(resolved);
@@ -559,12 +528,14 @@ export function scanOrphanImages(knownPrefixes: Set<string>): OrphanScanResult {
  * @returns 删除的文件数和回收的字节数
  */
 export function purgeOrphanImages(scan: OrphanScanResult): { deletedFiles: number; freedBytes: number } {
+  _keyPathCache.clear();
   let deletedFiles = 0;
   let freedBytes = 0;
 
   // 删除孤儿目录（文件大小已在 scan 阶段计入 reclaimableBytes）
   for (const dirName of scan.orphanDirs) {
     const dirPath = path.join(IMAGE_BASE, dirName);
+    if (!isSafeStoragePath(IMAGE_BASE, dirPath)) continue;
     const bytes = getDirSize(dirPath);
     const count = removeDirWithin(IMAGE_BASE, dirPath);
     deletedFiles += count;
@@ -573,6 +544,7 @@ export function purgeOrphanImages(scan: OrphanScanResult): { deletedFiles: numbe
 
   for (const dirName of scan.legacyOutputDirs) {
     const dirPath = path.join(OUTPUT_BASE, dirName);
+    if (!isSafeStoragePath(OUTPUT_BASE, dirPath)) continue;
     const bytes = getDirSize(dirPath);
     const count = removeDirWithin(OUTPUT_BASE, dirPath);
     deletedFiles += count;
@@ -583,7 +555,7 @@ export function purgeOrphanImages(scan: OrphanScanResult): { deletedFiles: numbe
   for (const dup of scan.duplicates) {
     const absPath = path.join(IMAGE_BASE, dup.remove.replace(/\//g, path.sep));
     const resolved = path.resolve(absPath);
-    if (!resolved.startsWith(path.resolve(IMAGE_BASE))) continue;
+    if (!isSafeStoragePath(IMAGE_BASE, resolved)) continue;
 
     try {
       if (fs.existsSync(resolved)) {

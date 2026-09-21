@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 
 const readImageByKeyMock = vi.fn();
 const readImageAsBase64Mock = vi.fn();
+const resolveStoredImagePathMock = vi.fn();
 const getImagePathMock = vi.fn();
 const readFileSyncMock = vi.fn();
 const existsSyncMock = vi.fn();
@@ -10,6 +11,7 @@ const existsSyncMock = vi.fn();
 vi.mock("@/lib/server/imageStorage", () => ({
   readImageByKey: readImageByKeyMock,
   readImageAsBase64: readImageAsBase64Mock,
+  resolveStoredImagePath: resolveStoredImagePathMock,
 }));
 
 vi.mock("@/lib/server/db", () => ({
@@ -28,6 +30,7 @@ describe("/api/images/[key] GET cache behavior", () => {
     readImageByKeyMock.mockReset();
     readImageAsBase64Mock.mockReset();
     getImagePathMock.mockReset();
+    resolveStoredImagePathMock.mockReset();
     readFileSyncMock.mockReset();
     existsSyncMock.mockReset();
   });
@@ -65,4 +68,15 @@ describe("/api/images/[key] GET cache behavior", () => {
 
     expect(response.headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
   });
+  it("does not read an untrusted registry path outside media storage", async () => {
+    getImagePathMock.mockReturnValue("data/images-private/secret.png");
+    resolveStoredImagePathMock.mockReturnValue(null);
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(Buffer.from("secret"));
+    const { GET } = await import("@/app/api/images/[key]/route");
+    const response = await GET(new NextRequest("http://localhost/api/images/safe"), { params: Promise.resolve({ key: "safe" }) });
+    expect(response.status).toBe(404);
+    expect(readFileSyncMock).not.toHaveBeenCalled();
+  });
+
 });

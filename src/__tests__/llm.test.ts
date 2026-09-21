@@ -396,3 +396,12 @@ describe("buildEnhancedTopicFromResearch", () => {
     expect(result).toBe("just a description");
   });
 });
+
+describe("local provider endpoint compatibility", () => {
+  it("uses the same normalized root as the connection test", async () => {
+    const mocked = vi.fn().mockResolvedValue(mockFetchResponse({ choices: [{ message: { content: "ok" } }] }));
+    vi.stubGlobal("fetch", mocked);
+    await callLLM("probe", { apiUrl: "http://localhost:8317", model: "gpt-5.6-luna" });
+    expect(JSON.parse(mocked.mock.calls[0][1].body).targetUrl).toBe("http://localhost:8317/v1/chat/completions");
+  });
+});

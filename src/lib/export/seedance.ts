@@ -1,5 +1,7 @@
 import { ComicPanel, ComicScript } from "../types";
-import { imageToBlob, triggerBlobDownload, dateSuffix } from "./shared";
+import { triggerBlobDownload, dateSuffix } from "./shared";
+import { buildExportPlan, defaultExportOptions, safeExportFilename, type ExportOptions } from "./options";
+import { readExportImage } from "./zip";
 
 // ============================================================
 // Seedance / AI 视频脚本导出
@@ -31,6 +33,7 @@ export interface SeedanceExportData {
   segmentCount: number;
   segments: SeedanceSegment[];
   exportedAt: string;
+  attribution?: string;
 }
 
 /** Estimate video duration from dialogue length + scene complexity */
@@ -47,9 +50,9 @@ function estimateDuration(panel: ComicPanel): number {
 
 /** Camera shot type keywords → shot type mapping */
 const CAMERA_RULES: [RegExp, string][] = [
-  [/\b(extreme\s+)?close[\s-]?up\b/i, "extreme close-up"],
-  [/\bclose[\s-]?up\b/i, "close-up"],
+  [/\bextreme\s+close[\s-]?up\b/i, "extreme close-up"],
   [/\bmedium\s+close[\s-]?up\b/i, "medium close-up"],
+  [/\bclose[\s-]?up\b/i, "close-up"],
   [/\b(bust|shoulder)\s+shot\b/i, "medium close-up"],
   [/\bmedium\s+shot\b/i, "medium shot"],
   [/\b(cowboy|american)\s+shot\b/i, "medium shot"],
@@ -124,24 +127,26 @@ function inferTransition(
 }
 
 /** Build Seedance export data */
-export function buildSeedanceData(script: ComicScript): SeedanceExportData {
-  const segments: SeedanceSegment[] = script.panels.map((panel, index) => ({
-    id: index + 1,
+export function buildSeedanceData(script: ComicScript, options: ExportOptions = defaultExportOptions("seedance-json")): SeedanceExportData {
+  const plan = buildExportPlan(script.panels, options);
+  const segments: SeedanceSegment[] = plan.entries.map(({panel, number}, index) => ({
+    id: number,
     prompt: panel.imagePrompt,
-    duration: estimateDuration(panel),
+    duration: options.seedance.durationMode === "fixed" ? options.seedance.seconds : estimateDuration(panel),
     narration: panel.dialogue,
     scene: panel.scene,
     camera: inferCamera(panel.imagePrompt),
     motion: inferMotion(panel.imagePrompt),
     mood: inferMood(panel.imagePrompt, panel.dialogue),
-    transition: inferTransition(panel, script.panels[index + 1]),
-    referenceImage: panel.imageUrl?.startsWith("data:image") ? panel.imageUrl : undefined,
+    transition: inferTransition(panel, plan.entries[index + 1]?.panel),
+    referenceImage: panel.imageUrl,
   }));
 
   return {
     title: script.title,
     style: script.style,
-    aspectRatio: "16:9",
+    aspectRatio: options.seedance.aspectRatio,
+    attribution: options.attribution || undefined,
     segmentCount: segments.length,
     totalDuration: segments.reduce((sum, s) => sum + s.duration, 0),
     segments,
@@ -169,6 +174,9 @@ function buildSeedanceText(data: SeedanceExportData): string {
     `| Segments | ${data.segmentCount} |`,
     `| Total Duration | ~${data.totalDuration}s |`,
     `| Exported | ${data.exportedAt} |`,
+    `| Attribution | ${data.attribution ?? ""} |`,
+    "",
+    "Local planning metadata only; provider duration/aspect-ratio compatibility has not been verified.",
     "",
     "---",
     "",
@@ -201,42 +209,42 @@ function buildSeedanceText(data: SeedanceExportData): string {
 }
 
 /** Export Seedance JSON */
-export function downloadForSeedanceJSON(script: ComicScript): void {
-  const data = buildSeedanceData(script);
+export function downloadForSeedanceJSON(script: ComicScript, options: ExportOptions = defaultExportOptions("seedance-json")): void {
+  const data = buildSeedanceData(script, { ...options, format: "seedance-json" });
   const json = JSON.stringify(stripReferenceImages(data), null, 2);
   const blob = new Blob([json], { type: "application/json;charset=utf-8" });
-  triggerBlobDownload(blob, `${script.title}_seedance_${dateSuffix()}.json`);
+  triggerBlobDownload(blob, `${safeExportFilename(script.title)}_seedance_${dateSuffix()}.json`);
 }
 
 /** Export Seedance plain text */
-export function downloadForSeedanceText(script: ComicScript): void {
-  const data = buildSeedanceData(script);
+export function downloadForSeedanceText(script: ComicScript, options: ExportOptions = defaultExportOptions("seedance-text")): void {
+  const data = buildSeedanceData(script, { ...options, format: "seedance-text" });
   const text = buildSeedanceText(data);
   const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-  triggerBlobDownload(blob, `${script.title}_seedance_${dateSuffix()}.txt`);
+  triggerBlobDownload(blob, `${safeExportFilename(script.title)}_seedance_${dateSuffix()}.txt`);
 }
 
 /** Seedance ZIP (JSON + TXT + reference images) */
-export async function downloadForSeedanceZip(script: ComicScript): Promise<void> {
+export async function buildSeedanceArchive(script: ComicScript, options: ExportOptions = defaultExportOptions("seedance-zip")): Promise<Blob> {
+  const plan = buildExportPlan(script.panels, { ...options, format: "seedance-zip" });
+  const data = buildSeedanceData(script, plan.options);
   const JSZip = (await import("jszip")).default;
   const zip = new JSZip();
-  const data = buildSeedanceData(script);
-
-  zip.file("script.json", JSON.stringify(stripReferenceImages(data), null, 2));
-  zip.file("script.txt", buildSeedanceText(data));
-
-  const refFolder = zip.folder("references");
-  if (refFolder) {
-    for (const seg of data.segments) {
-      if (seg.referenceImage) {
-        const blob = await imageToBlob(seg.referenceImage);
-        if (blob) {
-          refFolder.file(`segment_${String(seg.id).padStart(2, "0")}.png`, blob);
-        }
-      }
-    }
+  let totalBytes=0;
+  for (const segment of data.segments) {
+    const {bytes,extension} = await readExportImage(segment.referenceImage!);
+    totalBytes += bytes.length;
+    if (totalBytes > 128 * 1024 * 1024) throw new Error("参考图总量超过 128 MB，请分批导出。");
+    const filename = `references/segment_${String(segment.id).padStart(2,"0")}.${extension}`;
+    zip.file(filename, bytes);
+    segment.referenceImage = filename;
   }
-
-  const content = await zip.generateAsync({ type: "blob" });
-  triggerBlobDownload(content, `${script.title}_seedance_${dateSuffix()}.zip`);
+  zip.file("script.json", JSON.stringify(data,null,2));
+  zip.file("script.txt", buildSeedanceText(data));
+  zip.file("export.json", JSON.stringify({schemaVersion:1,kind:"publication",options:plan.options,omittedPanelNumbers:plan.omittedNumbers,providerCompatibilityVerified:false},null,2));
+  return zip.generateAsync({type:"blob",compression:"STORE"});
+}
+export async function downloadForSeedanceZip(script: ComicScript, options: ExportOptions = defaultExportOptions("seedance-zip")): Promise<void> {
+  const blob = await buildSeedanceArchive(script, options);
+  triggerBlobDownload(blob, `${safeExportFilename(script.title)}_seedance_${dateSuffix()}.zip`);
 }

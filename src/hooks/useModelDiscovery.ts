@@ -10,6 +10,7 @@ export interface ModelDiscoveryState {
 
 interface FetchModelsParams {
   apiUrl: string;
+  modelRef?: { id: string; role: "llm" | "vlm" | "image" };
   apiKey?: string;
   protocolType?: "openai-compatible" | "anthropic";
 }
@@ -42,7 +43,7 @@ export function useModelDiscovery() {
 
     // 检查缓存
     const key = cacheKey(params);
-    const cached = modelCache.get(key);
+    const cached = params.modelRef ? undefined : modelCache.get(key);
     if (cached) {
       setState({ models: cached, loading: false, error: "", status: "success" });
       return cached;
@@ -79,7 +80,7 @@ export function useModelDiscovery() {
       }
 
       // 缓存结果
-      modelCache.set(key, models);
+      if (!params.apiKey && !params.modelRef) modelCache.set(key, models);
 
       setState({ models, loading: false, error: "", status: "success" });
       return models;

@@ -19,7 +19,7 @@ describe("task maintenance routes", () => {
     });
 
     const { POST } = await import("@/app/api/admin/task-health/scan/route");
-    const response = await POST(new NextRequest("http://localhost:3000/api/admin/task-health/scan", { method: "POST" }));
+    const response = await POST();
     const body = await response.json();
 
     expect(body.autoDelete).toHaveLength(1);

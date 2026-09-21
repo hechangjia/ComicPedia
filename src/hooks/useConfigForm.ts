@@ -61,7 +61,10 @@ export function useLLMForm(actions: {
       name: c.name,
       provider: c.provider,
       apiUrl: c.apiUrl,
-      apiKey: c.apiKey,
+      apiKey: c.apiKey || "",
+      hasApiKey: c.hasApiKey,
+      clearApiKey: c.clearApiKey,
+      apiKeyInputRequired: c.apiKeyInputRequired,
       model: c.model,
       protocolType: c.protocolType,
     });
@@ -91,12 +94,16 @@ export function useLLMForm(actions: {
       return "请填写 API URL 和模型名称";
     }
 
+    if (fields.apiKeyInputRequired && !fields.apiKey.trim() && !fields.clearApiKey) return "请重新输入未保存的密钥或明确清除";
     const name = fields.name.trim() || `${fields.provider} - ${fields.model.trim()}`;
     const data = {
       name,
       provider: fields.provider,
       apiUrl: fields.apiUrl.trim(),
       apiKey: fields.apiKey.trim(),
+      hasApiKey: fields.hasApiKey,
+      clearApiKey: fields.clearApiKey,
+      apiKeyInputRequired: fields.apiKeyInputRequired,
       model: fields.model.trim(),
       protocolType: fields.protocolType,
     };
@@ -186,7 +193,10 @@ export function useImageForm(actions: {
       name: c.name,
       provider: c.provider,
       apiUrl: c.apiUrl,
-      apiKey: c.apiKey,
+      apiKey: c.apiKey || "",
+      hasApiKey: c.hasApiKey,
+      clearApiKey: c.clearApiKey,
+      apiKeyInputRequired: c.apiKeyInputRequired,
       model: c.model,
       size: c.size,
       endpointType: c.endpointType || "auto",
@@ -220,16 +230,18 @@ export function useImageForm(actions: {
     // ComfyUI 不需要 API Key，但需要 Workflow
     if (fields.endpointType === "comfyui") {
       if (!fields.comfyuiWorkflow?.trim()) return "请粘贴 ComfyUI Workflow JSON";
-    } else if (!fields.apiKey.trim()) {
-      return "请填写 API Key";
     }
 
+    if (fields.apiKeyInputRequired && !fields.apiKey.trim() && !fields.clearApiKey) return "请重新输入未保存的密钥或明确清除";
     const name = fields.name.trim() || `${fields.provider} - ${fields.model.trim() || "default"}`;
     const data = {
       name,
       provider: fields.provider,
       apiUrl: fields.apiUrl.trim(),
       apiKey: fields.apiKey.trim(),
+      hasApiKey: fields.hasApiKey,
+      clearApiKey: fields.clearApiKey,
+      apiKeyInputRequired: fields.apiKeyInputRequired,
       model: fields.model.trim() || "default",
       size: fields.size.trim() || "1024x1024",
       endpointType: fields.endpointType,

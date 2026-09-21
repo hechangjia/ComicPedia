@@ -1,7 +1,8 @@
+import { configRevision } from "@/lib/server/configRevision";
 import { NextRequest, NextResponse } from "next/server";
 import { searchWithProvider, fetchWithProvider } from "@/lib/accuracy/providerClients";
 import { getAssignedProvider, resolveAccuracyProviders } from "@/lib/accuracy/providerRegistry";
-import { getConfig, saveConfig } from "@/lib/server/db";
+import { getConfig, saveConfigIfMatch } from "@/lib/server/db";
 import type { AccuracyProviderConfig, AccuracyProviderHealthStatus, UserAPIConfigV2 } from "@/lib/types";
 
 function updateProviderHealth(
@@ -28,6 +29,15 @@ function updateProviderHealth(
   };
 }
 
+/** Apply test health only to the unchanged provider in the latest configuration. */
+function persistProviderHealth(original: UserAPIConfigV2, providerId: string, patch: Parameters<typeof updateProviderHealth>[2]) {
+  const current = getConfig();
+  if (!current) return;
+  const before = original.accuracyConfig.providers.find(p => p.id === providerId);
+  const now = current.accuracyConfig.providers.find(p => p.id === providerId);
+  if (!before || !now || JSON.stringify(before) !== JSON.stringify(now)) return;
+  saveConfigIfMatch(updateProviderHealth(current, providerId, patch), configRevision(current));
+}
 function findProvider(config: UserAPIConfigV2, providerId: string): AccuracyProviderConfig | null {
   const direct = config.accuracyConfig.providers.find((provider) => provider.id === providerId);
   if (!direct) return null;
@@ -69,12 +79,11 @@ export async function POST(request: NextRequest) {
           limit: 1,
           timeoutMs: 8000,
         });
-        const nextConfig = updateProviderHealth(config, providerId, {
+        persistProviderHealth(config, providerId, {
           healthStatus: "success",
           lastCheckedAt,
           lastError: undefined,
         });
-        saveConfig(nextConfig);
         return NextResponse.json({
           status: "success",
           message: "连接成功",
@@ -87,12 +96,11 @@ export async function POST(request: NextRequest) {
       const result = await fetchWithProvider(provider, "https://example.com", {
         timeoutMs: 8000,
       });
-      const nextConfig = updateProviderHealth(config, providerId, {
+      persistProviderHealth(config, providerId, {
         healthStatus: "success",
         lastCheckedAt,
         lastError: undefined,
       });
-      saveConfig(nextConfig);
       return NextResponse.json({
         status: "success",
         message: "连接成功",
@@ -102,12 +110,11 @@ export async function POST(request: NextRequest) {
       });
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      const nextConfig = updateProviderHealth(config, providerId, {
+      persistProviderHealth(config, providerId, {
         healthStatus: "error",
         lastCheckedAt,
         lastError: detail,
       });
-      saveConfig(nextConfig);
       return NextResponse.json({
         status: "error",
         message: "连接失败",

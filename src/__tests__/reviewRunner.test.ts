@@ -115,6 +115,16 @@ const state = vi.hoisted(() => {
 });
 
 vi.mock("@/lib/server/db", () => ({
+  mutateTaskReviewState: vi.fn((id: string, mutate: (task: GenerateTask, jobs: TaskJobRecord[]) => unknown) => {
+    const task = state.getTask(id);
+    if (!task) return null;
+    const jobs = state.listJobs(id);
+    const before = new Map(jobs.map(job => [job.id, JSON.stringify(job)]));
+    const result = mutate(task, jobs);
+    state.upsertTask(task);
+    for (const job of jobs) if (before.get(job.id) !== JSON.stringify(job)) state.upsertTaskJob(job);
+    return result;
+  }),
   getAllTasks: vi.fn(() => state.getAllTasks()),
   getConfig: getConfigMock,
   getTaskById: vi.fn((taskId: string) => state.getTask(taskId)),
@@ -123,6 +133,7 @@ vi.mock("@/lib/server/db", () => ({
 }));
 
 vi.mock("@/lib/server/taskOrchestrator/store", () => ({
+  createTaskJob: vi.fn(async (input) => { const job = { ...input, id: "new-review", attemptCount: 0, createdAt: "2026-09-20", updatedAt: "2026-09-20" }; state.upsertTaskJob(job); return job; }),
   listTaskJobsByTaskId: vi.fn(async (taskId: string) => state.listJobs(taskId)),
   summarizeTaskJobs: vi.fn((taskJobs: TaskJobRecord[]) => state.summarize(taskJobs)),
 }));
@@ -301,9 +312,10 @@ describe("reviewRunner", () => {
     getConfigMock.mockReset();
     evaluateVisualDiagnosisMock.mockReset();
     evaluateVisualQualityMock.mockReset();
+    evaluateVisualQualityMock.mockResolvedValue(makeTask().visualQualityScore);
   });
 
-  it("runs queued deep-review jobs and merges targeted reports back into the task", async () => {
+  it("runs queued review jobs and replaces unversioned legacy reports with verified targeted reports", async () => {
     state.setTask(makeTask({
       visualDiagnosisReport: makeReport(0),
       visualDiagnosisState: "succeeded",
@@ -365,11 +377,12 @@ describe("reviewRunner", () => {
         provider: "openai-compatible",
       }),
       [1],
+      expect.objectContaining({ strict: true }),
     );
     expect(updatedTask?.status).toBe("completed");
     expect(updatedTask?.visualDiagnosisState).toBe("succeeded");
     expect(updatedTask?.visualDiagnosisStale).toBe(false);
-    expect(updatedTask?.visualDiagnosisReport?.panels.map((panel) => panel.panelIndex)).toEqual([0, 1]);
+    expect(updatedTask?.visualDiagnosisReport?.panels.map((panel) => panel.panelIndex)).toEqual([1]);
     expect(updatedTask?.queueSummary).toEqual({
       queued: 0,
       running: 0,
@@ -484,4 +497,40 @@ describe("reviewRunner", () => {
       visualDiagnosisState: "idle",
     }));
   });
+  it("fails a deleted review reference instead of selecting the active model", async () => {
+    state.setTask(makeTask());
+    state.setJobs("task-review", [makeJob({ payload: { review: { configId: "deleted" } } })]);
+    getConfigMock.mockReturnValue(makeConfig());
+    const { runTaskDeepReviewQueue } = await import("@/lib/server/taskOrchestrator/reviewRunner");
+    await runTaskDeepReviewQueue("task-review");
+    expect(evaluateVisualDiagnosisMock).not.toHaveBeenCalled();
+    expect(evaluateVisualQualityMock).not.toHaveBeenCalled();
+    expect(state.listJobs("task-review")[0].status).toBe("failed");
+  });
+
+  it("honors the stored review role when IDs collide", async () => {
+    state.setTask(makeTask());
+    state.setJobs("task-review", [makeJob({ payload: { review: { configId: "vlm-1", configRole: "llm" } } })]);
+    const config = makeConfig();
+    config.llmConfigs = [{ ...config.vlmConfigs![0], apiKey: "text-secret", model: "text-vision" }];
+    getConfigMock.mockReturnValue(config);
+    evaluateVisualDiagnosisMock.mockResolvedValue(makeReport(0));
+    const { runTaskDeepReviewQueue } = await import("@/lib/server/taskOrchestrator/reviewRunner");
+    await runTaskDeepReviewQueue("task-review");
+    expect(evaluateVisualDiagnosisMock).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ apiKey: "text-secret", model: "text-vision" }), undefined, expect.objectContaining({ strict: true }));
+  });
+
+  it("persists reference-only review requests with their role and no fallback", async () => {
+    state.setTask(makeTask());
+    const config = makeConfig();
+    config.llmConfigs = [{ ...config.vlmConfigs![0], model: "text-vision" }];
+    getConfigMock.mockReturnValue(config);
+    const { startDeepReview } = await import("@/lib/server/taskOrchestrator/deepReviewRunner");
+    await startDeepReview("task-review", { vlmConfig: { configId: "vlm-1", configRole: "llm" } });
+    expect(state.listJobs("task-review")[0].payload).toMatchObject({ review: { configId: "vlm-1", configRole: "llm" } });
+    expect((state.listJobs("task-review")[0].payload.review as Record<string, unknown>).fallback).toBeUndefined();
+  });
+
 });
+
+vi.mock('@/lib/server/visionRuntime',()=>({createServerVisionRuntime:(checkpoint:()=>void)=>({checkpoint,strict:true,captureImages:async()=>"synthetic-media",verifyImages:async()=>{checkpoint();}})}));

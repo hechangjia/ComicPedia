@@ -171,8 +171,11 @@ function makeHistoryTask(overrides: Partial<TaskListItem> = {}): TaskListItem {
 }
 
 function makeResultTask(overrides: Partial<GenerateTask> = {}): GenerateTask {
-  return makeHistoryTask({
+  return {
     id: "task-result-1",
+    origin: "user",
+    createdAt: new Date("2026-04-05T00:00:00.000Z"),
+    updatedAt: new Date("2026-04-05T00:00:00.000Z"),
     status: "image_queue_paused",
     progress: 60,
     queueSummary: {
@@ -185,7 +188,7 @@ function makeResultTask(overrides: Partial<GenerateTask> = {}): GenerateTask {
       calibrationPending: 0,
     },
     ...overrides,
-  });
+  };
 }
 
 function makeQueuedResultTask(status: GenerateTask["status"]): GenerateTask {
@@ -217,7 +220,7 @@ function makeQueuedResultTask(status: GenerateTask["status"]): GenerateTask {
 }
 
 function makeDeepReviewPausedTask(overrides: Partial<GenerateTask> = {}): GenerateTask {
-  return makeHistoryTask({
+  return makeResultTask({
     id: "task-review-paused-1",
     status: "deep_review_paused",
     progress: 90,
@@ -241,7 +244,7 @@ function makeDeepReviewPausedTask(overrides: Partial<GenerateTask> = {}): Genera
 }
 
 function makeDeepReviewRunningTask(overrides: Partial<GenerateTask> = {}): GenerateTask {
-  return makeHistoryTask({
+  return makeResultTask({
     id: "task-review-running-1",
     status: "deep_review_running",
     progress: 80,
@@ -488,7 +491,10 @@ describe("page navigation render", () => {
 
   it("shows start image generation button in sticky bar for script_ready tasks", () => {
     useTaskSubscriptionMock.mockReturnValue({
-      task: makeResultTask({ status: "script_ready" }),
+      task: makeResultTask({ status: "script_ready", script: {
+        title: "真实分镜审核", topic: "一格验收", style: "flat",
+        panels: [{ id: 1, scene: "场景", dialogue: "旁白", imagePrompt: "test prompt", status: "pending" }],
+      } }),
       setTask: vi.fn(),
       error: "",
     });
@@ -588,7 +594,7 @@ describe("page navigation render", () => {
 
   it("does not expose export affordances while the script is only ready", () => {
     useTaskSubscriptionMock.mockReturnValue({
-      task: makeHistoryTask({ status: "script_ready" }),
+      task: makeResultTask({ status: "script_ready" }),
       setTask: vi.fn(),
       error: "",
     });
@@ -600,7 +606,7 @@ describe("page navigation render", () => {
 
   it("does not expose duplicate export markdown actions after completion", () => {
     useTaskSubscriptionMock.mockReturnValue({
-      task: makeHistoryTask({
+      task: makeResultTask({
         status: "completed",
         script: {
           title: "已完成漫画",
@@ -629,9 +635,9 @@ describe("page navigation render", () => {
     expect(html).toContain("更多操作");
   });
 
-  it("does not expose empty quality-score tab after completion without any score data", () => {
+  it("exposes first-time quality evaluation after completion without cached score data", () => {
     useTaskSubscriptionMock.mockReturnValue({
-      task: makeHistoryTask({
+      task: makeResultTask({
         status: "completed",
         qualityScore: undefined,
         visualQualityScore: undefined,
@@ -660,12 +666,12 @@ describe("page navigation render", () => {
 
     const html = renderToStaticMarkup(React.createElement(ResultPage));
 
-    expect(html).not.toContain("质量评分");
+    expect(html).toContain("质量评分");
   });
 
   it("does not expose empty director tab after completion without outline data", () => {
     useTaskSubscriptionMock.mockReturnValue({
-      task: makeHistoryTask({
+      task: makeResultTask({
         status: "completed",
         narrativeOutline: undefined,
         script: {
@@ -695,7 +701,7 @@ describe("page navigation render", () => {
 
   it("does not expose empty accuracy tab after completion without review data", () => {
     useTaskSubscriptionMock.mockReturnValue({
-      task: makeHistoryTask({
+      task: makeResultTask({
         status: "completed",
         researchBrief: undefined,
         accuracyReview: undefined,
@@ -727,7 +733,7 @@ describe("page navigation render", () => {
 
   it("does not expose empty script-validation tab after completion without validation data", () => {
     useTaskSubscriptionMock.mockReturnValue({
-      task: makeHistoryTask({
+      task: makeResultTask({
         status: "completed",
         scriptValidation: undefined,
         scriptRepairRounds: undefined,
@@ -758,7 +764,7 @@ describe("page navigation render", () => {
 
   it("falls back to pipeline summary when trace data is absent after completion", () => {
     useTaskSubscriptionMock.mockReturnValue({
-      task: makeHistoryTask({
+      task: makeResultTask({
         status: "completed",
         pipelineTrace: undefined,
         script: {
@@ -788,7 +794,7 @@ describe("page navigation render", () => {
 
   it("does not mount quiz and related-topics modules after completion without supporting data", () => {
     useTaskSubscriptionMock.mockReturnValue({
-      task: makeHistoryTask({
+      task: makeResultTask({
         status: "completed",
         script: {
           title: "普通完成漫画",
@@ -820,7 +826,7 @@ describe("page navigation render", () => {
 
   it("does not expose panel editing affordances after completion", () => {
     useTaskSubscriptionMock.mockReturnValue({
-      task: makeHistoryTask({
+      task: makeResultTask({
         status: "completed",
         script: {
           title: "已完成漫画",
@@ -849,7 +855,7 @@ describe("page navigation render", () => {
 
   it("does not expose script-stage batch controls after completion", () => {
     useTaskSubscriptionMock.mockReturnValue({
-      task: makeHistoryTask({
+      task: makeResultTask({
         status: "completed",
         script: {
           title: "已完成漫画",
@@ -879,7 +885,7 @@ describe("page navigation render", () => {
 
   it("keeps edit mode toggle available after completion", () => {
     useTaskSubscriptionMock.mockReturnValue({
-      task: makeHistoryTask({
+      task: makeResultTask({
         status: "completed",
         script: {
           title: "已完成漫画",
@@ -910,7 +916,7 @@ describe("page navigation render", () => {
 
   it("does not expose panel reorder affordances after completion", () => {
     useTaskSubscriptionMock.mockReturnValue({
-      task: makeHistoryTask({
+      task: makeResultTask({
         status: "completed",
         script: {
           title: "已完成漫画",
@@ -947,7 +953,7 @@ describe("page navigation render", () => {
 
   it("defaults completed tasks to read view instead of edit view", () => {
     useTaskSubscriptionMock.mockReturnValue({
-      task: makeHistoryTask({
+      task: makeResultTask({
         status: "completed",
         script: {
           title: "已完成漫画",
@@ -978,7 +984,7 @@ describe("page navigation render", () => {
 
   it("keeps edit mode available for completed tasks so finished comics can still be revised", () => {
     useTaskSubscriptionMock.mockReturnValue({
-      task: makeHistoryTask({
+      task: makeResultTask({
         status: "completed",
         script: {
           title: "已完成漫画",

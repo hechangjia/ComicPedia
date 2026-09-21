@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
-import { getConfig } from "@/lib/server/db";
+import type { UserAPIConfigV2 } from "@/lib/types";
 import {
   buildAccuracyGoldenTopicSmokeReportEntry,
   getAccuracyGoldenTopicSmokeCases,
@@ -43,15 +43,19 @@ describe.runIf(shouldRunLiveSmoke)("accuracy golden-topic live smoke", () => {
   });
 
   it("runs all five golden topics through the live script-stage accuracy loop", { timeout: 15 * 60_000 }, async () => {
-    const config = getConfig();
-    expect(config).not.toBeNull();
+    // Live requests require an explicitly supplied private profile, never runtime DB access.
+    const configPath = process.env.SMOKE_CONFIG_PATH;
+    if (!configPath) throw new Error("Live smoke requires SMOKE_CONFIG_PATH to a private v2 config JSON file");
+    const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as UserAPIConfigV2;
+    expect(config.version).toBe(2);
+    expect(Array.isArray(config.llmConfigs)).toBe(true);
 
     const llmConfig = resolveAccuracySmokeLlmConfig(config!, smokeLlmId);
     const smokeCases = getAccuracyGoldenTopicSmokeCases()
       .filter((item) => smokeCaseIds.size === 0 || smokeCaseIds.has(item.id));
     expect(smokeCases.length).toBeGreaterThan(0);
     const results = [];
-    const reportDir = path.join(process.cwd(), "data", "smoke-reports");
+    const reportDir = path.resolve(process.env.SMOKE_REPORT_DIR || path.join(process.cwd(), ".codex", "smoke-reports"));
     fs.mkdirSync(reportDir, { recursive: true });
     const latestReportPath = path.join(reportDir, "accuracy-golden-topics-latest.json");
 

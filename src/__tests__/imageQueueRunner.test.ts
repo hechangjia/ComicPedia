@@ -253,6 +253,11 @@ vi.mock("@/lib/server/imageGenerationService", () => ({
   forwardImageGenerationRequest: state.forwardImageGenerationRequestMock,
 }));
 
+vi.mock("@/lib/server/taskOrchestrator/lightCheck", async (original) => ({
+  ...await original<typeof import("@/lib/server/taskOrchestrator/lightCheck")>(),
+  runPanelLightCheck: vi.fn(async (task) => task),
+}));
+
 vi.mock("@/lib/server/imageStorage", () => ({
   saveImageFileAsync: state.saveImageFileAsyncMock,
   readImageByKey: state.readImageByKeyMock,
@@ -351,6 +356,7 @@ describe("image queue runner", () => {
         presetId: "balanced-auto",
         imageProvider: "comfyui",
         imageModel: "sdxl",
+        imageConcurrency: 4,
         calibrationRequired: true,
         calibrationApproved: false,
       },
@@ -793,8 +799,7 @@ describe("image queue runner", () => {
     expect(queuedJobs[0].payload).toMatchObject({
       image: {
         overlay: expect.objectContaining({
-          apiUrl: "https://remote.example.com/v1",
-          endpointType: "images",
+          size: "1024x1024",
           extraBody: expect.objectContaining({
             image: "data:image/png;base64,overlay-image",
             strength: 0.42,
@@ -834,6 +839,7 @@ describe("image queue runner", () => {
         presetId: "balanced-auto",
         imageProvider: "comfyui",
         imageModel: "sdxl",
+        imageConcurrency: 4,
         calibrationRequired: true,
         calibrationApproved: false,
       },
@@ -921,10 +927,7 @@ describe("image queue runner", () => {
         configId: "img-remote-1",
         fallback: undefined,
         overlay: {
-          apiUrl: "https://remote.example.com/v1",
-          model: "gpt-image-1",
           size: "1024x1024",
-          endpointType: "images",
           extraBody: {
             control_image: "data:image/png;base64,control",
             control_mode: "Canny",
@@ -950,4 +953,201 @@ describe("image queue runner", () => {
       }),
     }));
   });
+  it("never combines a stored secret with an untrusted job overlay address", async () => {
+    state.setTask(makeTask());
+    state.forwardImageGenerationRequestMock.mockResolvedValue({ data: [{ b64_json: "REMOTE" }] });
+    const { enqueuePanelImageJobs, runTaskImageQueue } = await import("@/lib/server/taskOrchestrator/imageRunner");
+    await enqueuePanelImageJobs("task-image-queue", { panelIndices: [0], imageConfigId: "img-remote-1", imageConfig: { ...remoteImageConfig, apiUrl: "https://other.example/v1", model: "wrong", size: "512x512" } });
+    // Simulate an old persisted job containing unrestricted overlay fields.
+    const jobs = state.getJobs("task-image-queue");
+    const payload = jobs[0].payload as { image: { overlay: Record<string, unknown> } };
+    Object.assign(payload.image.overlay, { apiUrl: "https://other.example/v1", model: "wrong", endpointType: "chat", apiKey: "injected" });
+    state.setJobs("task-image-queue", jobs);
+    await runTaskImageQueue("task-image-queue");
+    expect(state.forwardImageGenerationRequestMock).toHaveBeenCalledWith(expect.objectContaining({ targetUrl: "https://remote.example.com/v1/images/generations", headers: { Authorization: "Bearer remote-secret" }, payload: expect.objectContaining({ model: "gpt-image-1", size: "512x512" }) }));
+  });
+  it("recognizes nested model references without credential-bearing inline config", async () => {
+    state.setTask(makeTask());
+    const { enqueuePanelImageJobs } = await import("@/lib/server/taskOrchestrator/imageRunner");
+    await enqueuePanelImageJobs("task-image-queue", { panelIndices: [0], imageConfig: { configId: "img-remote-1", configRole: "image", size: "512x512" } });
+    expect(state.getJobs("task-image-queue")[0].payload).toMatchObject({ image: { configId: "img-remote-1", overlay: { size: "512x512" } } });
+  });
+  it("does not switch a deleted saved model to a runtime fallback", async () => {
+    state.setTask(makeTask());
+    const { enqueuePanelImageJobs, runTaskImageQueue } = await import("@/lib/server/taskOrchestrator/imageRunner");
+    await enqueuePanelImageJobs("task-image-queue", { panelIndices: [0], imageConfigId: "img-remote-1", imageConfig: remoteImageConfig });
+    state.config = null;
+    await runTaskImageQueue("task-image-queue", { imageConfig: comfyImageConfig });
+    expect(state.submitComfyWorkflowMock).not.toHaveBeenCalled();
+    expect(state.forwardImageGenerationRequestMock).not.toHaveBeenCalled();
+    expect(state.getJobs("task-image-queue")[0].status).toBe("failed");
+  });
+  it("hydrates an explicit light-check reference on the server", async () => {
+    state.setTask(makeTask());
+    const config = state.config!;
+    config.llmConfigs = [{ id: "text-check", name: "Check", provider: "custom", apiUrl: "https://check.example/v1", apiKey: "check-secret", model: "check-model", protocolType: "openai-compatible" }];
+    config.activeLLMId = null;
+    state.config = config;
+    const { enqueuePanelImageJobs, runTaskImageQueue } = await import("@/lib/server/taskOrchestrator/imageRunner");
+    const { runPanelLightCheck } = await import("@/lib/server/taskOrchestrator/lightCheck");
+    vi.mocked(runPanelLightCheck).mockClear();
+    state.forwardImageGenerationRequestMock.mockResolvedValue({ data: [{ b64_json: "REMOTE" }] });
+    await enqueuePanelImageJobs("task-image-queue", { panelIndices: [0], imageConfigId: "img-remote-1" });
+    await runTaskImageQueue("task-image-queue", { llmConfig: { configId: "text-check", configRole: "llm", apiUrl: "https://wrong.example/v1", model: "wrong", provider: "openai-compatible" } });
+    expect(runPanelLightCheck).toHaveBeenCalledWith(expect.anything(), 0, expect.objectContaining({ apiKey: "check-secret", apiUrl: "https://check.example/v1", model: "check-model" }), expect.any(Function));
+  });
+
+  it("does not invoke visual scoring when the selected preset disables light checks", async () => {
+    state.setTask(makeTask({ presetSnapshot: { presetId: "fast-draft", lightCheckMode: "off" } }));
+    const config = state.config!;
+    config.vlmConfigs = [{ id: "vision", name: "Vision", provider: "custom", apiUrl: "https://vision.example/v1", apiKey: "vision-key", model: "vision", protocolType: "openai-compatible" }];
+    config.activeVLMId = "vision"; state.config = config;
+    const { runPanelLightCheck } = await import("@/lib/server/taskOrchestrator/lightCheck");
+    vi.mocked(runPanelLightCheck).mockClear();
+    state.forwardImageGenerationRequestMock.mockResolvedValue({ data: [{ b64_json: "REMOTE" }] });
+    const { enqueuePanelImageJobs, runTaskImageQueue } = await import("@/lib/server/taskOrchestrator/imageRunner");
+    await enqueuePanelImageJobs("task-image-queue", { panelIndices: [0], imageConfigId: "img-remote-1" });
+    await runTaskImageQueue("task-image-queue");
+    expect(runPanelLightCheck).not.toHaveBeenCalled();
+    expect(state.getJobs("task-image-queue")[0].status).toBe("completed");
+  });
+
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+function concurrentTask(count = 5, concurrency = 2): GenerateTask {
+  const task = makeTask({ presetSnapshot: { presetId: 'concurrency-test', imageConcurrency: concurrency, lightCheckMode: 'off' } });
+  task.script!.panels = Array.from({ length: count }, (_, index) => ({ id: index + 1, scene: `Scene ${index}`, dialogue: '', imagePrompt: `Prompt ${index}`, status: 'pending' }));
+  return task;
+}
+const imageResult = { data: [{ b64_json: 'REMOTE', content_type: 'image/png' }] };
+describe('bounded image queue execution', () => {
+  beforeEach(() => { vi.resetModules(); state.reset(); });
+  it('fills two slots, refills as each completes, and preserves out-of-order images', async () => {
+    state.setTask(concurrentTask());
+    const gates = Array.from({length: 5}, () => deferred<typeof imageResult>());
+    let active=0; let peak=0; let started=0;
+    state.forwardImageGenerationRequestMock.mockImplementation(async () => {
+      const index=started++; active++; peak=Math.max(active,peak);
+      try { return await gates[index].promise; } finally { active--; }
+    });
+    const runner=await import('@/lib/server/taskOrchestrator/imageRunner');
+    await runner.enqueuePanelImageJobs('task-image-queue',{panelIndices:[0,1,2,3,4],imageConfigId:'img-remote-1'});
+    const running=runner.runTaskImageQueue('task-image-queue');
+    try {
+      await vi.waitFor(()=>expect(started).toBe(2),{timeout:500});
+      expect(state.getTask('task-image-queue')?.queueSummary?.running).toBe(2);
+      gates[1].resolve(imageResult);
+      await vi.waitFor(()=>expect(started).toBe(3),{timeout:500});
+      expect(active).toBe(2);
+    } finally { gates.forEach(gate=>gate.resolve(imageResult)); await running; }
+    expect(peak).toBe(2);
+    const task=state.getTask('task-image-queue')!;
+    expect(task.status).toBe('completed');
+    expect(task.script!.panels.every(panel=>panel.imageUrl?.startsWith('file://'))).toBe(true);
+    expect(task.queueSummary?.completed).toBe(5);
+  });
+  it('does not overwrite another panel or user edits when an old visual check completes', async () => {
+    state.setTask(concurrentTask(2));
+    const task=state.getTask('task-image-queue')!;task.presetSnapshot!.lightCheckMode='auto';state.setTask(task);
+    state.forwardImageGenerationRequestMock.mockResolvedValue(imageResult);
+    const {runPanelLightCheck}=await import('@/lib/server/taskOrchestrator/lightCheck');
+    vi.mocked(runPanelLightCheck).mockImplementationOnce(async(snapshot,index)=>{
+      const current=state.getTask(snapshot.id)!;
+      current.script!.title='User-edited title';
+      current.script!.panels[1].imageUrl='file://new-other-panel';
+      current.panelReview=[{panelIndex:1,score:9,status:'reviewed',issues:[]}];
+      state.setTask(current);
+      snapshot.panelReview=[{panelIndex:index,score:8,status:'reviewed',issues:[]}];
+      return snapshot;
+    });
+    const runner=await import('@/lib/server/taskOrchestrator/imageRunner');
+    await runner.enqueuePanelImageJobs(task.id,{panelIndices:[0],imageConfigId:'img-remote-1'});
+    await runner.runTaskImageQueue(task.id,{llmConfig:{apiUrl:'https://vision.example/v1',model:'vision',provider:'openai-compatible'}});
+    const result=state.getTask(task.id)!;
+    expect(result.script!.title).toBe('User-edited title');
+    expect(result.script!.panels[1].imageUrl).toBe('file://new-other-panel');
+    expect(result.panelReview?.map(review=>review.panelIndex)).toEqual([0,1]);
+  });
+  it('stops admission when queued jobs are paused, drains active slots, then resumes remaining jobs', async () => {
+    state.setTask(concurrentTask(3));
+    const gate=deferred<typeof imageResult>();
+    state.forwardImageGenerationRequestMock.mockImplementation(()=>gate.promise);
+    const runner=await import('@/lib/server/taskOrchestrator/imageRunner');
+    await runner.enqueuePanelImageJobs('task-image-queue',{panelIndices:[0,1,2],imageConfigId:'img-remote-1'});
+    const running=runner.runTaskImageQueue('task-image-queue');
+    try {
+      await vi.waitFor(()=>expect(state.forwardImageGenerationRequestMock).toHaveBeenCalledTimes(2),{timeout:500});
+      state.setJobs('task-image-queue',state.getJobs('task-image-queue').map(job=>job.status==='queued'?{...job,status:'paused'}:job));
+    } finally { gate.resolve(imageResult); await running; }
+    expect(state.forwardImageGenerationRequestMock).toHaveBeenCalledTimes(2);
+    expect(state.getTask('task-image-queue')?.status).toBe('image_queue_paused');
+    state.setJobs('task-image-queue',state.getJobs('task-image-queue').map(job=>job.status==='paused'?{...job,status:'queued'}:job));
+    await runner.runTaskImageQueue('task-image-queue');
+    expect(state.getTask('task-image-queue')?.status).toBe('completed');
+    expect(state.forwardImageGenerationRequestMock).toHaveBeenCalledTimes(3);
+  });
+  it.each([1, 4, 99])('enforces the concurrency boundary for requested %s', async (requested) => {
+    const limit=Math.min(4,requested);
+    state.setTask(concurrentTask(5,requested));
+    const gate=deferred<typeof imageResult>();
+    state.forwardImageGenerationRequestMock.mockImplementation(()=>gate.promise);
+    const runner=await import('@/lib/server/taskOrchestrator/imageRunner');
+    await runner.enqueuePanelImageJobs('task-image-queue',{panelIndices:[0,1,2,3,4],imageConfigId:'img-remote-1'});
+    const running=runner.runTaskImageQueue('task-image-queue');
+    try {await vi.waitFor(()=>expect(state.forwardImageGenerationRequestMock).toHaveBeenCalledTimes(limit));}
+    finally {gate.resolve(imageResult);await running;}
+    expect(state.getTask('task-image-queue')?.status).toBe('completed');
+  });
+  it('does not recreate jobs when deletion happens during asynchronous image storage', async () => {
+    state.setTask(concurrentTask(1));
+    state.forwardImageGenerationRequestMock.mockResolvedValue(imageResult);
+    state.saveImageFileAsyncMock.mockImplementationOnce(async(key:string)=>{
+      state.tasks.delete('task-image-queue');state.jobs.delete('task-image-queue');
+      return {filePath:`data/images/${key}.png`,size:1};
+    });
+    const runner=await import('@/lib/server/taskOrchestrator/imageRunner');
+    await runner.enqueuePanelImageJobs('task-image-queue',{panelIndices:[0],imageConfigId:'img-remote-1'});
+    await runner.runTaskImageQueue('task-image-queue');
+    expect(state.getTask('task-image-queue')).toBeNull();expect(state.getJobs('task-image-queue')).toEqual([]);
+  });
+  it('rejects re-enqueue of an in-flight panel rather than replacing its durable job', async () => {
+    state.setTask(concurrentTask(2));
+    const gate=deferred<typeof imageResult>();
+    state.forwardImageGenerationRequestMock.mockImplementation(()=>gate.promise);
+    const runner=await import('@/lib/server/taskOrchestrator/imageRunner');
+    await runner.enqueuePanelImageJobs('task-image-queue',{panelIndices:[0],imageConfigId:'img-remote-1'});
+    const running=runner.runTaskImageQueue('task-image-queue');
+    try {
+      await vi.waitFor(()=>expect(state.forwardImageGenerationRequestMock).toHaveBeenCalledTimes(1));
+      await expect(runner.enqueuePanelImageJobs('task-image-queue',{panelIndices:[1,0],imageConfigId:'img-remote-1'})).rejects.toThrow('正在执行');
+      expect(state.getJobs('task-image-queue')).toHaveLength(1);
+    } finally {gate.resolve(imageResult);await running;}
+  });
+
+  it('keeps failed panel state truthful while unrelated slots finish', async () => {
+    state.setTask(concurrentTask(3));
+    state.forwardImageGenerationRequestMock.mockRejectedValueOnce(new Error('synthetic upstream failure')).mockResolvedValue(imageResult);
+    const runner=await import('@/lib/server/taskOrchestrator/imageRunner');
+    await runner.enqueuePanelImageJobs('task-image-queue',{panelIndices:[0,1,2],imageConfigId:'img-remote-1'});
+    await runner.runTaskImageQueue('task-image-queue');
+    expect(state.getTask('task-image-queue')?.script?.panels.map(panel=>panel.status)).toEqual(['failed','completed','completed']);
+    expect(state.getTask('task-image-queue')?.status).toBe('image_queue_paused');
+  });
+  it('stops new admission after a recoverable Comfy wait timeout without re-submitting the remote prompt', async () => {
+    state.setTask(concurrentTask(3,1));
+    const {ComfyUIClientError}=await import('@/lib/server/comfyuiClient');
+    state.submitComfyWorkflowMock.mockResolvedValue({promptId:'still-running',seed:1});
+    state.waitForComfyWorkflowResultMock.mockRejectedValue(new ComfyUIClientError('ComfyUI execution timed out',504));
+    const runner=await import('@/lib/server/taskOrchestrator/imageRunner');
+    await runner.enqueuePanelImageJobs('task-image-queue',{panelIndices:[0,1,2],imageConfig:comfyImageConfig});
+    await runner.runTaskImageQueue('task-image-queue');
+    expect(state.submitComfyWorkflowMock).toHaveBeenCalledTimes(1);
+    expect(state.getJobs('task-image-queue').map(job=>job.status)).toEqual(['generating','queued','queued']);
+  });
+
 });

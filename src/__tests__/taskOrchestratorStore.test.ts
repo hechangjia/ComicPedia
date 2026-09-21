@@ -6,16 +6,25 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 type OrchestratorStoreModule = typeof import("@/lib/server/taskOrchestrator/store");
 
 let tempDir: string | undefined;
+let ownedDb: typeof import("@/lib/server/db") | undefined;
+let previousDataDirectory: string | undefined;
 let cwdSpy: ReturnType<typeof vi.spyOn> | undefined;
 
 async function loadIsolatedStore(): Promise<OrchestratorStoreModule> {
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "comicpedia-orchestrator-store-test-"));
+  previousDataDirectory = process.env.COMICPEDIA_DATA_DIR;
+  process.env.COMICPEDIA_DATA_DIR = path.join(tempDir, "data");
   vi.resetModules();
   cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+  ownedDb = await import("@/lib/server/db");
   return import("@/lib/server/taskOrchestrator/store");
 }
 
 afterEach(() => {
+  ownedDb?.closeDatabase();
+  ownedDb = undefined;
+  if (previousDataDirectory === undefined) delete process.env.COMICPEDIA_DATA_DIR;
+  else process.env.COMICPEDIA_DATA_DIR = previousDataDirectory;
   cwdSpy?.mockRestore();
   cwdSpy = undefined;
   if (tempDir) {

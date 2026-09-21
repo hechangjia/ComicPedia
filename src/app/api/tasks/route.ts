@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { isStorageSegment } from "@/lib/server/storageBoundary";
 import { NextRequest, NextResponse } from "next/server";
-import { getTaskSummariesPaginated, getTasksPaginated, getTasksPaginatedByOrigins, upsertTask, clearAllTasks, getAllTaskIds, deleteTasksByIds } from "@/lib/server/db";
+import { getTaskSummariesPaginated, getTasksPaginated, getTasksPaginatedByOrigins, upsertTask, getAllTaskIds, deleteTasksByIds, getTaskById } from "@/lib/server/db";
 import { extractTaskImagesAsync, trashTaskImages } from "@/lib/server/imageExtractor";
 import { buildTaskListItem, buildTaskSummaryItem } from "@/lib/server/taskClientView";
 import { getTaskRuntime } from "@/lib/server/taskOrchestrator/runtime";
@@ -149,7 +150,7 @@ export async function DELETE(request: NextRequest) {
           && Object.prototype.hasOwnProperty.call(body, "ids");
         if (hasExplicitIds) {
           requestedExplicitIds = true;
-          if (!Array.isArray(body.ids) || !body.ids.every((id: unknown) => typeof id === "string")) {
+          if (!Array.isArray(body.ids) || !body.ids.every(isStorageSegment)) {
             return NextResponse.json(
               { error: "删除请求体中的 ids 必须是字符串数组" },
               { status: 400 },
@@ -165,19 +166,17 @@ export async function DELETE(request: NextRequest) {
       }
     }
 
-    if (taskIds.length > 0) {
-      // 批量删除指定任务
-      for (const id of taskIds) {
-        trashTaskImages(id);
-      }
-      deletedCount = deleteTasksByIds(taskIds);
-    } else if (!requestedExplicitIds) {
-      // 清空所有任务
-      taskIds = getAllTaskIds();
-      for (const id of taskIds) {
-        trashTaskImages(id);
-      }
-      deletedCount = clearAllTasks();
+    if (!requestedExplicitIds) taskIds = getAllTaskIds();
+    // Validate the complete batch before touching any files, including legacy DB IDs.
+    if (!taskIds.every(isStorageSegment)) {
+      return NextResponse.json({ error: "任务 ID 包含无效的存储标识" }, { status: 400 });
+    }
+    for (const id of new Set(taskIds)) {
+      const task = getTaskById(id);
+      if (!task) continue;
+      // Preserve metadata before removing the live record, including bulk clear.
+      trashTaskImages(id, task);
+      deletedCount += deleteTasksByIds([id]);
     }
 
     return NextResponse.json({ success: true, deleted: deletedCount });

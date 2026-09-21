@@ -107,6 +107,12 @@ afterEach(() => {
 });
 
 describe("pickDiagnosisCandidates", () => {
+  it("keeps explicitly empty targets empty instead of running recommended panels", () => {
+    expect(pickDiagnosisCandidates(makeVisualScore(), [])).toEqual([]);
+  });
+  it("lets explicitly targeted high-score panels be diagnosed", () => {
+    expect(pickDiagnosisCandidates(makeVisualScore({ retryRecommendations: [], crossPanelDetail: undefined }), [0])).toEqual([0]);
+  });
   it("selects retry panels and cross-panel flagged panels without duplicates", () => {
     expect(pickDiagnosisCandidates(makeVisualScore())).toEqual([1, 2]);
   });

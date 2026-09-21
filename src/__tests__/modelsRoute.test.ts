@@ -22,7 +22,7 @@ describe("/api/models POST", () => {
     globalThis.fetch = fetchMock as typeof fetch;
     isUrlSafeMock.mockReturnValue({ safe: true });
     sanitizeProxyErrorMock.mockReturnValue("请求过于频繁，请稍后重试");
-    safeReadTextMock.mockResolvedValue("upstream error");
+    safeReadTextMock.mockImplementation((response: Response) => response.text());
   });
 
   afterAll(() => {

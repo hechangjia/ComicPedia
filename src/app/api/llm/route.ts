@@ -1,3 +1,4 @@
+import { resolveProxyModelBody, ModelReferenceError } from "@/lib/server/modelRequest";
 import { NextRequest, NextResponse } from "next/server";
 import { isUrlSafe, sanitizeProxyError, safeReadText, PROXY_TIMEOUT_MS } from "@/lib/security";
 
@@ -8,7 +9,7 @@ import { isUrlSafe, sanitizeProxyError, safeReadText, PROXY_TIMEOUT_MS } from "@
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const body = await resolveProxyModelBody(await request.json(), ["llm", "vlm"]);
     const { targetUrl, headers: clientHeaders, payload } = body;
 
     if (!targetUrl) {
@@ -43,14 +44,14 @@ export async function POST(request: NextRequest) {
 
     const response = await fetch(targetUrl, {
       method: "POST",
+      redirect: "error",
       headers: forwardHeaders,
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(PROXY_TIMEOUT_MS),
     });
 
     if (!response.ok) {
-      const rawText = await safeReadText(response).catch(() => "");
-      console.error("[LLM Proxy] Upstream error:", response.status, rawText.slice(0, 300));
+      console.error("[LLM Proxy] Upstream error:", response.status);
 
       return NextResponse.json(
         { error: sanitizeProxyError(response.status), status: response.status },
@@ -70,7 +71,8 @@ export async function POST(request: NextRequest) {
       });
     }
   } catch (error) {
-    console.error("[LLM Proxy] Error:", error);
+    if (error instanceof ModelReferenceError) return Response.json({ error: error.message }, { status: error.status });
+    console.error("[LLM Proxy] Request failed");
 
     if (error instanceof Error && error.name === "TimeoutError") {
       return NextResponse.json({ error: "请求超时，请稍后重试" }, { status: 504 });

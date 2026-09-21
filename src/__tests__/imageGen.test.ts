@@ -470,3 +470,11 @@ describe("imageGen", () => {
     });
   });
 });
+
+describe("local image provider endpoint compatibility", () => {
+  it("uses the /v1 images endpoint when configured with the local server root", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, headers: { get: () => "application/json" }, text: async () => JSON.stringify({ data: [{ b64_json: "aW1hZ2U=" }] }) });
+    await getImageAdapter({ apiUrl: "http://localhost:8317", model: "gpt-image-2", endpointType: "images" }).generate("test", "flat");
+    expect(JSON.parse(mockFetch.mock.calls.at(-1)![1].body).targetUrl).toBe("http://localhost:8317/v1/images/generations");
+  });
+});

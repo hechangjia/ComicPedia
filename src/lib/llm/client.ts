@@ -1,3 +1,5 @@
+import { modelRequestBody } from "../providers/modelRequestBody";
+import { modelEndpoint } from "../providers/endpoints";
 import { PartialLLMConfig } from "../types";
 import { withRetry } from "../retryQueue";
 import { isUrlSafe, safeReadText, PROXY_TIMEOUT_MS } from "../security";
@@ -30,6 +32,7 @@ async function fetchDirect(
 
   return await fetch(targetUrl, {
     method: "POST",
+    redirect: "error",
     headers: forwardHeaders,
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(PROXY_TIMEOUT_MS),
@@ -43,16 +46,13 @@ async function fetchProxy(
   proxyPath: string,
   targetUrl: string,
   headers: Record<string, string>,
-  payload: unknown
+  payload: unknown,
+  reference?: PartialLLMConfig
 ): Promise<Response> {
   return await fetch(proxyPath, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      targetUrl,
-      headers,
-      payload,
-    }),
+    body: JSON.stringify(modelRequestBody(reference, targetUrl, headers, payload)),
   });
 }
 
@@ -63,10 +63,11 @@ async function fetchLLM(
   targetUrl: string,
   headers: Record<string, string>,
   payload: unknown,
+  reference?: PartialLLMConfig,
   proxyPath: string = "/api/llm"
 ): Promise<Response> {
   if (isBrowser()) {
-    return fetchProxy(proxyPath, targetUrl, headers, payload);
+    return fetchProxy(proxyPath, targetUrl, headers, payload, reference);
   } else {
     return fetchDirect(targetUrl, headers, payload);
   }
@@ -76,7 +77,7 @@ async function fetchLLM(
 export type StreamChunkCallback = (chunk: string, accumulated: string) => void;
 
 /** LLM 配置 */
-export interface LLMConfig {
+export interface LLMConfig extends PartialLLMConfig {
   apiUrl: string;
   apiKey: string;
   model: string;
@@ -94,7 +95,7 @@ export function getLLMConfig(overrides?: PartialLLMConfig): LLMConfig {
     throw new Error("未配置 LLM API，请在设置页面配置 API URL");
   }
 
-  return { apiUrl, apiKey, model, provider };
+  return { apiUrl, apiKey, model, provider, ...(overrides?.configId ? { configId: overrides.configId, configRole: overrides.configRole } : {}) };
 }
 
 /** 通用 LLM 调用（自动路由 OpenAI/Anthropic，通过 /api/llm 代理） */
@@ -114,10 +115,7 @@ export async function callOpenAICompatible(prompt: string, config: LLMConfig): P
   };
 
   // 兼容只填根路径的情况（如 deepseek 仅填 https://api.deepseek.com/v1）
-  const normalizedUrl =
-    config.apiUrl.includes("/chat/completions") || config.apiUrl.includes("/completions")
-      ? config.apiUrl
-      : `${config.apiUrl.replace(/\/+$/, "")}/chat/completions`;
+  const normalizedUrl = modelEndpoint(config.apiUrl, "chat");
 
   const doRequest = async () => {
     console.log("[LLM] 请求 URL:", normalizedUrl);
@@ -126,7 +124,7 @@ export async function callOpenAICompatible(prompt: string, config: LLMConfig): P
     const response = await fetchLLM(
       normalizedUrl,
       config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {},
-      requestBody
+      requestBody, config
     );
 
     if (!response.ok) {
@@ -172,12 +170,12 @@ export async function callAnthropic(prompt: string, config: LLMConfig): Promise<
     };
 
     const response = await fetchLLM(
-      config.apiUrl,
+      modelEndpoint(config.apiUrl, "messages"),
       {
         "x-api-key": config.apiKey,
         "anthropic-version": "2023-06-01",
       },
-      anthropicPayload
+      anthropicPayload, config
     );
 
     if (!response.ok) {
@@ -223,45 +221,45 @@ async function parseSSEStream(
   let accumulated = "";
   let buffer = "";
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || ""; // 保留不完整行
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith(":")) continue;
-      if (!trimmed.startsWith("data: ")) continue;
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith(":")) continue;
+        if (!trimmed.startsWith("data: ")) continue;
+        const data = trimmed.slice(6);
+        if (data === "[DONE]") return accumulated;
 
-      const data = trimmed.slice(6);
-      if (data === "[DONE]") return accumulated;
-
-      try {
-        const parsed = JSON.parse(data);
-        let text = "";
-
-        if (provider === "anthropic") {
-          if (parsed.type === "content_block_delta" && parsed.delta?.text) {
-            text = parsed.delta.text;
-          }
-        } else {
-          text = parsed.choices?.[0]?.delta?.content || "";
+        let parsed;
+        try {
+          parsed = JSON.parse(data);
+        } catch {
+          // Ignore malformed SSE data only, not exceptions from the consumer.
+          continue;
         }
-
-        if (text) {
+        const text = provider === "anthropic"
+          ? (parsed?.type === "content_block_delta" ? parsed.delta?.text : undefined)
+          : parsed?.choices?.[0]?.delta?.content;
+        if (typeof text === "string" && text) {
           accumulated += text;
           onChunk(text, accumulated);
         }
-      } catch {
-        // 非 JSON data 行，跳过
       }
     }
+    return accumulated;
+  } finally {
+    // Stop consuming after DONE or a superseded task callback. This releases
+    // the local reader; it is not proof of cancellation at the model provider.
+    try { await reader.cancel(); } catch { /* Preserve the original error. */ }
+    reader.releaseLock();
   }
-
-  return accumulated;
 }
 
 /** 流式调用 OpenAI 兼容 API */
@@ -272,14 +270,12 @@ export async function callOpenAICompatibleStream(
   signal?: AbortSignal,
 ): Promise<string> {
   const requestBody = {
+    stream: true,
     model: config.model,
     messages: [{ role: "user", content: prompt }],
   };
 
-  const normalizedUrl =
-    config.apiUrl.includes("/chat/completions") || config.apiUrl.includes("/completions")
-      ? config.apiUrl
-      : `${config.apiUrl.replace(/\/+$/, "")}/chat/completions`;
+  const normalizedUrl = modelEndpoint(config.apiUrl, "chat");
 
   console.log("[LLM Stream] 请求 URL:", normalizedUrl);
 
@@ -287,11 +283,7 @@ export async function callOpenAICompatibleStream(
     ? await fetch("/api/llm-stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          targetUrl: normalizedUrl,
-          headers: { Authorization: `Bearer ${config.apiKey}` },
-          payload: requestBody,
-        }),
+        body: JSON.stringify(modelRequestBody(config, normalizedUrl, { Authorization: `Bearer ${config.apiKey}` }, requestBody)),
         signal,
       })
     : await fetchDirect(normalizedUrl, { Authorization: `Bearer ${config.apiKey}` }, requestBody);
@@ -316,6 +308,7 @@ export async function callAnthropicStream(
   signal?: AbortSignal,
 ): Promise<string> {
   const payload = {
+    stream: true,
     model: config.model,
     max_tokens: 2048,
     messages: [{ role: "user", content: prompt }],
@@ -325,18 +318,11 @@ export async function callAnthropicStream(
     ? await fetch("/api/llm-stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          targetUrl: config.apiUrl,
-          headers: {
-            "x-api-key": config.apiKey,
-            "anthropic-version": "2023-06-01",
-          },
-          payload,
-        }),
+        body: JSON.stringify(modelRequestBody(config, modelEndpoint(config.apiUrl, "messages"), { "x-api-key": config.apiKey, "anthropic-version": "2023-06-01" }, payload)),
         signal,
       })
     : await fetchDirect(
-        config.apiUrl,
+        modelEndpoint(config.apiUrl, "messages"),
         {
           "x-api-key": config.apiKey,
           "anthropic-version": "2023-06-01",
@@ -371,16 +357,13 @@ export async function callOpenAIWithMessages(
     temperature: 0.3,
   };
 
-  const normalizedUrl =
-    config.apiUrl.includes("/chat/completions") || config.apiUrl.includes("/completions")
-      ? config.apiUrl
-      : `${config.apiUrl.replace(/\/+$/, "")}/chat/completions`;
+  const normalizedUrl = modelEndpoint(config.apiUrl, "chat");
 
   const doRequest = async () => {
     const response = await fetchLLM(
       normalizedUrl,
       config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {},
-      requestBody
+      requestBody, config
     );
 
     if (!response.ok) {
@@ -414,12 +397,12 @@ export async function callAnthropicWithMessages(
     };
 
     const response = await fetchLLM(
-      config.apiUrl,
+      modelEndpoint(config.apiUrl, "messages"),
       {
         "x-api-key": config.apiKey,
         "anthropic-version": "2023-06-01",
       },
-      anthropicPayload
+      anthropicPayload, config
     );
 
     if (!response.ok) {

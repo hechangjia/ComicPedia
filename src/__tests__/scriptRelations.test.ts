@@ -42,6 +42,10 @@ const {
 }));
 
 vi.mock("@/lib/server/db", () => ({
+  claimTaskScriptRun: vi.fn((id: string) => ({runId: "unit-run", task: getTaskMock(id)})),
+  hasTaskScriptRun: vi.fn((id: string) => !!getTaskMock(id)),
+  updateTaskForScriptRun: vi.fn((task: GenerateTask) => { upsertTaskMock(task); return true; }),
+  finishTaskScriptRun: vi.fn(),
   getTaskById: getTaskMock,
   upsertTask: upsertTaskMock,
   getCharacterById: getCharacterByIdMock,

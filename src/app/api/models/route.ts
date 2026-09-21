@@ -1,3 +1,5 @@
+import { resolveModelDiscoveryBody, ModelReferenceError } from "@/lib/server/modelRequest";
+import { modelEndpoint } from "@/lib/providers/endpoints";
 import { NextRequest, NextResponse } from "next/server";
 import { isUrlSafe, sanitizeProxyError, safeReadText } from "@/lib/security";
 
@@ -8,7 +10,7 @@ import { isUrlSafe, sanitizeProxyError, safeReadText } from "@/lib/security";
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const body = await resolveModelDiscoveryBody(await request.json());
     const { apiUrl, apiKey, protocolType } = body as {
       apiUrl: string;
       apiKey?: string;
@@ -33,17 +35,9 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 构建 /models 端点 URL
-    const base = apiUrl.trim().replace(/\/+$/, "");
-    // 移除已有的路径后缀，定位到 base URL
-    const modelsUrl = base
-      .replace(/\/chat\/completions\/?$/, "")
-      .replace(/\/completions\/?$/, "")
-      .replace(/\/messages\/?$/, "")
-      .replace(/\/images\/generations\/?$/, "")
-      .replace(/\/v1\/?$/, "");
-
-    const finalUrl = `${modelsUrl}/v1/models`;
+    let finalUrl: string;
+    try { finalUrl = modelEndpoint(apiUrl, "models"); }
+    catch { return NextResponse.json({ error: "无效的模型 API 地址" }, { status: 400 }); }
 
     // SSRF 防护
     const urlCheck = isUrlSafe(finalUrl);
@@ -60,13 +54,13 @@ export async function POST(request: NextRequest) {
 
     const response = await fetch(finalUrl, {
       method: "GET",
+      redirect: "error",
       headers,
       signal: AbortSignal.timeout(15000),
     });
 
     if (!response.ok) {
-      const errText = await safeReadText(response).catch(() => "");
-      console.error("[Models Proxy] Upstream error:", response.status, errText.slice(0, 300));
+      console.error("[Models Proxy] Upstream error:", response.status);
 
       return NextResponse.json(
         { error: sanitizeProxyError(response.status), models: [] },
@@ -74,7 +68,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const data = await response.json();
+    const data = JSON.parse(await safeReadText(response));
 
     // OpenAI 格式: { data: [{ id: "gpt-4o", ... }] }
     // Ollama 格式: { models: [{ name: "qwen3.5:4b", ... }] }
@@ -95,7 +89,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ models });
   } catch (error) {
-    console.error("[Models Proxy] Error:", error);
+    if (error instanceof ModelReferenceError) return NextResponse.json({ error: error.message, models: [] }, { status: error.status });
+    console.error("[Models Proxy] Request failed");
 
     if (error instanceof Error && error.name === "TimeoutError") {
       return NextResponse.json({ error: "请求超时", models: [] }, { status: 504 });

@@ -155,6 +155,7 @@ export async function forwardImageGenerationRequest(
   }
 
   const response = await fetch(targetUrl, {
+    redirect: "error",
     method: "POST",
     headers: forwardHeaders,
     body: JSON.stringify(payload),
@@ -163,8 +164,7 @@ export async function forwardImageGenerationRequest(
 
   const contentType = response.headers.get("content-type")?.toLowerCase() || "";
   if (!response.ok) {
-    const rawText = await safeReadText(response, MAX_RESPONSE_BYTES).catch(() => "");
-    console.error("[Image Proxy] Upstream error:", response.status, rawText.slice(0, 300));
+    console.error("[Image Proxy] Upstream error:", response.status);
     throw new ImageGenerationServiceError(sanitizeProxyError(response.status), response.status);
   }
 

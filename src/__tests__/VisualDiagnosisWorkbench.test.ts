@@ -231,7 +231,7 @@ describe("VisualDiagnosisWorkbench", () => {
       stale: false,
     }));
 
-    expect(html).toContain("查看待修复面板");
+    expect(html).toContain("按诊断状态查看面板与证据");
     expect(html).toContain("6.4/10");
     expect(html).toContain("2 个问题面板");
     expect(html).toContain("1 个高优先级问题");
@@ -305,5 +305,115 @@ describe("VisualDiagnosisWorkbench", () => {
 
     expect(html).toContain("批量应用 patch");
     expect(html).toContain("1 格可批量修复");
+  });
+});
+
+describe("diagnosis state semantics", () => {
+  function renderState(status: "clean" | "uncertain" | "issues_found", stale = false) {
+    const report = makeSinglePanelReport("patch");
+    report.panels[0].status = status;
+    if (status === "clean") {
+      report.panels[0].issues = [];
+      report.panels[0].topIssueType = "no_issue_detected";
+      report.summary.problemPanelCount = 0;
+    }
+    return renderToStaticMarkup(React.createElement(VisualDiagnosisWorkbench, {
+      visualScoreOverall: 5, report, stale,
+      onApplyPatch: () => {}, onApplyRewrite: () => {}, onApplyBatchPatch: () => {},
+    }));
+  }
+
+  it("keeps a clean low-score diagnosis readable without recommending repair", () => {
+    const html = renderState("clean");
+    expect(html).toContain("未发现问题");
+    expect(html).toContain("5/10");
+    expect(html).toContain("评分与诊断是不同的评估");
+    expect(html).not.toContain("建议先修这格");
+    expect(html).not.toContain("为什么判这格有问题");
+    expect(html).not.toContain("建议怎么改");
+    expect(html).not.toContain("应用 patch");
+    expect(html).not.toContain("no_issue_detected");
+  });
+
+  it("treats uncertain diagnosis as unconfirmed, never a direct or batch repair", () => {
+    const html = renderState("uncertain");
+    expect(html).toContain("待人工确认");
+    expect(html).not.toContain("建议先修这格");
+    expect(html).not.toContain("应用 patch");
+    expect(html).not.toContain("为什么判这格有问题");
+  });
+
+  it("retains stale evidence but removes repair actions", () => {
+    const html = renderState("issues_found", true);
+    expect(html).toContain("诊断结果已过期");
+    expect(html).toContain("请重新诊断后再修复");
+    expect(html).not.toContain("应用 patch");
+  });
+
+  it("orders actual problems before uncertain and clean panels regardless of severity", () => {
+    const report = makeBatchPatchReport();
+    report.panels[0].status = "clean";
+    report.panels[0].issues = [];
+    report.panels[1].status = "uncertain";
+    report.panels[2].severity = "low";
+    const html = renderToStaticMarkup(React.createElement(VisualDiagnosisWorkbench, { visualScoreOverall: 5, report }));
+    expect(html.indexOf("Panel 3")).toBeLessThan(html.indexOf("Panel 2"));
+    expect(html.indexOf("Panel 2")).toBeLessThan(html.indexOf("Panel 1"));
+    expect(html).toContain('aria-pressed="true"');
+  });
+
+  it("shows an explicit empty state rather than a repair list", () => {
+    const report = makeReport();
+    report.panels = [];
+    const html = renderToStaticMarkup(React.createElement(VisualDiagnosisWorkbench, { visualScoreOverall: 5, report }));
+    expect(html).toContain("尚未生成逐格诊断记录");
+    expect(html).not.toContain("待修复面板");
+  });
+});
+
+describe("diagnosis repair action boundaries", () => {
+  it("excludes confirmation-required patch suggestions from batch and previews their changes", () => {
+    const report = makeSinglePanelReport("patch");
+    report.panels[0].issues[0].actionability = "confirm_first";
+    const html = renderToStaticMarkup(React.createElement(VisualDiagnosisWorkbench, {
+      visualScoreOverall: 5, report, onApplyPatch: () => {}, onApplyBatchPatch: () => {},
+    }));
+    expect(html).not.toContain("批量应用 patch");
+    expect(html).toContain("确认并应用 patch");
+    expect(html).toContain("追加提示词");
+    expect(html).toContain("排除内容");
+  });
+
+  it("blocks both individual and batch actions while another panel repair runs", () => {
+    const html = renderToStaticMarkup(React.createElement(VisualDiagnosisWorkbench, {
+      visualScoreOverall: 5, report: makeSinglePanelReport("patch"),
+      onApplyPatch: () => {}, onApplyBatchPatch: () => {},
+      repairStatus: { panelIndex: 3, mode: "patch", status: "running", message: "正在修复" },
+    }));
+    expect(html).not.toMatch(/>应用 patch</);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>批量应用 patch<\/button>/);
+  });
+
+  it("does not trust a stale summary to classify clean or uncertain panels as problems", () => {
+    const report = makeBatchPatchReport();
+    report.panels[0].status = "clean";
+    report.panels[1].status = "uncertain";
+    report.summary.problemPanelCount = 99;
+    const html = renderToStaticMarkup(React.createElement(VisualDiagnosisWorkbench, { visualScoreOverall: 5, report }));
+    expect(html).toContain("1 个问题面板");
+    expect(html).toContain("1 个待人工确认");
+    expect(html).toContain("1 个未发现问题");
+    expect(html).not.toContain("99 个问题面板");
+  });
+});
+
+describe("diagnosis readability", () => {
+  it("uses readable secondary text and never labels uncertain evidence directly executable", () => {
+    const report = makeSinglePanelReport("patch");
+    report.panels[0].status = "uncertain";
+    const html = renderToStaticMarkup(React.createElement(VisualDiagnosisWorkbench, { visualScoreOverall: 5, report }));
+    expect(html).not.toContain("text-muted-foreground");
+    expect(html).not.toContain("可直接执行");
+    expect(html).toContain("待核对的修改建议");
   });
 });

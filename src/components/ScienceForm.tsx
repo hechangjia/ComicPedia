@@ -8,6 +8,7 @@ import { PanelCountSelector } from "./PanelCountSelector";
 import { ReferenceImagePanel } from "./ReferenceImagePanel";
 import { ModelSelector } from "./ModelSelector";
 import { CharacterPicker } from "./CharacterPicker";
+import { CreationReview } from "./CreationReview";
 import { ErrorAlert } from "./ErrorAlert";
 import { Spinner } from "./ui/Spinner";
 import { QualitySelector } from "./QualitySelector";
@@ -101,8 +102,8 @@ export function ScienceForm({ initialTopic = "" }: { initialTopic?: string }) {
               <ModelSelector type="image" value={form.selectedImageId} onChange={form.setSelectedImageId} disabled={form.isLoading} />
 
               <AdvancedGenerationSettings
-                value={form.advancedSettings}
-                onChange={form.setAdvancedSettings}
+                value={form.effectivePreset}
+                onChange={(patch) => form.setAdvancedSettings((previous) => ({ ...previous, ...patch }))}
                 disabled={form.isLoading}
               />
 
@@ -154,20 +155,22 @@ export function ScienceForm({ initialTopic = "" }: { initialTopic?: string }) {
           )}
         </div>
 
+        <CreationReview plan={form.preflight} />
+
         <ErrorAlert message={form.error} onClose={() => form.setError("")} />
 
         <button
           onClick={handleGenerate}
-          disabled={form.isLoading || !topic.trim()}
-          className="w-full py-3 rounded-lg bg-teal text-white font-medium hover:opacity-90 hover:shadow-lg hover:shadow-teal/25 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+          disabled={form.isLoading || !form.preflight.canSubmit || !topic.trim()}
+          className="w-full min-h-[48px] px-4 py-3 rounded-lg bg-foreground text-background font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 transition-opacity"
         >
           {form.isLoading ? (
             <span className="flex items-center justify-center gap-2">
               <Spinner />
-              生成中...
+              正在创建任务…
             </span>
           ) : (
-            "一键生成漫画"
+            form.preflight.submitLabel
           )}
         </button>
       </div>

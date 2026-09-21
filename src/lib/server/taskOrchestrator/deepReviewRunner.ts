@@ -1,7 +1,12 @@
-import { getConfig, getTaskById, upsertTask } from "@/lib/server/db";
-import type { GenerateTask, PartialLLMConfig, UserAPIConfigV2, UserLLMConfig } from "@/lib/types";
-import { countRecoverableComfyJobs } from "./queueMeta";
-import { createTaskJob, listTaskJobsByTaskId, summarizeTaskJobs } from "./store";
+import { getConfig, mutateTaskReviewState } from "@/lib/server/db";
+import type {
+  GenerateTask,
+  PartialLLMConfig,
+  UserAPIConfigV2,
+  UserLLMConfig,
+} from "@/lib/types";
+import { randomUUID } from "node:crypto";
+import { syncReviewQueueState } from "./reviewState";
 
 type SanitizedLLMConfig = Omit<PartialLLMConfig, "apiKey">;
 
@@ -20,33 +25,49 @@ function isLocalApiUrl(apiUrl?: string): boolean {
   }
 }
 
-function sanitizePanelIndices(panelIndices: number[] | undefined, panelCount: number): number[] | undefined {
+function sanitizePanelIndices(
+  panelIndices: number[] | undefined,
+  panelCount: number,
+): number[] | undefined {
   const sanitized = [...new Set(panelIndices ?? [])]
-    .filter((panelIndex) => Number.isInteger(panelIndex) && panelIndex >= 0 && panelIndex < panelCount)
+    .filter(
+      (panelIndex) =>
+        Number.isInteger(panelIndex) &&
+        panelIndex >= 0 &&
+        panelIndex < panelCount,
+    )
     .sort((left, right) => left - right);
   return sanitized.length > 0 ? sanitized : undefined;
 }
 
-function getReviewConfigCandidates(config: UserAPIConfigV2 | null): UserLLMConfig[] {
+function getReviewConfigCandidates(
+  config: UserAPIConfigV2 | null,
+): UserLLMConfig[] {
   if (!config) {
     return [];
   }
-  return [
-    ...(config.vlmConfigs ?? []),
-    ...config.llmConfigs,
-  ];
+  return [...(config.vlmConfigs ?? []), ...config.llmConfigs];
 }
 
-function matchesLLMConfig(candidate: UserLLMConfig, config?: SanitizedLLMConfig): boolean {
+function matchesLLMConfig(
+  candidate: UserLLMConfig,
+  config?: SanitizedLLMConfig,
+): boolean {
   if (!config) return false;
-  return candidate.apiUrl === config.apiUrl
-    && candidate.model === config.model
-    && candidate.protocolType === config.provider;
+  return (
+    candidate.apiUrl === config.apiUrl &&
+    candidate.model === config.model &&
+    candidate.protocolType === config.provider
+  );
 }
 
-function sanitizeLLMConfig(vlmConfig: PartialLLMConfig): SanitizedLLMConfig | undefined {
+function sanitizeLLMConfig(
+  vlmConfig: PartialLLMConfig,
+): SanitizedLLMConfig | undefined {
   const { apiKey: _apiKey, ...safeConfig } = vlmConfig;
-  return Object.values(safeConfig).some((value) => value !== undefined) ? safeConfig : undefined;
+  return Object.values(safeConfig).some((value) => value !== undefined)
+    ? safeConfig
+    : undefined;
 }
 
 function buildDeepReviewPayload(
@@ -56,55 +77,76 @@ function buildDeepReviewPayload(
   const config = getConfig();
   const candidates = getReviewConfigCandidates(config);
   const sanitizedConfig = sanitizeLLMConfig(vlmConfig);
-  const resolvedConfigId = candidates.find((candidate) => matchesLLMConfig(candidate, sanitizedConfig))?.id;
-  const safeFallback = sanitizedConfig && isLocalApiUrl(sanitizedConfig.apiUrl) ? sanitizedConfig : undefined;
+  if (vlmConfig.configId && vlmConfig.configRole === "image") {
+    throw new Error("视觉评审必须使用文字或视觉模型配置");
+  }
+  const matched = candidates.find((candidate) =>
+    matchesLLMConfig(candidate, sanitizedConfig),
+  );
+  const resolvedConfigId = vlmConfig.configId ?? matched?.id;
+  const configRole = vlmConfig.configId
+    ? (vlmConfig.configRole ?? "vlm")
+    : matched
+      ? (config?.vlmConfigs ?? []).includes(matched)
+        ? "vlm"
+        : "llm"
+      : undefined;
+  const safeFallback =
+    sanitizedConfig && isLocalApiUrl(sanitizedConfig.apiUrl)
+      ? sanitizedConfig
+      : undefined;
 
   if (!resolvedConfigId && !safeFallback) {
-    throw new Error("缺少可重放的视觉评审配置，请重新选择有效的视觉模型配置后再试");
+    throw new Error(
+      "缺少可重放的视觉评审配置，请重新选择有效的视觉模型配置后再试",
+    );
   }
 
   return {
     review: {
       configId: resolvedConfigId,
+      configRole,
       fallback: resolvedConfigId ? undefined : safeFallback,
       targetPanels,
     },
   };
 }
 
-export async function startDeepReview(taskId: string, input: StartDeepReviewInput): Promise<GenerateTask> {
-  const task = getTaskById(taskId);
-  if (!task?.script) {
-    throw new Error("任务脚本尚未生成");
-  }
-
-  const targetPanels = sanitizePanelIndices(input.panelIndices, task.script.panels.length);
-  const completedPanels = task.script.panels
-    .map((panel, panelIndex) => ({ panel, panelIndex }))
-    .filter(({ panel, panelIndex }) => panel.status === "completed"
-      && !!panel.imageUrl
-      && (!targetPanels || targetPanels.includes(panelIndex)));
-
-  if (completedPanels.length === 0) {
-    throw new Error("没有可用于深度复审的已生成面板");
-  }
-
-  await createTaskJob({
-    taskId,
-    kind: "deep_review",
-    status: "queued",
-    payload: buildDeepReviewPayload(input.vlmConfig, targetPanels),
+export async function startDeepReview(
+  taskId: string,
+  input: StartDeepReviewInput,
+): Promise<GenerateTask> {
+  const updated = mutateTaskReviewState(taskId, (task, jobs) => {
+    if (!task.script) throw new Error("任务脚本尚未生成");
+    const targetPanels = sanitizePanelIndices(
+      input.panelIndices,
+      task.script.panels.length,
+    );
+    if (input.panelIndices && !targetPanels)
+      throw new Error("没有有效的目标分镜");
+    const completedPanels = task.script.panels.filter(
+      (panel, index) =>
+        panel.status === "completed" &&
+        !!panel.imageUrl &&
+        (!targetPanels || targetPanels.includes(index)),
+    );
+    if (!completedPanels.length)
+      throw new Error("没有可用于深度复审的已生成面板");
+    const now = new Date().toISOString();
+    jobs.push({
+      id: randomUUID(),
+      taskId,
+      kind: "deep_review",
+      status: "queued",
+      attemptCount: 0,
+      payload: buildDeepReviewPayload(input.vlmConfig, targetPanels),
+      createdAt: now,
+      updatedAt: now,
+    });
+    task.visualDiagnosisState = "running";
+    syncReviewQueueState(task, jobs);
+    return task;
   });
-
-  const jobs = await listTaskJobsByTaskId(taskId);
-  const nextTask: GenerateTask = {
-    ...task,
-    status: "deep_review_running",
-    queueSummary: summarizeTaskJobs(jobs),
-    comfyuiRemotePendingCount: countRecoverableComfyJobs(jobs),
-    visualDiagnosisState: "running",
-    updatedAt: new Date(),
-  };
-  upsertTask(nextTask);
-  return nextTask;
+  if (!updated) throw new Error("任务不存在，无法开始深度复审");
+  return updated;
 }

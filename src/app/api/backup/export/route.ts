@@ -1,3 +1,5 @@
+import { authorizeBackup, backupError } from "@/lib/server/backup/http";
+import { mapArtworkValue } from "@/lib/server/backup/archive";
 import { NextResponse } from "next/server";
 import { getAllTasks, getAllCharacters as getServerCharacters, getAllSeriesList as getServerSeries } from "@/lib/server/db";
 import type { GenerateTask, Character } from "@/lib/types";
@@ -12,14 +14,15 @@ interface BackupData {
 }
 
 /**
- * GET /api/backup/export — Export all user data (tasks, characters, series).
- * Includes base64 images for full backup. User can save this JSON and commit to git.
+ * Legacy read-only JSON extract, NOT a portable backup: local file references remain.
+ * Use /api/backup/archive for media-inclusive, validated portable artwork archives.
  *
  * Query params:
  *   ?strip_images=true — Remove base64 images to reduce file size (metadata only)
  */
 export async function GET(request: Request) {
   try {
+    authorizeBackup(request);
     const { searchParams } = new URL(request.url);
     const stripImages = searchParams.get("strip_images") === "true";
 
@@ -84,9 +87,8 @@ export async function GET(request: Request) {
       series,
     };
 
-    return NextResponse.json(backup);
+    return NextResponse.json(await mapArtworkValue(backup, async text => text, true), { headers: { "Cache-Control": "no-store", "X-ComicPedia-Scope": "legacy-json-not-portable" } });
   } catch (error) {
-    console.error("[API /backup/export]", error);
-    return NextResponse.json({ error: "Export failed" }, { status: 500 });
+    return backupError(error);
   }
 }

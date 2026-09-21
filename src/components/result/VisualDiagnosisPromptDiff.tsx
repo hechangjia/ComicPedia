@@ -13,7 +13,7 @@ export function VisualDiagnosisPromptDiff({
 }: VisualDiagnosisPromptDiffProps) {
   return React.createElement("div", { className: "space-y-2" }, [
     React.createElement("div", { key: "original", className: "space-y-1" }, [
-      React.createElement("p", { key: "label", className: "text-[11px] font-medium text-muted-foreground" }, "原 Prompt"),
+      React.createElement("p", { key: "label", className: "text-[11px] font-medium text-secondary-text" }, "原 Prompt"),
       React.createElement(
         "div",
         { key: "value", className: "rounded-lg border bg-muted/40 p-2 text-xs leading-relaxed" },
@@ -21,7 +21,7 @@ export function VisualDiagnosisPromptDiff({
       ),
     ]),
     React.createElement("div", { key: "suggested", className: "space-y-1" }, [
-      React.createElement("p", { key: "label", className: "text-[11px] font-medium text-muted-foreground" }, "建议 Prompt"),
+      React.createElement("p", { key: "label", className: "text-[11px] font-medium text-secondary-text" }, "建议 Prompt"),
       React.createElement(
         "div",
         {

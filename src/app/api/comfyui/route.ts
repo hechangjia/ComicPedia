@@ -1,3 +1,4 @@
+import { resolveProxyModelBody, ModelReferenceError } from "@/lib/server/modelRequest";
 import { NextRequest, NextResponse } from "next/server";
 import { ComfyUIClientError, runComfyWorkflow } from "@/lib/server/comfyuiClient";
 
@@ -28,7 +29,7 @@ interface ComfyUIRequest {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const body = await resolveProxyModelBody(await request.json(), ["image"], true);
     const { comfyuiUrl, ping } = body;
 
     // Ping 模式：测试 ComfyUI 是否可达
@@ -75,6 +76,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ image: result.image });
   } catch (error) {
+    if (error instanceof ModelReferenceError) return Response.json({ error: error.message }, { status: error.status });
     if (error instanceof ComfyUIClientError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }

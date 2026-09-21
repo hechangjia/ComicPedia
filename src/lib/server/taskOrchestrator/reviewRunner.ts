@@ -1,4 +1,10 @@
-import { getAllTasks, getConfig, getTaskById, upsertTask, upsertTaskJob } from "@/lib/server/db";
+import { createServerVisionRuntime } from "../visionRuntime";
+import {
+  getAllTasks,
+  getConfig,
+  getTaskById,
+  mutateTaskReviewState,
+} from "@/lib/server/db";
 import type {
   GenerateTask,
   PanelReview,
@@ -8,12 +14,20 @@ import type {
   UserLLMConfig,
   VisualDiagnosisReport,
 } from "@/lib/types";
-import { evaluateVisualDiagnosis, summarizeDiagnosisReport } from "@/lib/vlmDiagnosis";
-import { markDiagnosisFailed, markDiagnosisRunning, markDiagnosisSucceeded } from "@/lib/vlmDiagnosisState";
+import {
+  evaluateVisualDiagnosis,
+  summarizeDiagnosisReport,
+} from "@/lib/vlmDiagnosis";
+import {
+  markDiagnosisFailed,
+  markDiagnosisRunning,
+  markDiagnosisSucceeded,
+} from "@/lib/vlmDiagnosisState";
 import { buildTaskReviewStatus } from "@/lib/vlmRetry";
 import { evaluateVisualQuality } from "@/lib/vlmScorer";
-import { countRecoverableComfyJobs } from "./queueMeta";
-import { listTaskJobsByTaskId, summarizeTaskJobs } from "./store";
+import { listTaskJobsByTaskId } from "./store";
+import { createHash, randomUUID } from "node:crypto";
+import { reviewInputFingerprint, syncReviewQueueState } from "./reviewState";
 
 const PROCESSABLE_REVIEW_JOB_STATUSES = new Set<TaskJobRecord["status"]>([
   "queued",
@@ -27,6 +41,7 @@ type SanitizedLLMConfig = Omit<PartialLLMConfig, "apiKey">;
 interface StoredReviewJobPayload extends Record<string, unknown> {
   review?: {
     configId?: string;
+    configRole?: "llm" | "vlm";
     fallback?: SanitizedLLMConfig;
     targetPanels?: number[];
   };
@@ -36,7 +51,10 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function updateJob(job: TaskJobRecord, patch: Partial<TaskJobRecord>): TaskJobRecord {
+function updateJob(
+  job: TaskJobRecord,
+  patch: Partial<TaskJobRecord>,
+): TaskJobRecord {
   return {
     ...job,
     ...patch,
@@ -54,11 +72,16 @@ function isLocalApiUrl(apiUrl?: string): boolean {
   }
 }
 
-function matchesLLMConfig(candidate: UserLLMConfig, config?: SanitizedLLMConfig): boolean {
+function matchesLLMConfig(
+  candidate: UserLLMConfig,
+  config?: SanitizedLLMConfig,
+): boolean {
   if (!config) return false;
-  return candidate.apiUrl === config.apiUrl
-    && candidate.model === config.model
-    && candidate.protocolType === config.provider;
+  return (
+    candidate.apiUrl === config.apiUrl &&
+    candidate.model === config.model &&
+    candidate.protocolType === config.provider
+  );
 }
 
 function buildLLMConfig(config?: UserLLMConfig): PartialLLMConfig | undefined {
@@ -71,31 +94,36 @@ function buildLLMConfig(config?: UserLLMConfig): PartialLLMConfig | undefined {
   };
 }
 
-function getReviewConfigCandidates(config: UserAPIConfigV2 | null): UserLLMConfig[] {
+function getReviewConfigCandidates(
+  config: UserAPIConfigV2 | null,
+): UserLLMConfig[] {
   if (!config) {
     return [];
   }
-  return [
-    ...(config.vlmConfigs ?? []),
-    ...config.llmConfigs,
-  ];
+  return [...(config.vlmConfigs ?? []), ...config.llmConfigs];
 }
 
 function resolveReviewConfig(
   payload: StoredReviewJobPayload["review"],
   config: UserAPIConfigV2 | null,
 ): PartialLLMConfig | undefined {
-  const candidates = getReviewConfigCandidates(config);
+  const candidates =
+    payload?.configRole === "llm"
+      ? (config?.llmConfigs ?? [])
+      : payload?.configRole === "vlm"
+        ? (config?.vlmConfigs ?? [])
+        : getReviewConfigCandidates(config);
 
   if (payload?.configId) {
-    const matched = candidates.find((candidate) => candidate.id === payload.configId);
-    if (matched) {
-      return buildLLMConfig(matched);
-    }
+    return buildLLMConfig(
+      candidates.find((candidate) => candidate.id === payload.configId),
+    );
   }
 
   if (payload?.fallback) {
-    const matched = candidates.find((candidate) => matchesLLMConfig(candidate, payload.fallback));
+    const matched = candidates.find((candidate) =>
+      matchesLLMConfig(candidate, payload.fallback),
+    );
     if (matched) {
       return buildLLMConfig(matched);
     }
@@ -106,14 +134,18 @@ function resolveReviewConfig(
   }
 
   if (config?.activeVLMId) {
-    const matched = (config.vlmConfigs ?? []).find((candidate) => candidate.id === config.activeVLMId);
+    const matched = (config.vlmConfigs ?? []).find(
+      (candidate) => candidate.id === config.activeVLMId,
+    );
     if (matched) {
       return buildLLMConfig(matched);
     }
   }
 
   if (config?.activeLLMId) {
-    const matched = config.llmConfigs.find((candidate) => candidate.id === config.activeLLMId);
+    const matched = config.llmConfigs.find(
+      (candidate) => candidate.id === config.activeLLMId,
+    );
     if (matched) {
       return buildLLMConfig(matched);
     }
@@ -122,20 +154,38 @@ function resolveReviewConfig(
   return buildLLMConfig(candidates[0]);
 }
 
-function sanitizeTargetPanels(panelIndices: number[] | undefined, panelCount: number): number[] | undefined {
+function sanitizeTargetPanels(
+  panelIndices: number[] | undefined,
+  panelCount: number,
+): number[] | undefined {
   const sanitized = [...new Set(panelIndices ?? [])]
-    .filter((panelIndex) => Number.isInteger(panelIndex) && panelIndex >= 0 && panelIndex < panelCount)
+    .filter(
+      (panelIndex) =>
+        Number.isInteger(panelIndex) &&
+        panelIndex >= 0 &&
+        panelIndex < panelCount,
+    )
     .sort((left, right) => left - right);
   return sanitized.length > 0 ? sanitized : undefined;
 }
 
-function getTargetPanels(job: TaskJobRecord, panelCount: number): number[] | undefined {
+function getTargetPanels(
+  job: TaskJobRecord,
+  panelCount: number,
+): number[] | undefined {
   const payload = job.payload as StoredReviewJobPayload;
-  const payloadPanels = sanitizeTargetPanels(payload.review?.targetPanels, panelCount);
+  const payloadPanels = sanitizeTargetPanels(
+    payload.review?.targetPanels,
+    panelCount,
+  );
   if (payloadPanels) {
     return payloadPanels;
   }
-  if (typeof job.panelIndex === "number" && job.panelIndex >= 0 && job.panelIndex < panelCount) {
+  if (
+    typeof job.panelIndex === "number" &&
+    job.panelIndex >= 0 &&
+    job.panelIndex < panelCount
+  ) {
     return [job.panelIndex];
   }
   return undefined;
@@ -149,7 +199,10 @@ function mergeDiagnosisReports(
     return incoming;
   }
 
-  const panelsByIndex = new Map<number, VisualDiagnosisReport["panels"][number]>();
+  const panelsByIndex = new Map<
+    number,
+    VisualDiagnosisReport["panels"][number]
+  >();
   for (const panel of existing.panels) {
     panelsByIndex.set(panel.panelIndex, panel);
   }
@@ -157,7 +210,9 @@ function mergeDiagnosisReports(
     panelsByIndex.set(panel.panelIndex, panel);
   }
 
-  const panels = Array.from(panelsByIndex.values()).sort((left, right) => left.panelIndex - right.panelIndex);
+  const panels = Array.from(panelsByIndex.values()).sort(
+    (left, right) => left.panelIndex - right.panelIndex,
+  );
   return {
     ...incoming,
     panels,
@@ -174,198 +229,203 @@ function buildPanelReviewFromScore(task: GenerateTask): PanelReview[] {
   }));
 }
 
-function resetDiagnosisStateAfterPause(task: GenerateTask): void {
-  task.visualDiagnosisState = task.visualDiagnosisReport ? "succeeded" : "idle";
-}
+class ReviewExecutionStopped extends Error {}
 
-async function persistReviewState(taskId: string): Promise<void> {
-  const task = getTaskById(taskId);
-  if (!task) {
-    return;
-  }
-
-  const jobs = await listTaskJobsByTaskId(taskId);
-  const queueSummary = summarizeTaskJobs(jobs);
-  const deepReviewJobs = jobs.filter((job) => job.kind === "deep_review");
-  const deepReviewSummary = summarizeTaskJobs(deepReviewJobs);
-
-  task.queueSummary = queueSummary;
-  task.comfyuiRemotePendingCount = countRecoverableComfyJobs(jobs);
-  if (deepReviewSummary.queued > 0 || deepReviewSummary.running > 0 || deepReviewSummary.calibrationPending > 0) {
-    task.status = "deep_review_running";
-  } else if (deepReviewSummary.paused > 0 || deepReviewSummary.failed > 0 || deepReviewSummary.attachFailed > 0) {
-    task.status = "deep_review_paused";
-  } else if (task.status === "deep_review_running" || task.status === "deep_review_paused") {
-    task.status = task.script?.panels.every((panel) => panel.status === "completed") ? "completed" : "script_ready";
-  }
-  task.updatedAt = new Date();
-  upsertTask(task);
-}
-
-async function getLatestDeepReviewJob(taskId: string, jobId: string): Promise<TaskJobRecord | undefined> {
-  const jobs = await listTaskJobsByTaskId(taskId);
-  return jobs.find((job) => job.id === jobId && job.kind === "deep_review");
-}
-
-export async function runTaskDeepReviewQueue(
+/** All checks and writes share a transaction with the current job and task snapshot. */
+function mutateOwnedReview(
   taskId: string,
-): Promise<void> {
-  const baseTask = getTaskById(taskId);
-  if (!baseTask?.script) {
-    throw new Error(`Task not ready for deep review: ${taskId}`);
-  }
+  jobId: string,
+  runId: string,
+  fingerprint: string,
+  mutate: (task: GenerateTask, job: TaskJobRecord) => void,
+): boolean {
+  return (
+    mutateTaskReviewState(taskId, (task, jobs) => {
+      const job = jobs.find(
+        (item) => item.id === jobId && item.kind === "deep_review",
+      );
+      if (
+        !job ||
+        job.status !== "light_check" ||
+        job.payload.reviewExecutionId !== runId
+      ) {
+        return false;
+      }
+      if (!task.script || reviewInputFingerprint(task.script) !== fingerprint) {
+        Object.assign(
+          job,
+          updateJob(job, {
+            status: "failed",
+            lastError: "复审素材已变更，请重新开始复审",
+          }),
+        );
+        task.visualDiagnosisStale = true;
+        markDiagnosisFailed(task);
+        syncReviewQueueState(task, jobs);
+        return false;
+      }
+      mutate(task, job);
+      syncReviewQueueState(task, jobs);
+      return true;
+    }) === true
+  );
+}
 
+export async function runTaskDeepReviewQueue(taskId: string): Promise<void> {
+  if (!getTaskById(taskId)?.script) return;
   const jobs = (await listTaskJobsByTaskId(taskId))
-    .filter((job) => job.kind === "deep_review" && PROCESSABLE_REVIEW_JOB_STATUSES.has(job.status))
+    .filter(
+      (job) =>
+        job.kind === "deep_review" &&
+        PROCESSABLE_REVIEW_JOB_STATUSES.has(job.status),
+    )
     .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt));
 
-  if (jobs.length === 0) {
-    await persistReviewState(taskId);
-    return;
-  }
-
-  for (const job of jobs) {
-    const task = getTaskById(taskId);
-    if (!task?.script) {
-      throw new Error(`Task not ready for deep review: ${taskId}`);
-    }
-    const liveJob = await getLatestDeepReviewJob(taskId, job.id);
-    if (!liveJob || !PROCESSABLE_REVIEW_JOB_STATUSES.has(liveJob.status)) {
-      await persistReviewState(taskId);
-      continue;
-    }
-
-    const resolvedConfig = resolveReviewConfig(
-      (liveJob.payload as StoredReviewJobPayload).review,
-      getConfig(),
-    );
-    if (!resolvedConfig?.apiUrl || !resolvedConfig.model || !resolvedConfig.provider) {
-      const message = "缺少可用的视觉评审模型配置，无法继续深度评审";
-      markDiagnosisFailed(task);
-      task.updatedAt = new Date();
-      upsertTask(task);
-      upsertTaskJob(updateJob(liveJob, {
-        status: "failed",
-        lastError: message,
-      }));
-      await persistReviewState(taskId);
-      continue;
-    }
-
-    markDiagnosisRunning(task);
-    task.status = "deep_review_running";
-    task.updatedAt = new Date();
-    upsertTask(task);
-    upsertTaskJob(updateJob(liveJob, {
-      status: "light_check",
-      lastError: undefined,
-    }));
-    const readyJob = await getLatestDeepReviewJob(taskId, liveJob.id);
-    if (!readyJob || readyJob.status === "paused" || !PROCESSABLE_REVIEW_JOB_STATUSES.has(readyJob.status)) {
-      const latestTask = getTaskById(taskId);
-      if (latestTask) {
-        resetDiagnosisStateAfterPause(latestTask);
-        latestTask.updatedAt = new Date();
-        upsertTask(latestTask);
-      }
-      await persistReviewState(taskId);
-      continue;
-    }
-
-    try {
-      let visualScore = task.visualQualityScore;
-      if (!visualScore || task.visualDiagnosisStale) {
-        visualScore = await evaluateVisualQuality(task.script, resolvedConfig);
-        const latestTaskForScore = getTaskById(taskId);
-        if (!latestTaskForScore) {
-          throw new Error(`Task not found before deep review scoring: ${taskId}`);
-        }
-        latestTaskForScore.visualQualityScore = visualScore;
-        latestTaskForScore.panelReview = buildPanelReviewFromScore({
-          ...latestTaskForScore,
-          visualQualityScore: visualScore,
-        });
-        latestTaskForScore.reviewStatus = buildTaskReviewStatus(latestTaskForScore.panelReview);
-        latestTaskForScore.lastReviewAt = visualScore.evaluatedAt;
-        latestTaskForScore.updatedAt = new Date();
-        upsertTask(latestTaskForScore);
-
-        const latestJobForScore = await getLatestDeepReviewJob(taskId, liveJob.id);
-        if (latestJobForScore?.status === "paused") {
-          resetDiagnosisStateAfterPause(latestTaskForScore);
-          latestTaskForScore.updatedAt = new Date();
-          upsertTask(latestTaskForScore);
-          await persistReviewState(taskId);
-          continue;
-        }
-      }
-
-      if (!visualScore) {
-        throw new Error("视觉评分尚未完成，无法继续深度评审");
-      }
-
-      const report = await evaluateVisualDiagnosis(
-        task.script,
-        visualScore,
-        resolvedConfig,
-        getTargetPanels(readyJob, task.script.panels.length),
+  for (const queued of jobs) {
+    const claim = mutateTaskReviewState(taskId, (task, currentJobs) => {
+      const job = currentJobs.find(
+        (item) => item.id === queued.id && item.kind === "deep_review",
       );
-      const latestTask = getTaskById(taskId);
-      const latestJob = await getLatestDeepReviewJob(taskId, liveJob.id);
-      if (!latestTask) {
-        throw new Error(`Task not found after deep review: ${taskId}`);
+      if (
+        !task.script ||
+        !job ||
+        !PROCESSABLE_REVIEW_JOB_STATUSES.has(job.status)
+      )
+        return undefined;
+      const runId = randomUUID();
+      const fingerprint = reviewInputFingerprint(task.script);
+      Object.assign(
+        job,
+        updateJob(job, {
+          status: "light_check",
+          lastError: undefined,
+          attemptCount: job.attemptCount + 1,
+          payload: { ...job.payload, reviewExecutionId: runId },
+        }),
+      );
+      markDiagnosisRunning(task);
+      syncReviewQueueState(task, currentJobs);
+      return { task, job, runId, fingerprint };
+    });
+    if (!claim) continue;
+    const { task, job, runId, fingerprint } = claim;
+    const commit = (mutate: (task: GenerateTask, job: TaskJobRecord) => void) =>
+      mutateOwnedReview(taskId, job.id, runId, fingerprint, mutate);
+    const checkpoint = () => {
+      if (!commit(() => {})) throw new ReviewExecutionStopped();
+    };
+    try {
+      // Yield to pending pause/delete actions, then recheck before issuing requests.
+      await Promise.resolve();
+      checkpoint();
+      const config = resolveReviewConfig(
+        (job.payload as StoredReviewJobPayload).review,
+        getConfig(),
+      );
+      if (!config?.apiUrl || !config.model || !config.provider) {
+        throw new Error("缺少可用的视觉评审模型配置，无法继续深度评审");
       }
-      if (!latestJob) {
-        throw new Error(`Deep review job not found after execution: ${liveJob.id}`);
+      const vision = createServerVisionRuntime(checkpoint);
+      const mediaFingerprint = await vision.captureImages(
+        task
+          .script!.panels.filter(
+            (panel) => panel.status === "completed" && panel.imageUrl,
+          )
+          .map((panel) => panel.imageUrl!),
+      );
+      const modelFingerprint = createHash("sha256")
+        .update(
+          JSON.stringify({
+            apiUrl: config.apiUrl,
+            model: config.model,
+            provider: config.provider,
+          }),
+        )
+        .digest("hex");
+      const sourceFingerprint = `${fingerprint}:${mediaFingerprint}:${modelFingerprint}`;
+      let visualScore = task.visualQualityScore;
+      if (
+        !visualScore ||
+        task.visualDiagnosisStale ||
+        visualScore.sourceFingerprint !== sourceFingerprint
+      ) {
+        visualScore = await evaluateVisualQuality(task.script!, config, vision);
+        await vision.verifyImages();
+        visualScore = { ...visualScore, sourceFingerprint };
+        if (
+          !commit((current) => {
+            current.visualQualityScore = visualScore;
+            current.panelReview = buildPanelReviewFromScore(current);
+            current.reviewStatus = buildTaskReviewStatus(current.panelReview);
+            current.lastReviewAt = visualScore!.evaluatedAt;
+          })
+        )
+          continue;
       }
-      if (latestJob.status === "paused") {
-        resetDiagnosisStateAfterPause(latestTask);
-        latestTask.updatedAt = new Date();
-        upsertTask(latestTask);
-        await persistReviewState(taskId);
-        continue;
-      }
-
-      const mergedReport = mergeDiagnosisReports(latestTask.visualDiagnosisReport, report);
-      markDiagnosisSucceeded(latestTask, mergedReport);
-      latestTask.updatedAt = new Date();
-      upsertTask(latestTask);
-      upsertTaskJob(updateJob(latestJob, {
-        status: "completed",
-        lastError: undefined,
-      }));
+      checkpoint();
+      const report = await evaluateVisualDiagnosis(
+        task.script!,
+        visualScore,
+        config,
+        getTargetPanels(job, task.script!.panels.length),
+        vision,
+      );
+      await vision.verifyImages();
+      commit((current, currentJob) => {
+        // Keep only older panel reports which still refer to current images/prompts.
+        const existing = current.visualDiagnosisReport;
+        const validExisting =
+          existing?.sourceFingerprint === sourceFingerprint
+            ? {
+                ...existing,
+                panels: existing.panels.filter((panel) => {
+                  const source = current.script?.panels[panel.panelIndex];
+                  return (
+                    source?.imageUrl === panel.imageUrl &&
+                    source.imagePrompt === panel.promptSnapshot
+                  );
+                }),
+              }
+            : undefined;
+        markDiagnosisSucceeded(current, {
+          ...mergeDiagnosisReports(validExisting, report),
+          sourceFingerprint,
+        });
+        Object.assign(
+          currentJob,
+          updateJob(currentJob, { status: "completed", lastError: undefined }),
+        );
+      });
     } catch (error) {
-      const latestTask = getTaskById(taskId);
-      const latestJob = await getLatestDeepReviewJob(taskId, liveJob.id);
-      if (latestTask && latestJob?.status === "paused") {
-        resetDiagnosisStateAfterPause(latestTask);
-        latestTask.updatedAt = new Date();
-        upsertTask(latestTask);
-      } else if (latestTask) {
-        markDiagnosisFailed(latestTask, error instanceof Error ? error : undefined);
-        latestTask.updatedAt = new Date();
-        upsertTask(latestTask);
-      }
-      if (latestJob && latestJob.status !== "paused") {
-        upsertTaskJob(updateJob(latestJob, {
-          status: "failed",
-          lastError: error instanceof Error ? error.message : "深度评审失败",
-        }));
-      }
+      if (error instanceof ReviewExecutionStopped) continue;
+      commit((current, currentJob) => {
+        markDiagnosisFailed(current);
+        Object.assign(
+          currentJob,
+          updateJob(currentJob, {
+            status: "failed",
+            lastError: error instanceof Error ? error.message : "深度评审失败",
+          }),
+        );
+      });
     }
-
-    await persistReviewState(taskId);
   }
+  mutateTaskReviewState(taskId, (task, currentJobs) =>
+    syncReviewQueueState(task, currentJobs),
+  );
 }
 
-export async function listReplayableDeepReviewTasks(): Promise<Array<{ taskId: string }>> {
+export async function listReplayableDeepReviewTasks(): Promise<
+  Array<{ taskId: string }>
+> {
   const replayableTasks: Array<{ taskId: string }> = [];
 
   for (const task of getAllTasks()) {
     const jobs = await listTaskJobsByTaskId(task.id);
-    const replayableJob = jobs.find((job) =>
-      job.kind === "deep_review"
-      && PROCESSABLE_REVIEW_JOB_STATUSES.has(job.status),
+    const replayableJob = jobs.find(
+      (job) =>
+        job.kind === "deep_review" &&
+        PROCESSABLE_REVIEW_JOB_STATUSES.has(job.status),
     );
 
     if (!replayableJob) {

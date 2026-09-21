@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react";
 import { APIProvider } from "@/lib/types";
 import { LLM_PRESETS, type LLMPreset } from "@/lib/config/presets";
-import { PasswordInput } from "@/components/ui/PasswordInput";
+import { ModelCredentialInput, type ModelCredentialFields } from "./ModelCredentialInput";
 import { useModelDiscovery } from "@/hooks/useModelDiscovery";
 import { RefreshCw } from "lucide-react";
 
 
-export interface LLMFormFields {
+export interface LLMFormFields extends ModelCredentialFields {
   name: string;
   provider: APIProvider;
   apiUrl: string;
@@ -18,6 +18,7 @@ export interface LLMFormFields {
 interface LLMFormProps {
   fields: LLMFormFields;
   isEditing: boolean;
+  editingId?: string | null;
   onChange: (fields: Partial<LLMFormFields>) => void;
   onProviderChange: (provider: APIProvider) => void;
   onSave: () => void;
@@ -54,7 +55,7 @@ const VARIANT_STYLES = {
   },
 };
 
-export function LLMForm({ fields, isEditing, onChange, onProviderChange, onSave, onCancel, presets, variant = "llm" }: LLMFormProps) {
+export function LLMForm({ fields, isEditing, editingId, onChange, onProviderChange, onSave, onCancel, presets, variant = "llm" }: LLMFormProps) {
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const isOllama = isOllamaUrl(fields.apiUrl);
@@ -117,6 +118,7 @@ export function LLMForm({ fields, isEditing, onChange, onProviderChange, onSave,
       apiUrl: fields.apiUrl,
       apiKey: fields.apiKey,
       protocolType: fields.protocolType,
+      ...(editingId && fields.hasApiKey && !fields.apiKey && !fields.clearApiKey ? { modelRef: { id: editingId, role: variant } } : {}),
     });
     // 如果当前 model 不在列表中，自动选择第一个
     if (models.length > 0 && !models.includes(fields.model)) {
@@ -171,15 +173,9 @@ export function LLMForm({ fields, isEditing, onChange, onProviderChange, onSave,
             className="w-full rounded-lg border bg-background p-3 text-sm"
           />
         </div>
-        {!isOllama && (
-          <div className="space-y-1">
-            <label className="text-sm text-muted-foreground">API Key</label>
-            <PasswordInput
-              value={fields.apiKey}
-              onChange={(v) => onChange({ apiKey: v })}
-            />
-          </div>
-        )}
+        <ModelCredentialInput value={fields.apiKey} hasApiKey={fields.hasApiKey}
+          clearApiKey={fields.clearApiKey} apiKeyInputRequired={fields.apiKeyInputRequired}
+          onChange={onChange} />
 
         {/* 模型选择区域 */}
         <div className="space-y-1">

@@ -15,7 +15,6 @@ import { ScriptReadyWorkspace } from "@/components/result/ScriptReadyWorkspace";
 import { ScriptValidationPanel } from "@/components/result/ScriptValidationPanel";
 import { AccuracySummary } from "@/components/result/AccuracySummary";
 import { DetailTabs } from "@/components/result/DetailTabs";
-import { StickyActionBar } from "@/components/result/StickyActionBar";
 import { ScriptEditor } from "@/components/editor/ScriptEditor";
 import { SectionErrorBoundary } from "@/components/ui/SectionErrorBoundary";
 import { getResultContentSurface, resolveResultViewMode, type ResultViewMode } from "@/app/result/viewMode";
@@ -288,14 +287,7 @@ export function ScriptReadyView({
       )}
       </SectionErrorBoundary>
 
-      {/* 底部固定操作栏 */}
-      <StickyActionBar
-        task={task}
-        onExportMarkdown={() => {}}
-        onRegenerateScript={actions.handleRegenerateScript}
-        onContinueRemaining={actions.handleContinueRemaining}
-        generatingAll={actions.generatingAll}
-      />
+
     </div>
   );
 }

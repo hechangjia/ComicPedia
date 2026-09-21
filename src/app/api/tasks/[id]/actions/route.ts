@@ -51,7 +51,7 @@ function getActionErrorStatus(error: unknown): number {
   ) {
     return 400;
   }
-  if (message.includes("任务脚本尚未生成")) {
+  if (message.includes("任务脚本尚未生成") || message.includes("正在执行")) {
     return 409;
   }
   if (message.includes("任务不存在")) {

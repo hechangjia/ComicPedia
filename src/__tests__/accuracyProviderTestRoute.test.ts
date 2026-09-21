@@ -20,7 +20,7 @@ vi.mock("@/lib/accuracy/providerRegistry", () => ({
 
 vi.mock("@/lib/server/db", () => ({
   getConfig: getConfigMock,
-  saveConfig: saveConfigMock,
+  saveConfigIfMatch: saveConfigMock,
 }));
 
 function makeConfig() {
@@ -51,7 +51,7 @@ describe("/api/accuracy/providers/test POST", () => {
     getAssignedProviderMock.mockReset();
     resolveAccuracyProvidersMock.mockReset();
     getConfigMock.mockReset();
-    saveConfigMock.mockReset();
+    saveConfigMock.mockReset().mockReturnValue(true);
     resolveAccuracyProvidersMock.mockImplementation((accuracyConfig: { providers: unknown[] }) => accuracyConfig.providers);
     getAssignedProviderMock.mockReturnValue(null);
   });
@@ -133,7 +133,7 @@ describe("/api/accuracy/providers/test POST", () => {
           }),
         ]),
       }),
-    }));
+    }), expect.any(String));
     expect(body).toEqual({
       status: "success",
       message: "连接成功",
@@ -175,7 +175,7 @@ describe("/api/accuracy/providers/test POST", () => {
           }),
         ]),
       }),
-    }));
+    }), expect.any(String));
     expect(body).toEqual({
       status: "error",
       message: "连接失败",
@@ -185,4 +185,20 @@ describe("/api/accuracy/providers/test POST", () => {
       lastError: "network failed",
     });
   });
-});
+  it("does not overwrite model edits that occurred during the provider request", async () => {
+    const original = makeConfig();
+    const current = { ...makeConfig(), llmConfigs: [{ id: "new-model" }], activeLLMId: "new-model" };
+    getConfigMock.mockReturnValueOnce(original).mockReturnValue(current);
+    searchWithProviderMock.mockResolvedValue([]);
+    const { POST } = await import("@/app/api/accuracy/providers/test/route");
+    await POST(new NextRequest("http://localhost/api/accuracy/providers/test", { method: "POST", body: JSON.stringify({ providerId: "search-1" }) }));
+    expect(saveConfigMock.mock.calls[0][0].activeLLMId).toBe("new-model");
+  });
+  it("does not resurrect a provider removed while its test was running", async () => {
+    const original = makeConfig();
+    getConfigMock.mockReturnValueOnce(original).mockReturnValue({ ...original, accuracyConfig: { providers: [] } });
+    searchWithProviderMock.mockResolvedValue([]);
+    const { POST } = await import("@/app/api/accuracy/providers/test/route");
+    await POST(new NextRequest("http://localhost/api/accuracy/providers/test", { method: "POST", body: JSON.stringify({ providerId: "search-1" }) }));
+    expect(saveConfigMock).not.toHaveBeenCalled();
+  });});
