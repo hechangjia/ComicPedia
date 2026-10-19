@@ -159,6 +159,7 @@ export const EditablePanel = memo(function EditablePanel({
             <div className="absolute inset-0 animate-shimmer" />
             <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full z-10" aria-hidden="true" />
             <p className="text-xs text-muted-foreground z-10">生成中...</p>
+            {taskStatus === "generating" && (
             <button
               onClick={() => onCancel(index)}
               className="px-3 py-1.5 text-xs bg-error/10 text-error rounded-lg transition-colors z-10"
@@ -166,6 +167,7 @@ export const EditablePanel = memo(function EditablePanel({
             >
               取消
             </button>
+            )}
           </div>
         ) : panel.status === "failed" ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">

@@ -572,6 +572,46 @@ describe("runResearchAndScriptTask", () => {
       quality: "standard",
     });
   });
+  it.each(["standard", "fine"] as const)("bounds stylistic repairs for %s quality and persists streaming progress", async (quality) => {
+    const task: GenerateTask = { id: "bounded-repair", status: "created", progress: 0, createdAt: new Date(), updatedAt: new Date() };
+    getTaskByIdMock.mockReturnValue(task);
+    getAllRelationsMock.mockReturnValue([]);
+    getConfigMock.mockReturnValue(null);
+    generateTopicResearchMock.mockRejectedValue(new Error("Research disabled in fixture"));
+    const warning = { severity: "warning", panelIndex: 0, category: "narrative", message: "Information density is high" };
+    validateScriptMock.mockReturnValue({ passed: true, warnings: [warning] });
+    repairScriptMock.mockResolvedValue(makeGeneratedScript());
+    generateScriptStreamMock.mockImplementation(async (...args: unknown[]) => {
+      const onChunk = args[8] as (chunk: string, accumulated: string) => void;
+      const writes = upsertTaskMock.mock.calls.length;
+      onChunk("partial", "partial draft");
+      expect(upsertTaskMock.mock.calls.length).toBeGreaterThan(writes);
+      return makeGeneratedScript();
+    });
+    const { runResearchAndScriptTask } = await import("@/lib/server/taskOrchestrator/scriptRunner");
+    await runResearchAndScriptTask(task.id, makeRequest({ quality, contentType: "poetry", characterIds: [], presetSnapshot: { presetId: "test", pauseAfterScript: true } }));
+    expect(generateScriptMock).not.toHaveBeenCalled();
+    expect(repairScriptMock).toHaveBeenCalledTimes(quality === "fine" ? 1 : 0);
+    expect(task.status).toBe("script_ready");
+    expect(task.scriptValidation?.warnings).toEqual([warning]);
+  });
+
+  it("allows a second fine-quality accuracy repair when repairable claims improve", async () => {
+    const task: GenerateTask = { id: "accuracy-progress", status: "created", progress: 0, createdAt: new Date(), updatedAt: new Date() };
+    getTaskByIdMock.mockReturnValue(task);getAllRelationsMock.mockReturnValue([]);
+    getConfigMock.mockReturnValue({accuracyConfig:{providers:[],whitelistDomains:[]}});
+    runAccuracyResearchMock.mockResolvedValue({factPack:{hardFacts:[],softFacts:[],sourceEntries:[]}});
+    generateScriptStreamMock.mockResolvedValue(makeGeneratedScript());
+    validateScriptMock.mockReturnValue({passed:true,warnings:[]});
+    const review = (claims: string[]) => ({status:claims.length ? "repair_required" : "passed",blockingIssueCount:0,repairableIssueCount:claims.length,panels:[],panelClaims:[{panelIndex:0,claims:claims.map(rawText=>({rawText,matchStatus:"missing"}))}]});
+    reviewPanelClaimsMock.mockReturnValueOnce(review(["A","B"])).mockReturnValueOnce(review(["B"])).mockReturnValueOnce(review([]));
+    repairAccuracyIssuesMock.mockResolvedValue(makeGeneratedScript());
+    const {runResearchAndScriptTask}=await import("@/lib/server/taskOrchestrator/scriptRunner");
+    await runResearchAndScriptTask(task.id,makeRequest({quality:"fine",contentType:"wikipedia",wikipediaContent:{title:"Source",extract:"Existing source",lang:"en"},characterIds:[],presetSnapshot:{presetId:"test",pauseAfterScript:true}}));
+    expect(repairAccuracyIssuesMock).toHaveBeenCalledTimes(2);
+    expect(task.accuracyReview?.status).toBe("passed");
+  });
+
   it("stops deleted saved script references before any generation", async () => {
     const task = { id: "deleted-ref", status: "created", progress: 0, createdAt: new Date(), updatedAt: new Date() };
     getTaskByIdMock.mockReturnValue(task);

@@ -36,6 +36,17 @@ afterEach(() => {
 const TINY_PNG_B64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
 
 describe("imageStorage", () => {
+  it("stores large base64 images with wrapped lines without matching the payload", async () => {
+    const { saveImageFileAsync, readImageByKey } = await import("@/lib/server/imageStorage");
+    const bytes = Buffer.alloc(4 * 1024 * 1024, 173);
+    const encoded = bytes.toString("base64");
+    const wrapped = encoded.slice(0, 1000) + "\n" + encoded.slice(1000);
+    const saved = await saveImageFileAsync("large_panel0", `data:image/png;base64,${wrapped}`);
+    expect(saved?.size).toBe(bytes.length);
+    const image = readImageByKey("large_panel0");
+    expect(image).toBeTruthy();
+    expect(fs.readFileSync(image!.absPath).equals(bytes)).toBe(true);
+  });
   it("saveImageFile writes file and returns path + size", async () => {
     const { saveImageFile } = await import("@/lib/server/imageStorage");
     const result = saveImageFile("task1_panel0_v0", TINY_PNG_B64);

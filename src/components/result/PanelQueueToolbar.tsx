@@ -5,6 +5,7 @@ import { Image as ImageIcon, PauseCircle, Rows4 } from "lucide-react";
 
 interface PanelQueueToolbarProps {
   taskStatus: GenerateTask["status"];
+  showSelection?: boolean;
   pendingPanels: number;
   selectedCount: number;
   queueSummary?: TaskQueueSummary;
@@ -37,6 +38,7 @@ function renderQueueHint(status: GenerateTask["status"], comfyuiRemotePendingCou
 
 export function PanelQueueToolbar({
   taskStatus,
+  showSelection = true,
   pendingPanels,
   selectedCount,
   queueSummary,
@@ -45,11 +47,10 @@ export function PanelQueueToolbar({
   onQueueSelected,
   onContinueRemaining,
   onPauseQueue,
-  onResumeQueue,
 }: PanelQueueToolbarProps) {
   const isQueueRunning = taskStatus === "image_queue_running";
   const isQueuePaused = taskStatus === "image_queue_paused";
-  const canEnqueuePanels = taskStatus === "script_ready";
+  const canEnqueuePanels = taskStatus === "script_ready" || isQueuePaused;
   const queueHint = renderQueueHint(taskStatus, comfyuiRemotePendingCount);
 
   return (
@@ -98,6 +99,7 @@ export function PanelQueueToolbar({
       )}
 
       <div className="flex flex-wrap gap-2">
+        {showSelection && (
         <button
           type="button"
           aria-label="生成选中"
@@ -108,6 +110,7 @@ export function PanelQueueToolbar({
           <Rows4 className="w-4 h-4" />
           生成选中
         </button>
+        )}
         <button
           type="button"
           aria-label="继续剩余"

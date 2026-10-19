@@ -386,7 +386,7 @@ describe("page navigation render", () => {
 
     const html = renderToStaticMarkup(React.createElement(ResultPage));
 
-    expect(html).toContain("离页后图片生成已暂停。");
+    expect(html).toContain("图片队列已暂停，已有图片已保留。");
     expect((html.match(/继续生成/g) ?? []).length).toBe(1);
     expect(html).not.toContain("恢复队列");
     expect(html).not.toContain("离页后深度评审已暂停。");

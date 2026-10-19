@@ -45,6 +45,11 @@ const basePanel: ComicPanel = {
 const noop = vi.fn();
 
 describe("EditablePanel", () => {
+  it("does not offer browser cancellation for a durable server image job", () => {
+    const html = renderToStaticMarkup(<EditablePanel panel={{...basePanel, status: "generating"}} index={0} taskId="task-1" taskStatus="image_queue_running" onUpdate={noop} onRegenerate={noop} onCancel={noop} onVersionChange={noop} />);
+    expect(html).toContain("图片生成中");
+    expect(html).not.toContain('aria-label="取消第 1 格图片生成"');
+  });
   it("renders completed panels in expanded edit mode when defaultEditing is true", () => {
     const html = renderToStaticMarkup(
       <EditablePanel

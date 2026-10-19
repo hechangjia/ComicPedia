@@ -18,6 +18,7 @@ interface ImageConfig {
 
 interface ScriptReadyWorkspaceProps {
   taskStatus: GenerateTask["status"];
+  compact?: boolean;
   panels: ComicPanel[];
   selectedPanelIds: number[];
   queueSummary?: TaskQueueSummary;
@@ -41,7 +42,7 @@ interface ScriptReadyWorkspaceProps {
 }
 
 function getPanelStatusLabel(panel: ComicPanel): string {
-  if (panel.status === "completed") return "已生成";
+  if (panel.status === "completed" && panel.imageUrl) return "已生成";
   if (panel.status === "generating") return "生成中";
   if (panel.status === "failed") return "失败";
   return "待处理";
@@ -49,6 +50,7 @@ function getPanelStatusLabel(panel: ComicPanel): string {
 
 export function ScriptReadyWorkspace({
   taskStatus,
+  compact = false,
   panels,
   selectedPanelIds,
   queueSummary,
@@ -70,14 +72,14 @@ export function ScriptReadyWorkspace({
   onPauseQueue,
   onResumeQueue,
 }: ScriptReadyWorkspaceProps) {
-  const completedPanels = panels.filter((panel) => panel.status === "completed").length;
-  const pendingPanels = panels.filter((panel) => panel.status !== "completed").length;
+  const completedPanels = panels.filter((panel) => panel.status === "completed" && !!panel.imageUrl).length;
+  const pendingPanels = panels.filter((panel) => panel.status !== "completed" || !panel.imageUrl).length;
   const canEditScript = taskStatus === "script_ready";
-  const canEnqueuePanels = canEditScript;
+  const canEnqueuePanels = canEditScript || taskStatus === "image_queue_paused";
 
   return (
     <div className="space-y-4 no-print">
-      {canEditScript && (
+      {canEditScript && !compact && (
         <ScriptReadyBar
           completedPanels={completedPanels}
           totalPanels={panels.length}
@@ -96,6 +98,7 @@ export function ScriptReadyWorkspace({
       )}
 
       <PanelQueueToolbar
+        showSelection={!compact}
         taskStatus={taskStatus}
         pendingPanels={pendingPanels}
         selectedCount={selectedPanelIds.length}
@@ -108,7 +111,7 @@ export function ScriptReadyWorkspace({
         onResumeQueue={onResumeQueue}
       />
 
-      <div className="rounded-xl border bg-card divide-y no-print">
+      {!compact && <div className="rounded-xl border bg-card divide-y no-print">
         {panels.map((panel, index) => (
           <div key={panel.id} className="p-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex items-start gap-3">
@@ -141,7 +144,7 @@ export function ScriptReadyWorkspace({
             </button>
           </div>
         ))}
-      </div>
+      </div>}
     </div>
   );
 }

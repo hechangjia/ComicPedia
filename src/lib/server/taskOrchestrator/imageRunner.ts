@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { invalidateDiagnosis } from "@/lib/vlmDiagnosisState";
 import { modelEndpoint } from "@/lib/providers/endpoints";
 import { getStyleModifier, getStyleNegativePrompt } from "@/lib/config/styles";
 import { getAllTasks, getConfig, getTaskById, registerImage, upsertTask, upsertTaskJob } from "@/lib/server/db";
@@ -40,6 +42,7 @@ interface StoredComfyJobState {
 }
 
 interface StoredImageJobPayload extends Record<string, unknown> {
+  seedOverride?: number;
   image?: {
     configId?: string;
     fallback?: SanitizedImageConfig;
@@ -53,6 +56,7 @@ export interface EnqueuePanelImageJobsInput {
   imageConfigId?: string;
   llmConfig?: PartialLLMConfig;
   panelIndices: number[];
+  seedOverride?: number;
 }
 
 export interface RunTaskImageQueueInput {
@@ -146,20 +150,12 @@ function resolveLightCheckConfig(
       return buildLLMConfig(matched);
     }
   }
-  if (fallback?.configId) {
-    const candidates = fallback.configRole === "vlm" ? config?.vlmConfigs : config?.llmConfigs;
-    return buildLLMConfig(candidates?.find((item) => item.id === fallback.configId));
+  // A text model is not an implicit vision model. Only an explicit VLM
+  // reference may opt into automatic image review.
+  if (fallback?.configId && fallback.configRole === "vlm") {
+    return buildLLMConfig(config?.vlmConfigs?.find(item => item.id === fallback.configId));
   }
-  if (fallback?.apiUrl && fallback.model && fallback.provider) {
-    return fallback;
-  }
-  if (config?.activeLLMId) {
-    const matched = config.llmConfigs.find((candidate) => candidate.id === config.activeLLMId);
-    if (matched) {
-      return buildLLMConfig(matched);
-    }
-  }
-  return buildLLMConfig(config?.llmConfigs[0]);
+  return undefined;
 }
 
 function buildDurableImageJobPayload(input: EnqueuePanelImageJobsInput): StoredImageJobPayload {
@@ -297,7 +293,7 @@ function buildQueueStatus(task: GenerateTask, jobs: TaskJobRecord[]): GenerateTa
   if (summary.failed > 0 || summary.attachFailed > 0 || summary.paused > 0) {
     return "image_queue_paused";
   }
-  if (task.script?.panels.every((panel) => panel.status === "completed")) {
+  if (task.script?.panels.every((panel) => panel.status === "completed" && !!panel.imageUrl)) {
     return "completed";
   }
   return "script_ready";
@@ -309,7 +305,7 @@ function buildTaskProgress(task: GenerateTask): number {
   }
 
   const totalPanels = task.script.panels.length;
-  const completedPanels = task.script.panels.filter((panel) => panel.status === "completed").length;
+  const completedPanels = task.script.panels.filter((panel) => panel.status === "completed" && !!panel.imageUrl).length;
   if (completedPanels === totalPanels) {
     return 100;
   }
@@ -591,6 +587,7 @@ async function generatePanelImage(
   task: GenerateTask,
   panelIndex: number,
   imageConfig: PartialImageGenConfig,
+  seedOverride?: number,
 ): Promise<{ image: string; promptSnapshot: string }> {
   const panel = getPanel(task, panelIndex);
   const directorComposition = task.narrativeOutline?.panels[panelIndex]?.suggestedComposition;
@@ -605,7 +602,7 @@ async function generatePanelImage(
   const mergedConfig = mergeReferenceImage(imageConfig, task.script!, panel, panelIndex);
   const style = panel.styleOverride ?? task.script!.style;
   const prompt = enhancement.enhanced;
-  const seed = task.script?.seed !== undefined ? task.script.seed + panelIndex : undefined;
+  const seed = seedOverride ?? (task.script?.seed !== undefined ? task.script.seed + panelIndex : undefined);
 
   if (!mergedConfig?.apiUrl) {
     throw new Error("Image queue run requires imageConfig.apiUrl");
@@ -661,7 +658,7 @@ async function generateOrResumeComfyPanelImage(
   const mergedConfig = mergeReferenceImage(imageConfig, task.script!, panel, panelIndex);
   const style = panel.styleOverride ?? task.script!.style;
   const prompt = enhancement.enhanced;
-  const seed = task.script?.seed !== undefined ? task.script.seed + panelIndex : undefined;
+  const seed = (job.payload as StoredImageJobPayload).seedOverride ?? (task.script?.seed !== undefined ? task.script.seed + panelIndex : undefined);
 
   if (!mergedConfig || !mergedConfig.apiUrl || !mergedConfig.comfyuiWorkflow) {
     throw new Error("ComfyUI queue run requires apiUrl and comfyuiWorkflow");
@@ -720,7 +717,7 @@ async function generateOrResumeComfyPanelImage(
 }
 
 async function persistGeneratedImage(taskId: string, panelIndex: number, jobId: string, image: string): Promise<string> {
-  const outputFileKey = `${taskId}_panel${panelIndex}_job_${jobId}`;
+  const outputFileKey = `${taskId}_panel${panelIndex}_job_${jobId}_${randomUUID()}`;
   const stored = await saveImageFileAsync(outputFileKey, image);
   if (!stored) {
     throw new Error("Generated image is not a valid image data URI");
@@ -753,6 +750,7 @@ async function attachPersistedImage(taskId: string, job: TaskJobRecord): Promise
   pushImageVersion(panel, nextImageRef);
   panel.imageUrl = nextImageRef;
   panel.status = "completed";
+  invalidateDiagnosis(task);
   task.updatedAt = new Date();
   upsertTask(task);
 }
@@ -809,6 +807,7 @@ export async function enqueuePanelImageJobs(
       if (nextPayload.image) {
         delete nextPayload.image.comfyui;
       }
+      nextPayload.seedOverride = input.seedOverride;
       const nextJob = updateJob(existingJob, {
         kind: "panel_image",
         status: "queued",
@@ -835,10 +834,21 @@ export async function enqueuePanelImageJobs(
       provider: getProviderName(input.imageConfig),
       model: input.imageConfig?.model,
       promptSnapshot: getPanel(task, panelIndex).imagePrompt,
-      payload: durableImagePayload,
+      payload: { ...durableImagePayload, seedOverride: input.seedOverride },
     });
   }
 
+  // Clear previous failure labels as soon as retries are accepted. Re-read after
+  // creating jobs so another worker's completed images cannot be overwritten.
+  const currentTask = getTaskById(taskId);
+  if (currentTask?.script) {
+    for (const panelIndex of uniquePanelIndices) {
+      const panel = currentTask.script.panels[panelIndex];
+      if (panel.status !== "generating" && (panel.status !== "completed" || !panel.imageUrl)) panel.status = "pending";
+    }
+    currentTask.updatedAt = new Date();
+    upsertTask(currentTask);
+  }
   const nextTask = await persistQueueState(taskId);
   const jobs = await listTaskJobsByTaskId(taskId);
   return {
@@ -934,7 +944,7 @@ async function runPanelImageJob(taskId: string, liveJob: TaskJobRecord, fallback
         liveJob = comfyGenerated.job;
         generated = comfyGenerated;
       } else {
-        generated = await generatePanelImage(task, panelIndex, imageConfig);
+        generated = await generatePanelImage(task, panelIndex, imageConfig, (liveJob.payload as StoredImageJobPayload).seedOverride);
       }
       if (!getTaskById(taskId)) return;
       liveJob = updateJob(liveJob, {
@@ -990,6 +1000,7 @@ async function runPanelImageJob(taskId: string, liveJob: TaskJobRecord, fallback
     await persistQueueState(taskId);
   } catch (error) {
     if (!getTaskById(taskId)) return;
+    console.error(`[TaskImageQueue] Panel ${panelIndex + 1} failed for ${taskId}:`, error);
     const message = error instanceof Error ? error.message : "Unknown image queue error";
     const shouldKeepWaitingOnRemotePrompt = !liveJob.outputFileKey
       && hasReplayableComfyPrompt(liveJob)

@@ -305,10 +305,15 @@ async function runScriptPhase(
     ? `${finalTopic}\n\n${characterContext.text}`
     : finalTopic;
 
+  let lastStreamPersistAt = 0;
   const onChunk: StreamChunkCallback = (_chunk, accumulated) => {
     assertCurrentRun(task, runId);
     task.streamText = accumulated;
     task.progress = Math.min(25, 10 + Math.floor(accumulated.length / 80));
+    if (Date.now() - lastStreamPersistAt >= 500) {
+      persistTask(task, runId);
+      lastStreamPersistAt = Date.now();
+    }
   };
 
   let script: ComicScript;
@@ -385,16 +390,17 @@ async function runScriptPhase(
     contentType: request.contentType,
     narrativeOutline: task.narrativeOutline,
   });
-  const actionableWarnings = validation.warnings.filter(
-    (warning) => warning.severity === "critical" || warning.severity === "warning",
-  );
+  const needsAutomaticRepair = (warning: (typeof validation.warnings)[number]) =>
+    warning.severity === "critical" || ((!validation.passed || request.quality === "fine") && warning.severity === "warning");
+  const actionableWarnings = validation.warnings.filter(needsAutomaticRepair);
+  const repairLimit = request.quality === "fine" ? 2 : 1;
   traceEnd(task, "validate");
 
   if (actionableWarnings.length > 0) {
     traceStart(task, "repair");
     let repairRounds = 0;
     let currentWarnings = actionableWarnings;
-    while (currentWarnings.length > 0 && repairRounds < 2) {
+    while (currentWarnings.length > 0 && repairRounds < repairLimit) {
       repairRounds += 1;
       try {
         const repaired = await repairScript(script, currentWarnings, request.llmConfig, {
@@ -411,9 +417,14 @@ async function runScriptPhase(
           contentType: request.contentType,
           narrativeOutline: task.narrativeOutline,
         });
-        currentWarnings = validation.warnings.filter(
-          (warning) => warning.severity === "critical" || warning.severity === "warning",
-        );
+        const nextWarnings = validation.warnings.filter(needsAutomaticRepair);
+        // Rewriting an unchanged warning again adds latency without evidence of progress.
+        const unchanged = JSON.stringify(nextWarnings) === JSON.stringify(currentWarnings);
+        currentWarnings = nextWarnings;
+        task.script = script;
+        task.scriptValidation = validation;
+        persistTask(task, runId);
+        if (unchanged) break;
       } catch (error) {
         assertCurrentRun(task, runId);
         console.warn("[TaskScriptRunner] Script repair failed, keeping current script:", error);
@@ -437,16 +448,20 @@ async function runScriptPhase(
     traceStart(task, "accuracy");
     let accuracyReview = reviewPanelClaims(script, task.factPack);
     let accuracyRepairRounds = 0;
-    while (accuracyReview.status === "repair_required" && accuracyRepairRounds < 2) {
+    while (request.quality === "fine" && accuracyReview.status === "repair_required" && accuracyRepairRounds < 2) {
       accuracyRepairRounds += 1;
       const repaired = await repairAccuracyIssues(script, accuracyReview, task.factPack, request.llmConfig);
       assertCurrentRun(task, runId);
       if (!repaired) {
         break;
       }
+      const previousIssues = JSON.stringify(accuracyReview.panelClaims);
       script = repaired;
       task.script = script;
       accuracyReview = reviewPanelClaims(script, task.factPack);
+      task.accuracyReview = accuracyReview;
+      persistTask(task, runId);
+      if (JSON.stringify(accuracyReview.panelClaims) === previousIssues) break;
     }
 
     task.accuracyReview = accuracyReview;

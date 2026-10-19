@@ -982,10 +982,25 @@ describe("image queue runner", () => {
     expect(state.forwardImageGenerationRequestMock).not.toHaveBeenCalled();
     expect(state.getJobs("task-image-queue")[0].status).toBe("failed");
   });
+  it("completes without visual scoring when only a text model is configured", async () => {
+    state.setTask(makeTask());
+    const config = state.config!;
+    config.llmConfigs = [{ id: "text", name: "Text only", provider: "custom", apiUrl: "https://text.example/v1", apiKey: "secret", model: "text-only", protocolType: "openai-compatible" }];
+    config.activeLLMId = "text"; state.config = config;
+    const { enqueuePanelImageJobs, runTaskImageQueue } = await import("@/lib/server/taskOrchestrator/imageRunner");
+    const { runPanelLightCheck } = await import("@/lib/server/taskOrchestrator/lightCheck");
+    vi.mocked(runPanelLightCheck).mockClear();
+    state.forwardImageGenerationRequestMock.mockResolvedValue({ data: [{ b64_json: "REMOTE" }] });
+    await enqueuePanelImageJobs("task-image-queue", { panelIndices: [0], imageConfigId: "img-remote-1" });
+    await runTaskImageQueue("task-image-queue", { llmConfig: { configId: "text", configRole: "llm" } });
+    expect(runPanelLightCheck).not.toHaveBeenCalled();
+    expect(state.getJobs("task-image-queue")[0].status).toBe("completed");
+  });
+
   it("hydrates an explicit light-check reference on the server", async () => {
     state.setTask(makeTask());
     const config = state.config!;
-    config.llmConfigs = [{ id: "text-check", name: "Check", provider: "custom", apiUrl: "https://check.example/v1", apiKey: "check-secret", model: "check-model", protocolType: "openai-compatible" }];
+    config.vlmConfigs = [{ id: "text-check", name: "Check", provider: "custom", apiUrl: "https://check.example/v1", apiKey: "check-secret", model: "check-model", protocolType: "openai-compatible" }];
     config.activeLLMId = null;
     state.config = config;
     const { enqueuePanelImageJobs, runTaskImageQueue } = await import("@/lib/server/taskOrchestrator/imageRunner");
@@ -993,7 +1008,7 @@ describe("image queue runner", () => {
     vi.mocked(runPanelLightCheck).mockClear();
     state.forwardImageGenerationRequestMock.mockResolvedValue({ data: [{ b64_json: "REMOTE" }] });
     await enqueuePanelImageJobs("task-image-queue", { panelIndices: [0], imageConfigId: "img-remote-1" });
-    await runTaskImageQueue("task-image-queue", { llmConfig: { configId: "text-check", configRole: "llm", apiUrl: "https://wrong.example/v1", model: "wrong", provider: "openai-compatible" } });
+    await runTaskImageQueue("task-image-queue", { llmConfig: { configId: "text-check", configRole: "vlm", apiUrl: "https://wrong.example/v1", model: "wrong", provider: "openai-compatible" } });
     expect(runPanelLightCheck).toHaveBeenCalledWith(expect.anything(), 0, expect.objectContaining({ apiKey: "check-secret", apiUrl: "https://check.example/v1", model: "check-model" }), expect.any(Function));
   });
 
@@ -1054,6 +1069,7 @@ describe('bounded image queue execution', () => {
   it('does not overwrite another panel or user edits when an old visual check completes', async () => {
     state.setTask(concurrentTask(2));
     const task=state.getTask('task-image-queue')!;task.presetSnapshot!.lightCheckMode='auto';state.setTask(task);
+    const config=state.config!;config.vlmConfigs=[{id:'vision',name:'Vision',provider:'custom',protocolType:'openai-compatible',apiUrl:'https://check.example/v1',model:'check',apiKey:''}];config.activeVLMId='vision';state.config=config;
     state.forwardImageGenerationRequestMock.mockResolvedValue(imageResult);
     const {runPanelLightCheck}=await import('@/lib/server/taskOrchestrator/lightCheck');
     vi.mocked(runPanelLightCheck).mockImplementationOnce(async(snapshot,index)=>{

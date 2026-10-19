@@ -12,6 +12,7 @@ import { getStoredConfigs, getStoredRequestConfigs } from "@/hooks/useAPIConfig"
 import { useUIMode } from "@/hooks/useUIMode";
 import { resolveResultBackHref } from "@/app/history/historyNavigation";
 import { ScriptingView, ScriptReadyView, GeneratingView, CompletedView, FailedView } from "./views";
+import { getResultDisplayStatus } from "@/app/result/viewMode";
 import { StickyActionBar } from "@/components/result/StickyActionBar";
 import "@/app/result/print.css";
 import { ChevronLeft, X } from "lucide-react";
@@ -84,7 +85,8 @@ export default function ResultPage() {
   }
 
   // ── Route to the right view ──
-  const status = task.status;
+  const status = getResultDisplayStatus(task);
+  const displayTask = status === task.status ? task : { ...task, status };
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 sm:space-y-8 pb-20 print-container">
@@ -117,10 +119,10 @@ export default function ResultPage() {
         <div className="p-4 rounded-xl border bg-warning/5 no-print">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm text-warning">
-              {status === "image_queue_paused" ? "离页后图片生成已暂停。" : "离页后深度评审已暂停。"}
+              {status === "image_queue_paused" ? ((task.queueSummary?.failed ?? 0) + (task.queueSummary?.attachFailed ?? 0) > 0 ? "部分图片生成失败，已有图片已保留。请重试未完成的画面。" : "图片队列已暂停，已有图片已保留。") : "离页后深度评审已暂停。"}
             </p>
             <button
-              onClick={handleResumePausedTask}
+              onClick={status === "image_queue_paused" ? actions.handleContinueRemaining : handleResumePausedTask}
               className="px-4 py-2 text-sm bg-warning text-white rounded-lg hover:bg-warning/90 transition-colors min-h-[40px] shrink-0"
             >
               {status === "image_queue_paused" ? "继续生成" : "继续评审"}
@@ -131,12 +133,12 @@ export default function ResultPage() {
 
       {/* 阶段视图路由 */}
       {status === "failed" ? (
-        <FailedView task={task} backHref={backHref} />
+        <FailedView task={displayTask} backHref={backHref} />
       ) : SCRIPTING_STATUSES.has(status) ? (
-        <ScriptingView task={task} />
+        <ScriptingView task={displayTask} />
       ) : status === "generating" || status === "calibrating" ? (
         <GeneratingView
-          task={task}
+          task={displayTask}
           taskId={taskId}
           isSimpleMode={isSimpleMode}
           onPanelUpdate={actions.handlePanelUpdate}
@@ -147,7 +149,7 @@ export default function ResultPage() {
         />
       ) : SCRIPT_READY_STATUSES.has(status) ? (
         <ScriptReadyView
-          task={task}
+          task={displayTask}
           taskId={taskId}
           setTask={setTask}
           isSimpleMode={isSimpleMode}
@@ -162,7 +164,7 @@ export default function ResultPage() {
         />
       ) : (
         <CompletedView
-          task={task}
+          task={displayTask}
           taskId={taskId}
           setTask={setTask}
           isSimpleMode={isSimpleMode}
@@ -179,7 +181,7 @@ export default function ResultPage() {
 
       {/* Sticky bottom action bar — always at top level for script_ready */}
       <StickyActionBar
-        task={task}
+        task={displayTask}
         onExportMarkdown={() => {}}
         onRegenerateScript={actions.handleRegenerateScript}
         onContinueRemaining={actions.handleContinueRemaining}

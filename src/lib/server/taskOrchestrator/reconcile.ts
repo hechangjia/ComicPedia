@@ -103,7 +103,7 @@ function buildImageQueueStatus(
   if (summary.failed > 0 || summary.attachFailed > 0 || summary.paused > 0) {
     return "image_queue_paused";
   }
-  if (task.script?.panels.every((panel) => panel.status === "completed")) {
+  if (task.script?.panels.every((panel) => panel.status === "completed" && !!panel.imageUrl)) {
     return "completed";
   }
   return "script_ready";
@@ -188,7 +188,7 @@ function buildTaskProgress(task: GenerateTask): number {
 
   const totalPanels = task.script.panels.length;
   const completedPanels = task.script.panels.filter(
-    (panel) => panel.status === "completed",
+    (panel) => panel.status === "completed" && !!panel.imageUrl,
   ).length;
   if (completedPanels === totalPanels) {
     return 100;

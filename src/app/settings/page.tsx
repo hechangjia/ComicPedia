@@ -514,7 +514,7 @@ export default function SettingsPage() {
           <div>
             <h2 className="font-medium">视觉评分模型 (VLM)</h2>
             <p className="text-xs text-muted-foreground">
-              用于评估生成图片质量的视觉语言模型。需要支持图片理解的模型（如 GPT-4o、Qwen-VL、Claude）。未配置时将使用 LLM 配置
+              可选配置，仅用于图片质量检查。需要支持图片理解的模型（如 GPT-4o、Qwen-VL、Claude）。未配置时跳过视觉检查，仅配置 LLM 和文生图模型即可完成漫画。
             </p>
           </div>
           {!vlmForm.showNew && !vlmForm.editingId && (

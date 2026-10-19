@@ -71,6 +71,12 @@ function renderWorkspace(overrides: Partial<React.ComponentProps<typeof ScriptRe
 }
 
 describe("ScriptReadyWorkspace", () => {
+  it("keeps simple mode focused on progress and queue controls", () => {
+    const html=renderWorkspace({taskStatus:"image_queue_running",compact:true});
+    expect(html).toContain("队列摘要");expect(html).toContain("暂停队列");
+    expect(html).not.toContain("Prompt 1");
+    expect(html).not.toContain('aria-label="生成选中"');
+  });
   it("renders the panel-first actions and disables generate selected until a panel is checked", () => {
     const html = renderWorkspace();
 
@@ -83,7 +89,7 @@ describe("ScriptReadyWorkspace", () => {
     expect(html).toMatch(/aria-label="生成选中"[^>]*disabled=""/);
   });
 
-  it("keeps enqueue actions disabled when the queue is paused", () => {
+  it("allows selected and remaining panels to be retried while paused", () => {
     const html = renderWorkspace({
       taskStatus: "image_queue_paused",
       selectedPanelIds: [1],
@@ -95,7 +101,7 @@ describe("ScriptReadyWorkspace", () => {
     });
 
     expect(html).toContain("队列已暂停");
-    expect(html).toMatch(/aria-label="生成选中"[^>]*disabled=""/);
+    expect(html).not.toMatch(/aria-label="生成选中"[^>]*disabled=""/);
   });
 
   it("does not expose script regeneration while the image queue is running", () => {
