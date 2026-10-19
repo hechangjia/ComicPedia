@@ -42,8 +42,7 @@ export async function downloadSingleImage(imageUrl: string, filename: string): P
 /** 合成漫画为单张图片（含说明文字） */
 export async function renderComicCanvas(panels: ComicPanel[], title: string, options: ExportOptions = defaultExportOptions("png")): Promise<HTMLCanvasElement> {
   const plan = buildExportPlan(panels, { ...options, format: "png" });
-  // Load first: actual dimensions determine the image and caption positions.
-  // A square placeholder would separate landscape artwork from its own text.
+  // Load first: source dimensions determine the same center crop used by ComicReader.
   await document.fonts?.ready;
   const images: HTMLImageElement[] = [];
   for (const entry of plan.entries) {
@@ -80,7 +79,10 @@ export async function renderComicCanvas(panels: ComicPanel[], title: string, opt
   drawText(layout.title, "center");
   layout.cells.forEach((cell, index) => {
     const image = cell.image;
-    ctx.drawImage(images[index], image.x, image.y, image.width, image.height);
+    ctx.drawImage(
+      images[index], image.sourceX, image.sourceY, image.sourceWidth, image.sourceHeight,
+      image.x, image.y, image.width, image.height,
+    );
     ctx.strokeStyle = "#dddddd";
     ctx.lineWidth = 1;
     ctx.strokeRect(cell.x, cell.y, cell.width, cell.height);

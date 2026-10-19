@@ -12,7 +12,7 @@ function setupCanvas(){
 }
 afterEach(()=>{vi.unstubAllGlobals();vi.clearAllMocks();canvases.length=0;state.renderSizes.length=0;});
 describe('publication exporter wiring',()=>{
-  it('places captions and numbering next to actual landscape artwork rather than a square placeholder',async()=>{
+  it('renders the same square center-crop as the reader, with captions below',async()=>{
     setupCanvas();state.load.mockResolvedValue({width:1536,height:1024});
     const options=defaultExportOptions('png');options.includeScene=false;options.png.scale=1;
     const {renderComicCanvas}=await import('@/lib/export/image');
@@ -20,9 +20,10 @@ describe('publication exporter wiring',()=>{
     const context=canvases.find(c=>c.ctx.drawImage.mock.calls.length)!.ctx;
     const image=context.drawImage.mock.calls[0];
     const caption=context.fillText.mock.calls.find((call:unknown[])=>call[0]==='CAPTION');
-    expect(caption[2]-(image[2]+image[4])).toBeLessThanOrEqual(20);
-    expect(context.arc.mock.calls[0][1]).toBeGreaterThan(image[2]);
-    expect(result.height).toBeLessThan(550);
+    expect(image).toEqual([expect.anything(),256,0,1024,1024,20,expect.any(Number),512,512]);
+    expect(caption[2]-(image[6]+image[8])).toBeLessThanOrEqual(20);
+    expect(context.arc.mock.calls[0][1]).toBeGreaterThan(image[6]);
+    expect(result.height).toBeGreaterThan(550);
   });
   it('passes paper, orientation, cover, DPI and selected panel capacity to PDF renderer',async()=>{
     setupCanvas();const options=defaultExportOptions('pdf');options.includeDialogue=false;options.includeScene=false;options.pdf={...options.pdf,paper:'letter',orientation:'landscape',dpi:150,panelsPerPage:1,cover:false};

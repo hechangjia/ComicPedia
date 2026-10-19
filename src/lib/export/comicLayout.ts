@@ -64,7 +64,16 @@ export function buildComicImageLayout(
     if (!Number.isFinite(panel.width) || !Number.isFinite(panel.height) || panel.width <= 0 || panel.height <= 0) {
       throw new Error(`第 ${panel.number} 格图片尺寸无效`);
     }
-    const image = { x: 0, y: 0, width: style.panelWidth, height: style.panelWidth * panel.height / panel.width };
+    // ComicReader displays every panel in an aspect-square object-cover frame.
+    // Crop from the center so PNG exports show the same composition without stretching.
+    const square = Math.min(panel.width, panel.height);
+    const image = {
+      x: 0, y: 0, width: style.panelWidth, height: style.panelWidth,
+      sourceX: (panel.width - square) / 2,
+      sourceY: (panel.height - square) / 2,
+      sourceWidth: square,
+      sourceHeight: square,
+    };
     const caption: ComicTextBlock[] = [];
     const dialogue = panel.dialogue.trim();
     const scene = panel.scene.trim();
@@ -81,14 +90,16 @@ export function buildComicImageLayout(
   });
   for (let start = 0; start < cells.length; start += columns) {
     const row = cells.slice(start, start + columns);
+    const rowHeight = Math.max(...row.map(cell => cell.height));
     row.forEach((cell, column) => {
+      cell.height = rowHeight;
       cell.x = style.margin + column * (style.panelWidth + style.gap);
       cell.y = rowY;
       cell.image.x = cell.x;
       cell.image.y = rowY;
       cell.caption.forEach(item => { item.x = cell.x + style.textPadding; item.y += rowY; });
     });
-    rowY += Math.max(...row.map(cell => cell.height)) + style.gap;
+    rowY += rowHeight + style.gap;
   }
   let footer: ComicTextBlock | undefined;
   if (attribution.trim()) {
