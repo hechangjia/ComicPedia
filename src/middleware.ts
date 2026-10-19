@@ -14,10 +14,10 @@ export function middleware(_request: NextRequest) {
     "Permissions-Policy",
     "geolocation=(), microphone=(), camera=()",
   );
-  // CSP：允许 self + inline styles (Tailwind) + data URI (base64 images) + 所有图片源（含 http 兜底）
+  // Blob images are generated locally by export previews; keep other directives unchanged.
   response.headers.set(
     "Content-Security-Policy",
-    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: http: https:; connect-src 'self' http: https:; font-src 'self';",
+    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http: https:; connect-src 'self' http: https:; font-src 'self';",
   );
 
   return response;
