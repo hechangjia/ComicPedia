@@ -17,7 +17,7 @@ import { AccuracySummary } from "@/components/result/AccuracySummary";
 import { DetailTabs } from "@/components/result/DetailTabs";
 import { ScriptEditor } from "@/components/editor/ScriptEditor";
 import { SectionErrorBoundary } from "@/components/ui/SectionErrorBoundary";
-import { getResultContentSurface, resolveResultViewMode, type ResultViewMode } from "@/app/result/viewMode";
+import { getDefaultResultViewMode, getResultContentSurface, resolveResultViewMode, type ResultViewMode } from "@/app/result/viewMode";
 import { AlertTriangle, RefreshCw, Settings, Sparkles } from "lucide-react";
 
 const DynamicPlayer = dynamic(() =>
@@ -62,7 +62,7 @@ export function ScriptReadyView({
   selectedLLMConfig,
   actions,
 }: ScriptReadyViewProps) {
-  const [viewMode, setViewMode] = useState<ResultViewMode>("edit");
+  const [viewMode, setViewMode] = useState<ResultViewMode>(() => getDefaultResultViewMode(task.status));
   const [selectedPanelIds, setSelectedPanelIds] = useState<number[]>([]);
 
   const resolvedViewMode = resolveResultViewMode(viewMode, task.status);
@@ -70,8 +70,8 @@ export function ScriptReadyView({
 
   const panels = useMemo(() => task.script?.panels ?? [], [task.script?.panels]);
   const totalPanels = panels.length;
-  const completedPanels = panels.filter(p => p.status === "completed").length;
-  const failedPanels = panels.filter(p => p.status === "failed" || p.status === "pending").length;
+  const completedPanels = panels.filter(p => p.status === "completed" && p.imageUrl).length;
+  const failedPanels = panels.filter(p => p.status !== "generating" && (p.status !== "completed" || !p.imageUrl)).length;
 
   const validSelectedPanelIds = useMemo(() =>
     selectedPanelIds.filter((id) => panels.some((p) => p.id === id)),
@@ -175,8 +175,9 @@ export function ScriptReadyView({
       )}
 
       {/* 队列工作区 */}
-      {!isSimpleMode && (
+      {(task.status !== "script_ready" || !isSimpleMode) && (
         <ScriptReadyWorkspace
+          compact={isSimpleMode}
           taskStatus={task.status}
           panels={task.script.panels}
           selectedPanelIds={validSelectedPanelIds}
@@ -223,7 +224,7 @@ export function ScriptReadyView({
       )}
 
       {/* 失败面板重试提示 */}
-      {failedPanels > 0 && completedPanels > 0 && (
+      {task.status === "script_ready" && failedPanels > 0 && completedPanels > 0 && (
         <div className="p-4 rounded-xl border bg-warning/5 no-print">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">

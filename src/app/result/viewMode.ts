@@ -10,7 +10,6 @@ const DEFAULT_READ_RESULT_STATUSES = new Set<GenerateTaskStatus>([
 ]);
 
 const LOCKED_READ_RESULT_STATUSES = new Set<GenerateTaskStatus>([
-  "image_queue_paused",
   "deep_review_paused",
 ]);
 
@@ -46,4 +45,15 @@ export function getResultContentSurface(
   }
 
   return "panel-grid";
+}
+
+/** Ignore a stale completed flag until every panel has a persisted image reference. */
+export function getResultDisplayStatus(task: {
+  status: GenerateTaskStatus;
+  script?: { panels: { status: string; imageUrl?: string }[] };
+}): GenerateTaskStatus {
+  if (task.status !== "completed") return task.status;
+  const panels = task.script?.panels ?? [];
+  return panels.length > 0 && panels.every(panel => panel.status === "completed" && panel.imageUrl)
+    ? "completed" : "script_ready";
 }

@@ -456,7 +456,7 @@ describe("useTaskActions queue helpers", () => {
       imageConfig: { model: "img-1-model", quality: "fine" },
       llmConfig: { model: "llm-1-model", temperature: 0.2 },
     });
-    expect(saveTaskMock).toHaveBeenCalledWith(returnedTask);
+    expect(saveTaskMock).not.toHaveBeenCalled();
     expect(notifyListenersMock).toHaveBeenCalledWith(returnedTask);
     expect(setTask).toHaveBeenCalledWith(returnedTask);
   });
@@ -476,18 +476,32 @@ describe("useTaskActions queue helpers", () => {
     });
   });
 
-  it("passes the selected imageConfigId through the legacy retry helper", async () => {
+  it("retries failed panels through the durable action without invoking browser generation", async () => {
+    fetchMock.mockResolvedValueOnce(makeActionResponse({ success: true, task: makeQueueTask() }));
     const { hook } = renderTaskActionsHook();
-
     await hook.handleRetryFailed();
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({ action: "generate_all_images", forceAll: false, imageConfigId: "img-1" });
+    expect(generateAllImagesMock).not.toHaveBeenCalled();
+  });
 
-    expect(generateAllImagesMock).toHaveBeenCalledWith(
-      "task-actions-queue",
-      { model: "img-1-model", quality: "fine" },
-      false,
-      { model: "llm-1-model", temperature: 0.2 },
-      "img-1",
-    );
+  it("pauses server work without writing browser cancellation state", async () => {
+    getTaskMock.mockResolvedValue(makeQueueTask());
+    fetchMock.mockResolvedValueOnce(makeActionResponse({ success: true, task: makeQueueTask("image_queue_paused") }));
+    const { hook } = renderTaskActionsHook();
+    await hook.handleCancel(0);
+    expect(cancelGenerationMock).not.toHaveBeenCalled();
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({action:"pause"});
+    expect(saveTaskMock).not.toHaveBeenCalled();
+  });
+
+  it("queues a single-panel retry instead of starting an independent browser request", async () => {
+    fetchMock.mockResolvedValueOnce(makeActionResponse({ success: true, task: makeQueueTask() }));
+    const { hook } = renderTaskActionsHook();
+    await hook.handleRegenerate(2, 42);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({ action: "queue_panel_images", panelIndices: [2], seedOverride: 42 });
+    expect(regeneratePanelMock).not.toHaveBeenCalled();
+    expect(saveTaskMock).not.toHaveBeenCalled();
   });
 
   it("passes the selected imageConfigId when changing style and regenerating", async () => {
@@ -526,7 +540,7 @@ describe("useTaskActions queue helpers", () => {
         provider: "openai-compatible",
       },
     });
-    expect(saveTaskMock).toHaveBeenCalledWith(returnedTask);
+    expect(saveTaskMock).not.toHaveBeenCalled();
     expect(notifyListenersMock).toHaveBeenCalledWith(returnedTask);
     expect(setTask).toHaveBeenCalledWith(returnedTask);
   });

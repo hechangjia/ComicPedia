@@ -13,8 +13,6 @@ import {
 } from "@/lib/types";
 import type { QualityScore } from "@/lib/qualityScore";
 import {
-  regeneratePanel,
-  generateAllImages,
   updatePanel,
   cancelGeneration,
   setActiveVersion,
@@ -29,6 +27,8 @@ import {
   regenerateScript,
   changeStyleAndRegenerate,
 } from "@/lib/client/generator";
+import { getTaskStateAuthority } from "@/lib/taskStateAuthority";
+import { waitForPanelImageJob } from "@/lib/client/taskImageQueue";
 import { getTask, saveTask } from "@/lib/client/db";
 import { notifyListeners } from "@/lib/client/eventBus";
 import { getStoredRequestConfigs } from "@/hooks/useAPIConfig";
@@ -45,6 +45,7 @@ interface TaskActionBody {
   action: string;
   panelIndices?: number[];
   forceAll?: boolean;
+  seedOverride?: number;
   imageConfigId?: string;
   imageConfig?: PartialImageGenConfig;
   llmConfig?: PartialLLMConfig;
@@ -203,7 +204,8 @@ export function useTaskActions(
   const syncTaskSnapshot = useCallback(
     async (nextTask: GenerateTask | undefined) => {
       if (!nextTask) return undefined;
-      await saveTask(nextTask);
+      // This snapshot is already persisted by the server. Never echo it back
+      // through saveTask: an active worker may have attached another image.
       notifyListeners(nextTask);
       setTask(nextTask);
       return nextTask;
@@ -394,29 +396,38 @@ export function useTaskActions(
     [taskId, setTask, showError, persistDiagnosisInvalidation],
   );
 
-  // 单个面板生成/重生成
+  // All image retries share the durable queue, including single-panel redraws.
   const handleRegenerate = useCallback(
-    (panelIndex: number, seedOverride?: number) => {
-      void (async () => {
-        try {
-          await persistDiagnosisInvalidation();
-          const imageConfig = getSelectedImageConfig();
-          await regeneratePanel(taskId, panelIndex, imageConfig, seedOverride);
-        } catch (err) {
-          console.error("Panel regeneration failed:", err);
-          showError(`第 ${panelIndex + 1} 格图片生成失败: ${err instanceof Error ? err.message : "未知错误"}`);
-        }
-      })();
+    async (panelIndex: number, seedOverride?: number) => {
+      try {
+        await postTaskAction({
+          action: "queue_panel_images",
+          panelIndices: [panelIndex],
+          seedOverride,
+          ...getSelectedQueueActionBody(),
+        });
+      } catch (err) {
+        showError(`第 ${panelIndex + 1} 格入队失败: ${err instanceof Error ? err.message : "未知错误"}`);
+      }
     },
-    [taskId, showError, getSelectedImageConfig, persistDiagnosisInvalidation],
+    [postTaskAction, getSelectedQueueActionBody, showError],
   );
 
-  // 取消面板生成
+  // Legacy local work can be aborted; durable work is paused by its owner.
   const handleCancel = useCallback(
-    (panelIndex: number) => {
-      cancelGeneration(taskId, panelIndex);
+    async (panelIndex: number) => {
+      try {
+        const current = await getTask(taskId);
+        if (current && getTaskStateAuthority(current.status) !== "client_local") {
+          await postTaskAction({ action: "pause" });
+        } else {
+          cancelGeneration(taskId, panelIndex);
+        }
+      } catch (error) {
+        showError(`暂停失败: ${error instanceof Error ? error.message : "未知错误"}`);
+      }
     },
-    [taskId],
+    [taskId, postTaskAction, showError],
   );
 
   // 切换面板图片版本
@@ -451,17 +462,18 @@ export function useTaskActions(
   const handleRetryFailed = useCallback(async () => {
     setGeneratingAll(true);
     try {
-      const imageConfig = getSelectedImageConfig();
-      const llmConfig = getSelectedLLMConfig();
-      // forceAll=false 只会生成 status !== "completed" 的面板
-      await generateAllImages(taskId, imageConfig, false, llmConfig, selectedImageId || undefined);
+      await postTaskAction({
+        action: "generate_all_images",
+        forceAll: false,
+        ...getSelectedQueueActionBody(),
+      });
     } catch (err) {
       console.error("Retry failed panels failed:", err);
       showError(`重试失败: ${err instanceof Error ? err.message : "未知错误"}`);
     } finally {
       setGeneratingAll(false);
     }
-  }, [taskId, showError, getSelectedImageConfig, getSelectedLLMConfig, selectedImageId]);
+  }, [postTaskAction, getSelectedQueueActionBody, showError]);
 
   const handleQueuePanel = useCallback(async (panelIndex: number) => {
     setGeneratingAll(true);
@@ -683,7 +695,8 @@ export function useTaskActions(
         for (const idx of panelIndices) {
           const patch = patches?.get(idx);
           const imageConfig = mergeNegativeTermsIntoImageConfig(baseImageConfig, patch?.negative);
-          await regeneratePanel(taskId, idx, imageConfig);
+          await postTaskAction({ action: "queue_panel_images", panelIndices: [idx], ...getSelectedQueueActionBody(), imageConfig });
+          await waitForPanelImageJob(taskId, idx);
         }
       } catch (err) {
         console.error("VLM retry failed:", err);
@@ -692,7 +705,7 @@ export function useTaskActions(
         setGeneratingAll(false);
       }
     },
-    [taskId, showError, getSelectedImageConfig, persistDiagnosisInvalidation],
+    [taskId, showError, getSelectedImageConfig, persistDiagnosisInvalidation, postTaskAction, getSelectedQueueActionBody],
   );
 
   const handleRunDiagnosisRepair = useCallback(
@@ -710,7 +723,8 @@ export function useTaskActions(
         const baseImageConfig = getSelectedImageConfig();
         for (const idx of panelIndices) {
           const imageConfig = mergeNegativeTermsIntoImageConfig(baseImageConfig, negativeTermsByPanel?.get(idx));
-          await regeneratePanel(taskId, idx, imageConfig);
+          await postTaskAction({ action: "queue_panel_images", panelIndices: [idx], ...getSelectedQueueActionBody(), imageConfig });
+          await waitForPanelImageJob(taskId, idx);
         }
 
         const refreshedTask = await getTask(taskId);
@@ -729,7 +743,7 @@ export function useTaskActions(
         setGeneratingAll(false);
       }
     },
-    [taskId, getSelectedImageConfig, setTask, showError],
+    [taskId, getSelectedImageConfig, setTask, showError, postTaskAction, getSelectedQueueActionBody],
   );
 
   return {

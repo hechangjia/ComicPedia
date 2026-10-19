@@ -56,9 +56,9 @@ export function buildCreationPreflight(input: CreationPreflightInput): CreationP
   }
   if (panelCount !== null && (!Number.isSafeInteger(panelCount) || panelCount < 1 || panelCount > input.maxPanelCount)) errors.push(`分镜数量必须是 1–${input.maxPanelCount} 的整数，或选择自动。`);
   if (preset.imageConcurrency !== undefined && (!Number.isInteger(preset.imageConcurrency) || preset.imageConcurrency < 1 || preset.imageConcurrency > 4)) errors.push("图片并发设置必须为 1–4 的整数。");
-  const lightCheckEnabled = preset.lightCheckMode !== "off";
-  if (lightCheckEnabled && !vision && llm) warnings.push("未单独配置 VLM，将尝试使用分镜模型看图；需在设置中验证其视觉能力。");
+  const lightCheckEnabled = preset.lightCheckMode !== "off" && !!vision;
+  if (preset.lightCheckMode !== "off" && !vision) warnings.push("未配置 VLM，将跳过可选的视觉检查；不影响漫画生成和导出。");
   warnings.push("模型选择和字段完整不代表能力已验证；实际调用可能产生服务费用。");
-  return { canSubmit: errors.length === 0, errors, warnings, roles: { llm: summary(llm), image: summary(image), review: lightCheckEnabled ? summary(vision ?? llm) : undefined },
+  return { canSubmit: errors.length === 0, errors, warnings, roles: { llm: summary(llm), image: summary(image), review: lightCheckEnabled ? summary(vision) : undefined },
     panelCount, pauseAfterScript, lightCheckEnabled, submitLabel: pauseAfterScript ? "生成分镜，先审核" : "生成分镜并自动出图" };
 }

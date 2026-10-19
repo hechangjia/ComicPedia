@@ -6,6 +6,13 @@ const model = { id: "text", name: "Script", provider: "custom" as const, apiUrl:
 const config = () => ({ ...createEmptyUserConfig(), llmConfigs: [model], activeLLMId: "text" });
 const input = () => ({ config: config(), syncStatus: "saved" as const, panelCount: null, customPanelCount: "", maxPanelCount: 30, preset: buildGenerationSnapshot("balanced-auto") });
 describe("creation preflight", () => {
+  it("does not assign text-only LLMs to optional visual review", () => {
+    const result = buildCreationPreflight(input());
+    expect(result.canSubmit).toBe(true);
+    expect(result.lightCheckEnabled).toBe(false);
+    expect(result.roles.review).toBeUndefined();
+    expect(result.warnings.join()).toContain("跳过");
+  });
   it("allows script-first without an image model and returns credential-free role summaries", () => {
     const result = buildCreationPreflight(input());
     expect(result.canSubmit).toBe(true); expect(result.submitLabel).toBe("生成分镜，先审核");

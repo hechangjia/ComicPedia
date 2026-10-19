@@ -16,6 +16,7 @@ interface TaskActionRequestBody {
   action?: string;
   panelIndices?: number[];
   forceAll?: boolean;
+  seedOverride?: number;
   imageConfigId?: string;
   imageConfig?: PartialImageGenConfig;
   llmConfig?: PartialLLMConfig;
@@ -30,7 +31,7 @@ function getQueueablePanelIndices(taskId: string, forceAll: boolean): number[] {
 
   return task.script.panels
     .map((panel, panelIndex) => ({ panel, panelIndex }))
-    .filter(({ panel }) => forceAll || panel.status !== "completed")
+    .filter(({ panel }) => panel.status !== "generating" && (forceAll || panel.status !== "completed" || !panel.imageUrl))
     .map(({ panelIndex }) => panelIndex);
 }
 
@@ -158,6 +159,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       imageConfigId: body.imageConfigId,
       imageConfig: body.imageConfig,
       llmConfig: body.llmConfig,
+      seedOverride: typeof body.seedOverride === "number" && Number.isSafeInteger(body.seedOverride) ? body.seedOverride : undefined,
     });
 
     if (result.enqueuedPanelIndices.length > 0) {

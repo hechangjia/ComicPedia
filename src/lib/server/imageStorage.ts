@@ -16,10 +16,15 @@ const OUTPUT_BASE = path.join(process.cwd(), "public", "output");
 
 /** 从 base64 data URI 提取 MIME 类型和扩展名 */
 function parseDataUri(dataUri: string): { ext: string; buffer: Buffer } | null {
-  const match = dataUri.match(/^data:image\/([\w+]+);base64,(.+)$/);
+  // Match only the short MIME header: matching multi-MB payloads can exhaust
+  // V8's regexp stack in the dev runtime after an otherwise successful request.
+  const comma = dataUri.indexOf(",");
+  if (comma < 0 || comma > 128) return null;
+  const match = dataUri.slice(0, comma).match(/^data:image\/([\w+.-]+);base64$/);
   if (!match) return null;
   const ext = match[1] === "jpeg" ? "jpg" : match[1];
-  const buffer = Buffer.from(match[2], "base64");
+  const buffer = Buffer.from(dataUri.slice(comma + 1), "base64");
+  if (!buffer.length) return null;
   return { ext, buffer };
 }
 
